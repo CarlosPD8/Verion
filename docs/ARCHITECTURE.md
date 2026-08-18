@@ -221,32 +221,34 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
 ## 7. Project Structure (Python / FastAPI)
 
 ```
-verion/
-├── modules/
-│   ├── identity/
-│   │   ├── domain/            # entities, value objects, domain services
-│   │   ├── application/       # use cases (implement inbound ports)
-│   │   ├── ports/              # inbound + outbound port interfaces
-│   │   └── adapters/
-│   │       ├── inbound/api/    # FastAPI routers
-│   │       └── outbound/db/    # SQLAlchemy repository impls
-│   ├── projects/
-│   │   └── ... (same shape)
-│   ├── scanning/
-│   │   └── adapters/outbound/scanners/
-│   │       ├── semgrep_adapter.py
-│   │       ├── trivy_adapter.py
-│   │       └── zap_adapter.py
-│   ├── normalization/
-│   ├── correlation/
-│   ├── risk_engine/
-│   ├── brief/
-│   │   └── adapters/outbound/explanation/
-│   │       └── llm_adapter.py
-│   └── history/
-├── shared_kernel/               # cross-module value objects (e.g. Severity, CWE)
-├── platform/                    # framework wiring: FastAPI app, DI container,
-│                                 # DB session mgmt, Redis client, settings
+(repo root)
+├── src/
+│   └── verion/
+│       ├── modules/
+│       │   ├── identity/
+│       │   │   ├── domain/            # entities, value objects, domain services
+│       │   │   ├── application/       # use cases (implement inbound ports)
+│       │   │   ├── ports/              # inbound + outbound port interfaces
+│       │   │   └── adapters/
+│       │   │       ├── inbound/api/    # FastAPI routers
+│       │   │       └── outbound/db/    # SQLAlchemy repository impls
+│       │   ├── projects/
+│       │   │   └── ... (same shape)
+│       │   ├── scanning/
+│       │   │   └── adapters/outbound/scanners/
+│       │   │       ├── semgrep_adapter.py
+│       │   │       ├── trivy_adapter.py
+│       │   │       └── zap_adapter.py
+│       │   ├── normalization/
+│       │   ├── correlation/
+│       │   ├── risk_engine/
+│       │   ├── brief/
+│       │   │   └── adapters/outbound/explanation/
+│       │   │       └── llm_adapter.py
+│       │   └── history/
+│       ├── shared_kernel/               # cross-module value objects (e.g. Severity, CWE)
+│       └── platform/                    # framework wiring: FastAPI app, DI container,
+│                                         # DB session mgmt, Redis client, settings
 ├── tests/
 │   ├── unit/                    # per-module, domain+application, port fakes only
 │   ├── integration/             # real Postgres/Redis, real adapters
@@ -259,6 +261,8 @@ verion/
     ├── docker-compose.yml
     └── github-actions/
 ```
+
+Code lives under a `src/verion/` layout rather than flat at the repo root. This is a deliberate deviation from a naive reading of this section: `platform/` is also the name of a Python **standard library module**, and a flat, importable top-level `platform/` package would shadow it the moment the repo root lands on `sys.path` (e.g. running pytest or uvicorn from the repo root) — breaking any third-party library that does `import platform` internally (uvicorn and FastAPI both do). Wrapping everything under `src/verion/` means the real import path is `verion.platform`, never bare `platform`, which avoids the collision entirely without renaming the module itself. Established as of M0.1.
 
 Each module's `domain/` folder has **zero imports** from `adapters/` or any third-party framework — this is enforced with an import-linter rule in CI (see Section 10).
 

@@ -80,7 +80,21 @@ Building in 16 weeks across 12 milestones — see [`docs/ROADMAP.md`](docs/ROADM
 
 ## Getting started
 
-Setup instructions will be added once M0 (repository scaffolding) is complete.
+M0 is in progress — this covers the repository/tooling scaffolding (M0.1). The app itself isn't runnable yet (that lands in M0.3).
+
+```bash
+# install uv (https://docs.astral.sh/uv/) if you don't have it
+pip install uv
+
+# install dependencies + create the local virtualenv
+uv sync
+
+# enable pre-commit hooks (ruff lint + format on every commit)
+uv run pre-commit install
+
+# start local Postgres + Redis
+docker compose -f infra/docker-compose.yml up -d
+```
 
 ## License
 
