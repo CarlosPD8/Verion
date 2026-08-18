@@ -84,4 +84,4 @@ Setup instructions will be added once M0 (repository scaffolding) is complete.
 
 ## License
 
-TBD.
+MIT.
