@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from verion.modules.identity.domain.user import User
+from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
 
 
 class InMemoryUserRepository:
@@ -48,6 +49,41 @@ class FakeIdGenerator:
         return f"fake-id-{self._counter}"
 
 
+class InMemoryProjectRepository:
+    def __init__(self) -> None:
+        self._projects: dict[str, Project] = {}
+
+    async def add(self, project: Project) -> None:
+        self._projects[project.id] = project
+
+    async def get_by_id(self, project_id: str) -> Project | None:
+        return self._projects.get(project_id)
+
+
+class InMemoryProjectMembershipRepository:
+    def __init__(self) -> None:
+        self._memberships: dict[tuple[str, str], ProjectMembership] = {}
+
+    async def add(self, membership: ProjectMembership) -> None:
+        self._memberships[(membership.project_id, membership.user_id)] = membership
+
+    async def get_by_project_and_user(
+        self, project_id: str, user_id: str
+    ) -> ProjectMembership | None:
+        return self._memberships.get((project_id, user_id))
+
+
+class InMemoryConnectedRepoRepository:
+    def __init__(self) -> None:
+        self._connected_repos: dict[str, ConnectedRepo] = {}
+
+    async def add(self, connected_repo: ConnectedRepo) -> None:
+        self._connected_repos[connected_repo.id] = connected_repo
+
+    async def get_by_id(self, connected_repo_id: str) -> ConnectedRepo | None:
+        return self._connected_repos.get(connected_repo_id)
+
+
 @pytest.fixture
 def user_repository() -> InMemoryUserRepository:
     return InMemoryUserRepository()
@@ -66,3 +102,18 @@ def clock() -> FakeClock:
 @pytest.fixture
 def id_generator() -> FakeIdGenerator:
     return FakeIdGenerator()
+
+
+@pytest.fixture
+def project_repository() -> InMemoryProjectRepository:
+    return InMemoryProjectRepository()
+
+
+@pytest.fixture
+def membership_repository() -> InMemoryProjectMembershipRepository:
+    return InMemoryProjectMembershipRepository()
+
+
+@pytest.fixture
+def connected_repo_repository() -> InMemoryConnectedRepoRepository:
+    return InMemoryConnectedRepoRepository()

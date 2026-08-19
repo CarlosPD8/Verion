@@ -102,15 +102,15 @@ User
  └── (authentication only — no role here; see ProjectMembership below)
 
 Project
- ├── id, owner_id, name
- ├── repositories: [Repository]
+ ├── id, owner_id, name, created_at
+ ├── connected_repos: [ConnectedRepo]
  └── security_context: SecurityContext
 
 ProjectMembership   # M1.3
- ├── id, project_id, user_id
+ ├── project_id, user_id   # composite natural key, no separate id
  └── role (owner|member)   # per PRODUCT_SPEC.md FR-1: RBAC is project-scoped, not identity-scoped
 
-Repository
+ConnectedRepo   # named to avoid colliding with the *RepositoryPort persistence-pattern suffix (M1.3)
  ├── id, project_id, provider (github), url, default_branch
 
 SecurityContext
@@ -157,7 +157,8 @@ SecurityBrief
 ```mermaid
 erDiagram
     USER ||--o{ PROJECT : owns
-    PROJECT ||--o{ REPOSITORY : has
+    PROJECT ||--o{ CONNECTED_REPO : has
+    PROJECT ||--o{ PROJECT_MEMBERSHIP : has
     PROJECT ||--|| SECURITY_CONTEXT : has
     PROJECT ||--o{ SCAN : triggers
     SCAN ||--o{ FINDING : produces
@@ -192,6 +193,8 @@ erDiagram
 |---|---|---|
 | `UserRepositoryPort` | Persist/query users | Postgres adapter |
 | `ProjectRepositoryPort` | Persist/query projects, context | Postgres adapter |
+| `ProjectMembershipRepositoryPort` | Persist/query project RBAC memberships | Postgres adapter |
+| `ConnectedRepoRepositoryPort` | Persist/query connected repositories | Postgres adapter |
 | `FindingRepositoryPort` | Persist/query findings, dedup lookups | Postgres adapter |
 | `RiskRepositoryPort` | Persist/query risks, history | Postgres adapter |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
