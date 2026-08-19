@@ -4,3 +4,7 @@ class ProjectNotFound(Exception):
 
 class InsufficientPermissions(Exception):
     pass
+
+
+class GitHubApiError(Exception):
+    pass

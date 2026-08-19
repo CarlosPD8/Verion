@@ -4,6 +4,7 @@ import pytest
 
 from verion.modules.identity.domain.user import User
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
+from verion.modules.projects.ports.vcs_provider import RepoMetadata
 
 
 class InMemoryUserRepository:
@@ -84,6 +85,17 @@ class InMemoryConnectedRepoRepository:
         return self._connected_repos.get(connected_repo_id)
 
 
+class FakeVcsProvider:
+    """Returns fixed metadata — proves the use-case flow, no real GitHub call."""
+
+    def __init__(self, default_branch: str = "main", description: str = "") -> None:
+        self._default_branch = default_branch
+        self._description = description
+
+    async def fetch_repo_metadata(self, access_token: str, owner: str, repo: str) -> RepoMetadata:
+        return RepoMetadata(default_branch=self._default_branch, description=self._description)
+
+
 @pytest.fixture
 def user_repository() -> InMemoryUserRepository:
     return InMemoryUserRepository()
@@ -117,3 +129,8 @@ def membership_repository() -> InMemoryProjectMembershipRepository:
 @pytest.fixture
 def connected_repo_repository() -> InMemoryConnectedRepoRepository:
     return InMemoryConnectedRepoRepository()
+
+
+@pytest.fixture
+def vcs_provider() -> FakeVcsProvider:
+    return FakeVcsProvider()

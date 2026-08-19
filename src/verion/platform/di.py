@@ -29,13 +29,18 @@ from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresProjectMembershipRepository,
     PostgresProjectRepository,
 )
+from verion.modules.projects.adapters.outbound.vcs.github_adapter import GitHubAdapter
 from verion.modules.projects.application.connect_repository import ConnectRepositoryUseCase
+from verion.modules.projects.application.connect_repository_via_github import (
+    ConnectRepositoryViaGitHubUseCase,
+)
 from verion.modules.projects.application.create_project import CreateProjectUseCase
 from verion.modules.projects.ports.connected_repo_repository import ConnectedRepoRepositoryPort
 from verion.modules.projects.ports.project_membership_repository import (
     ProjectMembershipRepositoryPort,
 )
 from verion.modules.projects.ports.project_repository import ProjectRepositoryPort
+from verion.modules.projects.ports.vcs_provider import VcsProviderPort
 from verion.platform.clock import SystemClock
 from verion.platform.db import get_db_session
 from verion.platform.id_generator import UuidIdGenerator
@@ -196,6 +201,20 @@ GitHubConnectionRepositoryDep = Annotated[
 ]
 
 
+async def get_current_github_access_token(
+    user_id: CurrentUserIdDep, connections: GitHubConnectionRepositoryDep
+) -> str:
+    connection = await connections.get_by_user_id(user_id)
+    if connection is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="No GitHub account connected"
+        )
+    return connection.access_token
+
+
+CurrentGitHubAccessTokenDep = Annotated[str, Depends(get_current_github_access_token)]
+
+
 def get_oauth_state_signer(settings: SettingsDep, clock: ClockDep) -> OAuthStateSignerPort:
     return GitHubOAuthStateSigner(
         secret_key=settings.jwt_secret_key,
@@ -217,3 +236,32 @@ def get_github_oauth_client(settings: SettingsDep) -> GitHubOAuthClientPort:
 
 
 GitHubOAuthClientDep = Annotated[GitHubOAuthClientPort, Depends(get_github_oauth_client)]
+
+
+@lru_cache
+def get_vcs_provider() -> VcsProviderPort:
+    return GitHubAdapter()
+
+
+VcsProviderDep = Annotated[VcsProviderPort, Depends(get_vcs_provider)]
+
+
+def get_connect_repository_via_github_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    connected_repos: ConnectedRepoRepositoryDep,
+    vcs_provider: VcsProviderDep,
+    id_generator: IdGeneratorDep,
+) -> ConnectRepositoryViaGitHubUseCase:
+    return ConnectRepositoryViaGitHubUseCase(
+        projects=projects,
+        memberships=memberships,
+        connected_repos=connected_repos,
+        vcs_provider=vcs_provider,
+        id_generator=id_generator,
+    )
+
+
+ConnectRepositoryViaGitHubUseCaseDep = Annotated[
+    ConnectRepositoryViaGitHubUseCase, Depends(get_connect_repository_via_github_use_case)
+]

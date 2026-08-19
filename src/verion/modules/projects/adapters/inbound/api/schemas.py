@@ -13,6 +13,11 @@ class ConnectRepositoryRequest(BaseModel):
     default_branch: str
 
 
+class ConnectRepositoryViaGitHubRequest(BaseModel):
+    owner: str
+    repo: str
+
+
 class ProjectResponse(BaseModel):
     """Dedicated response schema, never the domain Project directly (rule 10)."""
 
