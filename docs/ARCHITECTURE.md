@@ -98,12 +98,17 @@ Each module exposes its own inbound ports (use cases other modules or the API la
 
 ```
 User
- ├── id, email, hashed_password, role
+ ├── id, email, hashed_password, created_at
+ └── (authentication only — no role here; see ProjectMembership below)
 
 Project
  ├── id, owner_id, name
  ├── repositories: [Repository]
  └── security_context: SecurityContext
+
+ProjectMembership   # M1.3
+ ├── id, project_id, user_id
+ └── role (owner|member)   # per PRODUCT_SPEC.md FR-1: RBAC is project-scoped, not identity-scoped
 
 Repository
  ├── id, project_id, provider (github), url, default_branch

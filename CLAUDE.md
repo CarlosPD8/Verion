@@ -56,6 +56,20 @@ No issue is complete without:
 
 ---
 
+## Third-party skills
+
+The `fastapi-python` marketplace skill (`mindrally/skills`, installed via the `skills.sh` CLI — `npx skills add mindrally/skills@fastapi-python`) may be active in this project. Its guidance applies ONLY within `src/verion/modules/*/adapters/inbound/api/` (routing style, Pydantic conventions, HTTP error handling, naming).
+
+It does NOT override this file's architectural rules. In particular:
+
+- Its "Dependencies: FastAPI, Pydantic v2, asyncpg/aiomysql, SQLAlchemy 2.0" guidance must never result in `domain/` or `application/` importing SQLAlchemy directly — persistence stays behind `*RepositoryPort`, implemented only in `adapters/outbound/db/`, per ADR-002 and the import-linter contracts in ADR-007.
+- Its dependency-injection suggestions must not lead to ad-hoc, inline `Depends()` wiring scattered across endpoints — all wiring goes through named factory functions in `platform/di.py`, per ADR-008.
+- Its "favor functional, declarative programming over class-based approaches" preference applies to routes/utilities, not to `domain/` entities or value objects, which may be modelled as classes, dataclasses, or Protocols where that's the clearer design.
+
+If a suggestion from that skill conflicts with any rule elsewhere in this file, this file wins.
+
+---
+
 ## Tech stack quick reference
 
 | Layer | Choice |
