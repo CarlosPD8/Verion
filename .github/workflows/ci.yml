@@ -9,6 +9,22 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: verion
+          POSTGRES_PASSWORD: verion
+          POSTGRES_DB: verion
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U verion"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://verion:verion@localhost:5432/verion
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +46,9 @@ jobs:
 
       - name: Architecture boundaries (import-linter)
         run: uv run lint-imports
+
+      - name: Apply database migrations
+        run: uv run alembic upgrade head
 
       - name: Unit tests (pytest)
         run: uv run pytest
