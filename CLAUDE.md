@@ -4,6 +4,19 @@ This file is read automatically by Claude Code at the start of every session. It
 
 ---
 
+## Compact Instructions
+
+When this conversation is compacted (auto-summarized as it approaches the context limit), always preserve:
+
+- Which roadmap issue (M#.#) is currently in progress and its exact scope, including anything explicitly marked out-of-scope.
+- Any architectural decision made this session not yet written as an ADR or a CLAUDE.md rule.
+- The full list of files created/modified/staged this session.
+- Verification/test commands run and their pass/fail results.
+- Any dependency added, rejected, or flagged for ADR-009 verification this session, with the outcome.
+- Any open question or pending decision the user hasn't resolved yet — don't let compaction silently drop something awaiting an answer.
+
+---
+
 ## What this project is
 
 **Verion** — a developer-oriented AppSec platform that converts security findings from existing scanners (Semgrep, Trivy, OWASP ZAP) into correlated, explainable, prioritized remediation decisions.
