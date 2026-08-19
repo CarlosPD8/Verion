@@ -1,8 +1,6 @@
 import pytest_asyncio
-from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from verion.modules.identity.adapters.outbound.db.models import UserModel
 from verion.platform.db import Base
 from verion.platform.settings import get_settings
 
@@ -17,10 +15,15 @@ async def engine() -> AsyncEngine:
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _clean_users_table(engine: AsyncEngine):
+async def _clean_all_tables(engine: AsyncEngine):
     yield
+    # Generic over every table registered on Base.metadata (not one model
+    # import per table) — route tests commit real rows (platform/db.py's
+    # get_db_session commits on success), so any table can accumulate
+    # cross-test state; reversed(sorted_tables) respects FK dependency order.
     async with engine.begin() as conn:
-        await conn.execute(delete(UserModel))
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
 
 
 @pytest_asyncio.fixture

@@ -101,6 +101,12 @@ User
  ├── id, email, hashed_password, created_at
  └── (authentication only — no role here; see ProjectMembership below)
 
+GitHubConnection   # M1.5a
+ ├── user_id   # natural key, no separate id — one connection per user (MVP)
+ ├── access_token   # plaintext; encryption at rest deferred to M10, see GitHubConnectionModel
+ ├── github_username
+ └── connected_at
+
 Project
  ├── id, owner_id, name, created_at
  ├── connected_repos: [ConnectedRepo]
@@ -157,6 +163,7 @@ SecurityBrief
 ```mermaid
 erDiagram
     USER ||--o{ PROJECT : owns
+    USER ||--o| GITHUB_CONNECTION : connects
     PROJECT ||--o{ CONNECTED_REPO : has
     PROJECT ||--o{ PROJECT_MEMBERSHIP : has
     PROJECT ||--|| SECURITY_CONTEXT : has
@@ -192,6 +199,9 @@ erDiagram
 | Port | Purpose | Implemented by |
 |---|---|---|
 | `UserRepositoryPort` | Persist/query users | Postgres adapter |
+| `GitHubConnectionRepositoryPort` | Persist/query a user's linked GitHub account | Postgres adapter |
+| `GitHubOAuthClientPort` | Build the GitHub authorize URL, exchange an OAuth code for a token + username | `GitHubOAuthClient` |
+| `OAuthStateSignerPort` | Sign/verify the OAuth CSRF `state` param | `GitHubOAuthStateSigner` |
 | `ProjectRepositoryPort` | Persist/query projects, context | Postgres adapter |
 | `ProjectMembershipRepositoryPort` | Persist/query project RBAC memberships | Postgres adapter |
 | `ConnectedRepoRepositoryPort` | Persist/query connected repositories | Postgres adapter |

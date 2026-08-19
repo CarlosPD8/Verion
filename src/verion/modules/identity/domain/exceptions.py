@@ -12,3 +12,11 @@ class InvalidCredentials(Exception):
 
 class InvalidAccessToken(Exception):
     pass
+
+
+class InvalidOAuthState(Exception):
+    pass
+
+
+class GitHubApiError(Exception):
+    pass

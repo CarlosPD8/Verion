@@ -4,18 +4,29 @@ from pydantic import ValidationError
 from verion.platform.settings import Settings
 
 
-def test_dev_secret_is_fine_for_local():
+def test_dev_secrets_are_fine_for_local():
     settings = Settings(app_env="local")
 
     assert settings.jwt_secret_key == "dev-secret-change-in-production-32b"
+    assert settings.github_client_secret == "dev-github-client-secret-placeholder"
 
 
-def test_dev_secret_is_rejected_outside_local():
+def test_dev_jwt_secret_is_rejected_outside_local():
     with pytest.raises(ValidationError, match="dev-only default"):
-        Settings(app_env="production")
+        Settings(app_env="production", github_client_secret="a-real-github-client-secret-value")
 
 
-def test_a_real_secret_is_accepted_outside_local():
-    settings = Settings(app_env="production", jwt_secret_key="a-real-production-secret-value")
+def test_dev_github_client_secret_is_rejected_outside_local():
+    with pytest.raises(ValidationError, match="dev-only default"):
+        Settings(app_env="production", jwt_secret_key="a-real-production-secret-value")
+
+
+def test_real_secrets_are_accepted_outside_local():
+    settings = Settings(
+        app_env="production",
+        jwt_secret_key="a-real-production-secret-value",
+        github_client_secret="a-real-github-client-secret-value",
+    )
 
     assert settings.jwt_secret_key == "a-real-production-secret-value"
+    assert settings.github_client_secret == "a-real-github-client-secret-value"

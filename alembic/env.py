@@ -6,7 +6,10 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from verion.modules.identity.adapters.outbound.db.models import UserModel  # noqa: F401
+from verion.modules.identity.adapters.outbound.db.models import (  # noqa: F401
+    GitHubConnectionModel,
+    UserModel,
+)
 from verion.modules.projects.adapters.outbound.db.models import (  # noqa: F401
     ConnectedRepoModel,
     ProjectMembershipModel,

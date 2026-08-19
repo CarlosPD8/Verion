@@ -5,13 +5,23 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from verion.modules.identity.adapters.outbound.db.repository import PostgresUserRepository
+from verion.modules.identity.adapters.outbound.db.repository import (
+    PostgresGitHubConnectionRepository,
+    PostgresUserRepository,
+)
+from verion.modules.identity.adapters.outbound.oauth.github_oauth_client import GitHubOAuthClient
+from verion.modules.identity.adapters.outbound.oauth.state_signer import GitHubOAuthStateSigner
 from verion.modules.identity.adapters.outbound.security.argon2_hasher import Argon2PasswordHasher
 from verion.modules.identity.adapters.outbound.security.jwt_issuer import JwtAccessTokenIssuer
 from verion.modules.identity.application.authenticate_user import AuthenticateUserUseCase
 from verion.modules.identity.application.register_user import RegisterUserUseCase
 from verion.modules.identity.domain.exceptions import InvalidAccessToken
 from verion.modules.identity.ports.access_token_issuer import AccessTokenIssuer
+from verion.modules.identity.ports.github_connection_repository import (
+    GitHubConnectionRepositoryPort,
+)
+from verion.modules.identity.ports.github_oauth_client import GitHubOAuthClientPort
+from verion.modules.identity.ports.oauth_state_signer import OAuthStateSignerPort
 from verion.modules.identity.ports.password_hasher import PasswordHasherPort
 from verion.modules.identity.ports.user_repository import UserRepositoryPort
 from verion.modules.projects.adapters.outbound.db.repository import (
@@ -175,3 +185,35 @@ def get_connect_repository_use_case(
 ConnectRepositoryUseCaseDep = Annotated[
     ConnectRepositoryUseCase, Depends(get_connect_repository_use_case)
 ]
+
+
+def get_github_connection_repository(session: DbSessionDep) -> GitHubConnectionRepositoryPort:
+    return PostgresGitHubConnectionRepository(session)
+
+
+GitHubConnectionRepositoryDep = Annotated[
+    GitHubConnectionRepositoryPort, Depends(get_github_connection_repository)
+]
+
+
+def get_oauth_state_signer(settings: SettingsDep, clock: ClockDep) -> OAuthStateSignerPort:
+    return GitHubOAuthStateSigner(
+        secret_key=settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+        expires_minutes=10,
+        clock=clock,
+    )
+
+
+OAuthStateSignerDep = Annotated[OAuthStateSignerPort, Depends(get_oauth_state_signer)]
+
+
+def get_github_oauth_client(settings: SettingsDep) -> GitHubOAuthClientPort:
+    return GitHubOAuthClient(
+        client_id=settings.github_client_id,
+        client_secret=settings.github_client_secret,
+        redirect_uri=settings.github_oauth_redirect_uri,
+    )
+
+
+GitHubOAuthClientDep = Annotated[GitHubOAuthClientPort, Depends(get_github_oauth_client)]
