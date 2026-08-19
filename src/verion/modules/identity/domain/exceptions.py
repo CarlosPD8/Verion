@@ -8,3 +8,7 @@ class EmailAlreadyRegistered(Exception):
 
 class InvalidCredentials(Exception):
     pass
+
+
+class InvalidAccessToken(Exception):
+    pass

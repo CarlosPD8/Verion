@@ -156,6 +156,7 @@ containers = ["verion.modules.history"]
 id = "cross-module-identity"
 name = "identity does not reach into other modules' domain/adapters directly"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["verion.modules.identity"]
 forbidden_modules = [
     "verion.modules.projects.domain",
@@ -178,6 +179,7 @@ forbidden_modules = [
 id = "cross-module-projects"
 name = "projects does not reach into other modules' domain/adapters directly"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["verion.modules.projects"]
 forbidden_modules = [
     "verion.modules.identity.domain",
@@ -200,6 +202,7 @@ forbidden_modules = [
 id = "cross-module-scanning"
 name = "scanning does not reach into other modules' domain/adapters directly"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["verion.modules.scanning"]
 forbidden_modules = [
     "verion.modules.identity.domain",
@@ -222,6 +225,7 @@ forbidden_modules = [
 id = "cross-module-normalization"
 name = "normalization does not reach into other modules' domain/adapters directly"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["verion.modules.normalization"]
 forbidden_modules = [
     "verion.modules.identity.domain",
@@ -244,6 +248,7 @@ forbidden_modules = [
 id = "cross-module-correlation"
 name = "correlation does not reach into other modules' domain/adapters directly"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["verion.modules.correlation"]
 forbidden_modules = [
     "verion.modules.identity.domain",
@@ -266,6 +271,7 @@ forbidden_modules = [
 id = "cross-module-risk-engine"
 name = "risk_engine does not reach into other modules' domain/adapters directly"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["verion.modules.risk_engine"]
 forbidden_modules = [
     "verion.modules.identity.domain",
@@ -288,6 +294,7 @@ forbidden_modules = [
 id = "cross-module-brief"
 name = "brief does not reach into other modules' domain/adapters directly"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["verion.modules.brief"]
 forbidden_modules = [
     "verion.modules.identity.domain",
@@ -310,6 +317,7 @@ forbidden_modules = [
 id = "cross-module-history"
 name = "history does not reach into other modules' domain/adapters directly"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["verion.modules.history"]
 forbidden_modules = [
     "verion.modules.identity.domain",

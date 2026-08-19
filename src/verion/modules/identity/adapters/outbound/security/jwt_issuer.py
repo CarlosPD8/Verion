@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import jwt
 
+from verion.modules.identity.domain.exceptions import InvalidAccessToken
 from verion.modules.identity.ports.access_token_issuer import AccessToken
 from verion.shared_kernel.ports import ClockPort
 
@@ -27,3 +28,10 @@ class JwtAccessTokenIssuer:
             algorithm=self._algorithm,
         )
         return AccessToken(value=token, expires_at=expires_at)
+
+    def decode(self, token: str) -> str:
+        try:
+            payload = jwt.decode(token, self._secret_key, algorithms=[self._algorithm])
+        except jwt.InvalidTokenError as exc:
+            raise InvalidAccessToken("Access token is malformed, invalid, or expired") from exc
+        return payload["sub"]

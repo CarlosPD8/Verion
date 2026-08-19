@@ -14,3 +14,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0007](0007-import-linter.md) | import-linter for mechanical architecture enforcement | Accepted |
 | [0008](0008-manual-di-wiring.md) | Explicit `Depends()`-based DI wiring instead of a DI framework | Accepted |
 | [0009](0009-dependency-verification-protocol.md) | Verify dependency-safety claims against primary sources before acting | Accepted |
+| [0010](0010-allow-indirect-imports.md) | `allow_indirect_imports` for cross-module contracts | Accepted |

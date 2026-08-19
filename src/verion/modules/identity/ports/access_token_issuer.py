@@ -22,3 +22,9 @@ class AccessToken:
 
 class AccessTokenIssuer(Protocol):
     def issue(self, subject: str) -> AccessToken: ...
+
+    def decode(self, token: str) -> str:
+        """Return the subject encoded in `token`. Raises InvalidAccessToken
+        (identity/domain/exceptions.py) if the token is malformed, has a
+        bad signature, or has expired."""
+        ...

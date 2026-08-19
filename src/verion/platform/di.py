@@ -1,7 +1,8 @@
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from verion.modules.identity.adapters.outbound.db.repository import PostgresUserRepository
@@ -9,9 +10,22 @@ from verion.modules.identity.adapters.outbound.security.argon2_hasher import Arg
 from verion.modules.identity.adapters.outbound.security.jwt_issuer import JwtAccessTokenIssuer
 from verion.modules.identity.application.authenticate_user import AuthenticateUserUseCase
 from verion.modules.identity.application.register_user import RegisterUserUseCase
+from verion.modules.identity.domain.exceptions import InvalidAccessToken
 from verion.modules.identity.ports.access_token_issuer import AccessTokenIssuer
 from verion.modules.identity.ports.password_hasher import PasswordHasherPort
 from verion.modules.identity.ports.user_repository import UserRepositoryPort
+from verion.modules.projects.adapters.outbound.db.repository import (
+    PostgresConnectedRepoRepository,
+    PostgresProjectMembershipRepository,
+    PostgresProjectRepository,
+)
+from verion.modules.projects.application.connect_repository import ConnectRepositoryUseCase
+from verion.modules.projects.application.create_project import CreateProjectUseCase
+from verion.modules.projects.ports.connected_repo_repository import ConnectedRepoRepositoryPort
+from verion.modules.projects.ports.project_membership_repository import (
+    ProjectMembershipRepositoryPort,
+)
+from verion.modules.projects.ports.project_repository import ProjectRepositoryPort
 from verion.platform.clock import SystemClock
 from verion.platform.db import get_db_session
 from verion.platform.id_generator import UuidIdGenerator
@@ -55,6 +69,24 @@ def get_access_token_issuer(settings: SettingsDep, clock: ClockDep) -> AccessTok
 AccessTokenIssuerDep = Annotated[AccessTokenIssuer, Depends(get_access_token_issuer)]
 
 
+_bearer_scheme = HTTPBearer()
+
+
+async def get_current_user_id(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer_scheme)],
+    token_issuer: AccessTokenIssuerDep,
+) -> str:
+    try:
+        return token_issuer.decode(credentials.credentials)
+    except InvalidAccessToken as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
+        ) from exc
+
+
+CurrentUserIdDep = Annotated[str, Depends(get_current_user_id)]
+
+
 def get_user_repository(session: DbSessionDep) -> UserRepositoryPort:
     return PostgresUserRepository(session)
 
@@ -84,4 +116,62 @@ def get_authenticate_user_use_case(
 
 AuthenticateUserUseCaseDep = Annotated[
     AuthenticateUserUseCase, Depends(get_authenticate_user_use_case)
+]
+
+
+def get_project_repository(session: DbSessionDep) -> ProjectRepositoryPort:
+    return PostgresProjectRepository(session)
+
+
+ProjectRepositoryDep = Annotated[ProjectRepositoryPort, Depends(get_project_repository)]
+
+
+def get_project_membership_repository(session: DbSessionDep) -> ProjectMembershipRepositoryPort:
+    return PostgresProjectMembershipRepository(session)
+
+
+ProjectMembershipRepositoryDep = Annotated[
+    ProjectMembershipRepositoryPort, Depends(get_project_membership_repository)
+]
+
+
+def get_connected_repo_repository(session: DbSessionDep) -> ConnectedRepoRepositoryPort:
+    return PostgresConnectedRepoRepository(session)
+
+
+ConnectedRepoRepositoryDep = Annotated[
+    ConnectedRepoRepositoryPort, Depends(get_connected_repo_repository)
+]
+
+
+def get_create_project_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    clock: ClockDep,
+    id_generator: IdGeneratorDep,
+) -> CreateProjectUseCase:
+    return CreateProjectUseCase(
+        projects=projects, memberships=memberships, clock=clock, id_generator=id_generator
+    )
+
+
+CreateProjectUseCaseDep = Annotated[CreateProjectUseCase, Depends(get_create_project_use_case)]
+
+
+def get_connect_repository_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    connected_repos: ConnectedRepoRepositoryDep,
+    id_generator: IdGeneratorDep,
+) -> ConnectRepositoryUseCase:
+    return ConnectRepositoryUseCase(
+        projects=projects,
+        memberships=memberships,
+        connected_repos=connected_repos,
+        id_generator=id_generator,
+    )
+
+
+ConnectRepositoryUseCaseDep = Annotated[
+    ConnectRepositoryUseCase, Depends(get_connect_repository_use_case)
 ]

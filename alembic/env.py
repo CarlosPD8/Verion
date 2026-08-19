@@ -7,6 +7,11 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from verion.modules.identity.adapters.outbound.db.models import UserModel  # noqa: F401
+from verion.modules.projects.adapters.outbound.db.models import (  # noqa: F401
+    ConnectedRepoModel,
+    ProjectMembershipModel,
+    ProjectModel,
+)
 from verion.platform.db import Base
 from verion.platform.settings import get_settings
 
