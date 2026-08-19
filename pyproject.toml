@@ -5,10 +5,16 @@ description = "From security findings to security decisions."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.141.1",
+    "pydantic-settings>=2.15.0",
+    "uvicorn>=0.52.4",
+]
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.12.0",
+    "import-linter>=2.13",
     "pre-commit>=3.8",
     "pytest>=8.3",
     "ruff>=0.6",
@@ -31,3 +37,308 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.importlinter]
+root_package = "verion"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+id = "layers-identity"
+name = "identity: adapters -> application -> ports -> domain"
+type = "layers"
+layers = [
+    "adapters",
+    "application",
+    "ports",
+    "domain",
+]
+containers = ["verion.modules.identity"]
+
+[[tool.importlinter.contracts]]
+id = "layers-projects"
+name = "projects: adapters -> application -> ports -> domain"
+type = "layers"
+layers = [
+    "adapters",
+    "application",
+    "ports",
+    "domain",
+]
+containers = ["verion.modules.projects"]
+
+[[tool.importlinter.contracts]]
+id = "layers-scanning"
+name = "scanning: adapters -> application -> ports -> domain"
+type = "layers"
+layers = [
+    "adapters",
+    "application",
+    "ports",
+    "domain",
+]
+containers = ["verion.modules.scanning"]
+
+[[tool.importlinter.contracts]]
+id = "layers-normalization"
+name = "normalization: adapters -> application -> ports -> domain"
+type = "layers"
+layers = [
+    "adapters",
+    "application",
+    "ports",
+    "domain",
+]
+containers = ["verion.modules.normalization"]
+
+[[tool.importlinter.contracts]]
+id = "layers-correlation"
+name = "correlation: adapters -> application -> ports -> domain"
+type = "layers"
+layers = [
+    "adapters",
+    "application",
+    "ports",
+    "domain",
+]
+containers = ["verion.modules.correlation"]
+
+[[tool.importlinter.contracts]]
+id = "layers-risk-engine"
+name = "risk_engine: adapters -> application -> ports -> domain"
+type = "layers"
+layers = [
+    "adapters",
+    "application",
+    "ports",
+    "domain",
+]
+containers = ["verion.modules.risk_engine"]
+
+[[tool.importlinter.contracts]]
+id = "layers-brief"
+name = "brief: adapters -> application -> ports -> domain"
+type = "layers"
+layers = [
+    "adapters",
+    "application",
+    "ports",
+    "domain",
+]
+containers = ["verion.modules.brief"]
+
+[[tool.importlinter.contracts]]
+id = "layers-history"
+name = "history: adapters -> application -> ports -> domain"
+type = "layers"
+layers = [
+    "adapters",
+    "application",
+    "ports",
+    "domain",
+]
+containers = ["verion.modules.history"]
+
+[[tool.importlinter.contracts]]
+id = "cross-module-identity"
+name = "identity does not reach into other modules' domain/adapters directly"
+type = "forbidden"
+source_modules = ["verion.modules.identity"]
+forbidden_modules = [
+    "verion.modules.projects.domain",
+    "verion.modules.projects.adapters",
+    "verion.modules.scanning.domain",
+    "verion.modules.scanning.adapters",
+    "verion.modules.normalization.domain",
+    "verion.modules.normalization.adapters",
+    "verion.modules.correlation.domain",
+    "verion.modules.correlation.adapters",
+    "verion.modules.risk_engine.domain",
+    "verion.modules.risk_engine.adapters",
+    "verion.modules.brief.domain",
+    "verion.modules.brief.adapters",
+    "verion.modules.history.domain",
+    "verion.modules.history.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "cross-module-projects"
+name = "projects does not reach into other modules' domain/adapters directly"
+type = "forbidden"
+source_modules = ["verion.modules.projects"]
+forbidden_modules = [
+    "verion.modules.identity.domain",
+    "verion.modules.identity.adapters",
+    "verion.modules.scanning.domain",
+    "verion.modules.scanning.adapters",
+    "verion.modules.normalization.domain",
+    "verion.modules.normalization.adapters",
+    "verion.modules.correlation.domain",
+    "verion.modules.correlation.adapters",
+    "verion.modules.risk_engine.domain",
+    "verion.modules.risk_engine.adapters",
+    "verion.modules.brief.domain",
+    "verion.modules.brief.adapters",
+    "verion.modules.history.domain",
+    "verion.modules.history.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "cross-module-scanning"
+name = "scanning does not reach into other modules' domain/adapters directly"
+type = "forbidden"
+source_modules = ["verion.modules.scanning"]
+forbidden_modules = [
+    "verion.modules.identity.domain",
+    "verion.modules.identity.adapters",
+    "verion.modules.projects.domain",
+    "verion.modules.projects.adapters",
+    "verion.modules.normalization.domain",
+    "verion.modules.normalization.adapters",
+    "verion.modules.correlation.domain",
+    "verion.modules.correlation.adapters",
+    "verion.modules.risk_engine.domain",
+    "verion.modules.risk_engine.adapters",
+    "verion.modules.brief.domain",
+    "verion.modules.brief.adapters",
+    "verion.modules.history.domain",
+    "verion.modules.history.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "cross-module-normalization"
+name = "normalization does not reach into other modules' domain/adapters directly"
+type = "forbidden"
+source_modules = ["verion.modules.normalization"]
+forbidden_modules = [
+    "verion.modules.identity.domain",
+    "verion.modules.identity.adapters",
+    "verion.modules.projects.domain",
+    "verion.modules.projects.adapters",
+    "verion.modules.scanning.domain",
+    "verion.modules.scanning.adapters",
+    "verion.modules.correlation.domain",
+    "verion.modules.correlation.adapters",
+    "verion.modules.risk_engine.domain",
+    "verion.modules.risk_engine.adapters",
+    "verion.modules.brief.domain",
+    "verion.modules.brief.adapters",
+    "verion.modules.history.domain",
+    "verion.modules.history.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "cross-module-correlation"
+name = "correlation does not reach into other modules' domain/adapters directly"
+type = "forbidden"
+source_modules = ["verion.modules.correlation"]
+forbidden_modules = [
+    "verion.modules.identity.domain",
+    "verion.modules.identity.adapters",
+    "verion.modules.projects.domain",
+    "verion.modules.projects.adapters",
+    "verion.modules.scanning.domain",
+    "verion.modules.scanning.adapters",
+    "verion.modules.normalization.domain",
+    "verion.modules.normalization.adapters",
+    "verion.modules.risk_engine.domain",
+    "verion.modules.risk_engine.adapters",
+    "verion.modules.brief.domain",
+    "verion.modules.brief.adapters",
+    "verion.modules.history.domain",
+    "verion.modules.history.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "cross-module-risk-engine"
+name = "risk_engine does not reach into other modules' domain/adapters directly"
+type = "forbidden"
+source_modules = ["verion.modules.risk_engine"]
+forbidden_modules = [
+    "verion.modules.identity.domain",
+    "verion.modules.identity.adapters",
+    "verion.modules.projects.domain",
+    "verion.modules.projects.adapters",
+    "verion.modules.scanning.domain",
+    "verion.modules.scanning.adapters",
+    "verion.modules.normalization.domain",
+    "verion.modules.normalization.adapters",
+    "verion.modules.correlation.domain",
+    "verion.modules.correlation.adapters",
+    "verion.modules.brief.domain",
+    "verion.modules.brief.adapters",
+    "verion.modules.history.domain",
+    "verion.modules.history.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "cross-module-brief"
+name = "brief does not reach into other modules' domain/adapters directly"
+type = "forbidden"
+source_modules = ["verion.modules.brief"]
+forbidden_modules = [
+    "verion.modules.identity.domain",
+    "verion.modules.identity.adapters",
+    "verion.modules.projects.domain",
+    "verion.modules.projects.adapters",
+    "verion.modules.scanning.domain",
+    "verion.modules.scanning.adapters",
+    "verion.modules.normalization.domain",
+    "verion.modules.normalization.adapters",
+    "verion.modules.correlation.domain",
+    "verion.modules.correlation.adapters",
+    "verion.modules.risk_engine.domain",
+    "verion.modules.risk_engine.adapters",
+    "verion.modules.history.domain",
+    "verion.modules.history.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "cross-module-history"
+name = "history does not reach into other modules' domain/adapters directly"
+type = "forbidden"
+source_modules = ["verion.modules.history"]
+forbidden_modules = [
+    "verion.modules.identity.domain",
+    "verion.modules.identity.adapters",
+    "verion.modules.projects.domain",
+    "verion.modules.projects.adapters",
+    "verion.modules.scanning.domain",
+    "verion.modules.scanning.adapters",
+    "verion.modules.normalization.domain",
+    "verion.modules.normalization.adapters",
+    "verion.modules.correlation.domain",
+    "verion.modules.correlation.adapters",
+    "verion.modules.risk_engine.domain",
+    "verion.modules.risk_engine.adapters",
+    "verion.modules.brief.domain",
+    "verion.modules.brief.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "framework-isolation"
+name = "domain and application stay framework-free"
+type = "forbidden"
+source_modules = [
+    "verion.modules.identity.domain",
+    "verion.modules.identity.application",
+    "verion.modules.projects.domain",
+    "verion.modules.projects.application",
+    "verion.modules.scanning.domain",
+    "verion.modules.scanning.application",
+    "verion.modules.normalization.domain",
+    "verion.modules.normalization.application",
+    "verion.modules.correlation.domain",
+    "verion.modules.correlation.application",
+    "verion.modules.risk_engine.domain",
+    "verion.modules.risk_engine.application",
+    "verion.modules.brief.domain",
+    "verion.modules.brief.application",
+    "verion.modules.history.domain",
+    "verion.modules.history.application",
+]
+forbidden_modules = [
+    "fastapi",
+    "sqlalchemy",
+    "redis",
+    "uvicorn",
+]
