@@ -9,13 +9,13 @@ class InMemoryUserRepository:
     def __init__(self) -> None:
         self._users: dict[str, User] = {}
 
-    def add(self, user: User) -> None:
+    async def add(self, user: User) -> None:
         self._users[user.id] = user
 
-    def get_by_email(self, email: str) -> User | None:
+    async def get_by_email(self, email: str) -> User | None:
         return next((u for u in self._users.values() if str(u.email) == email), None)
 
-    def get_by_id(self, user_id: str) -> User | None:
+    async def get_by_id(self, user_id: str) -> User | None:
         return self._users.get(user_id)
 
 

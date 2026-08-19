@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from verion.modules.identity.adapters.inbound.api.router import router as identity_router
 from verion.platform.settings import get_settings
 
 
@@ -10,6 +11,8 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    app.include_router(identity_router, prefix="/auth", tags=["auth"])
 
     return app
 

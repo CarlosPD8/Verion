@@ -6,8 +6,13 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.19.1",
+    "argon2-cffi>=25.1.0",
+    "asyncpg>=0.31.0",
     "fastapi>=0.141.1",
     "pydantic-settings>=2.15.0",
+    "pyjwt>=2.13.0",
+    "sqlalchemy[asyncio]>=2.0.52",
     "uvicorn>=0.52.4",
 ]
 
@@ -17,6 +22,7 @@ dev = [
     "import-linter>=2.13",
     "pre-commit>=3.8",
     "pytest>=8.3",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.6",
 ]
 
@@ -37,6 +43,14 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+# Session-scoped: a session-scoped async engine (see tests/integration/conftest.py)
+# needs a session-scoped event loop, or asyncpg connections created in one test's
+# loop get reused in another's and fail with "InterfaceError: another operation
+# is in progress". Don't remove these two settings — see CLAUDE.md's testing
+# requirements section.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 
 [tool.importlinter]
 root_package = "verion"

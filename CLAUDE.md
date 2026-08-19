@@ -30,6 +30,14 @@ This project uses **Hexagonal Architecture (Ports & Adapters)** inside a **modul
 4. Every new external integration (a scanner, an LLM provider, a VCS) is added as an **adapter implementing an existing or new port** — never by special-casing it inside application/domain logic.
 5. The **Risk/Decision Engine's scoring must stay traceable to explicit inputs.** Do not introduce a black-box ML model or an unexplained numeric score. If you're tempted to, stop and flag it — this breaks the product's core value proposition.
 6. **The LLM (Explanation Layer) narrates decisions already made by the Risk Engine — it never determines priority.** Structured scoring happens first and is persisted; the LLM call only turns that structured result into readable text.
+7. **All outbound I/O-bound ports (`*RepositoryPort`, and any future port doing network/disk I/O) are async by default**, per `ARCHITECTURE.md`'s minimize-blocking-I/O NFR. This is the default assumption for every module's ports going forward, established when identity's ports were converted to async in M1.2.
+8. **Every SQLAlchemy ORM model imports `Base` from `platform/db.py` — never define a second `DeclarativeBase()`.** Alembic's `env.py` only sees tables registered against that one `Base.metadata`; a second declarative base means its tables silently never get a migration.
+9. **Entity IDs are plain strings end-to-end** — `IdGeneratorPort.new_id() -> str` (UUID-formatted, not a `uuid.UUID` value), matching ORM column is always `String`, never a Postgres `UUID` type. Keeps ID handling identical across every module and avoids str/UUID conversion bugs at module boundaries.
+10. **Inbound API adapters never return a domain entity directly** — always a dedicated Pydantic response schema local to that adapter, even when it would just mirror the entity's fields. This is what stands between an added-later sensitive field (a password hash, a token, a secret) and an accidental HTTP response leak.
+11. **Any setting with a known-insecure default (a dev secret, a placeholder credential) must fail fast at startup outside `app_env='local'`** — never let the app silently boot with a publicly-visible default in a real deployment. See `jwt_secret_key`'s validator in `platform/settings.py` as the reference pattern.
+12. **No credential/token/secret/hash field may appear in an API response, exception message, or log beyond what's explicitly designed to expose it** (extends `PRODUCT_SPEC.md` §11's "secrets never touch logs/DB in plaintext" to response bodies and error messages too). Any module handling such a field ships an explicit test asserting this, colocated with that module's other security-relevant tests (e.g. identity's plaintext-non-leakage tests) — not a standalone file that's easy to lose track of or skip in a future refactor.
+13. **All timestamps are UTC, always via `ClockPort`** — never a naked `datetime.now()`/`datetime.utcnow()` call, and every `DateTime` ORM column is `timezone=True`. `SystemClock` is the only place wall-clock time gets read.
+14. **`platform/di.py` factories follow one shape**: `get_<port_name>()` paired with `<PortName>Dep = Annotated[Port, Depends(get_<port_name>)]`. `@lru_cache` only factories with no per-request dependency (stateless singletons like `get_clock`) — never one that depends on `DbSessionDep` or anything else request-scoped, or you'll leak a stale session across requests.
 
 If a requested change would violate one of these, say so explicitly before implementing it, rather than working around it silently.
 
@@ -43,6 +51,7 @@ No issue is complete without:
 - **Integration tests** for any new adapter, against the real dependency (Postgres, Redis, or the actual tool CLI/API), using `docker-compose` services.
 - For `correlation` and `risk_engine` specifically: tests must cover both positive cases (should correlate / should score high) and negative cases (should NOT correlate / should score low) — these two modules are the product's core differentiator and deserve disproportionate test rigor.
 - Passing CI (lint, import-linter architecture check, unit + integration tests) before considering an issue done.
+- Async integration tests sharing a session-scoped fixture (e.g. a DB engine) require a session-scoped event loop — `asyncio_default_fixture_loop_scope`/`asyncio_default_test_loop_scope = "session"` in `pyproject.toml`. Without it, asyncpg connections created in one test's loop get reused in another's and fail with `InterfaceError`. Don't remove these two settings.
 
 ---
 
