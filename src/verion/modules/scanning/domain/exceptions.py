@@ -28,3 +28,7 @@ class GitHubConnectionNotFound(Exception):
 
 class UnsupportedRepoProvider(Exception):
     pass
+
+
+class UnsafeDastTarget(Exception):
+    pass

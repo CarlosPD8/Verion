@@ -322,3 +322,28 @@ def repo_checkout() -> FakeRepoCheckout:
 def repo_checkout_factory() -> type[FakeRepoCheckout]:
     """Lets a test construct a FakeRepoCheckout with custom fail args."""
     return FakeRepoCheckout
+
+
+class FakeDnsResolver:
+    """Returns a fixed set of IPs for any hostname — proves ZapAdapter's SSRF
+    gate reacts to the RESOLVED IP, not the hostname string, without a real
+    DNS lookup."""
+
+    def __init__(self, ips: list[str] | None = None) -> None:
+        self._ips = ips if ips is not None else ["93.184.216.34"]
+        self.resolve_calls: list[str] = []
+
+    async def resolve(self, hostname: str) -> list[str]:
+        self.resolve_calls.append(hostname)
+        return self._ips
+
+
+@pytest.fixture
+def dns_resolver() -> FakeDnsResolver:
+    return FakeDnsResolver()
+
+
+@pytest.fixture
+def dns_resolver_factory() -> type[FakeDnsResolver]:
+    """Lets a test construct a FakeDnsResolver with custom resolved ips."""
+    return FakeDnsResolver

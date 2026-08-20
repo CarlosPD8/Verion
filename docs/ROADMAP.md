@@ -129,7 +129,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 - **M3.5 — ZapAdapter (DAST, optional per project)**
   Module: `scanning` · Depends on: M3.2
   - Drives ZAP Automation Framework via YAML plan against a user-confirmed, allow-listed target.
-  - **SSRF protection enforced here** — validate/allow-list target URL before invocation (`PRODUCT_SPEC.md` §12).
+  - **SSRF protection enforced here** — validate/allow-list target URL before invocation (`PRODUCT_SPEC.md` §11).
 
 - **M3.6 — CI-triggered scanning**
   Module: `scanning` · Depends on: M3.3

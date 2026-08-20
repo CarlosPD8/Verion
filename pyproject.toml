@@ -20,6 +20,13 @@ dependencies = [
     "fastapi>=0.141.1",
     "pydantic-settings>=2.15.0",
     "pyjwt>=2.13.0",
+    # PyYAML: serializes ZapAdapter's Automation Framework plan file. Verified
+    # per ADR-009 against primary sources, not memory: org-owned repo
+    # (github.com/yaml/pyyaml), current release 6.0.3, actively maintained —
+    # no abandonment signal. Used instead of hand-built YAML strings so a
+    # target URL containing YAML-special characters can never corrupt the
+    # plan document's structure.
+    "pyyaml>=6.0.3",
     # semgrep: SAST engine per PRODUCT_SPEC's tech stack. Verified per ADR-009
     # against primary sources, not memory: published to PyPI by Semgrep Inc.
     # (San Francisco security company, formerly r2c), actively maintained,

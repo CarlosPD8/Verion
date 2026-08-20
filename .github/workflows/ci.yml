@@ -91,6 +91,16 @@ jobs:
         # step is a no-op download once actions/cache has a same-day hit.
         run: trivy fs --download-db-only
 
+      - name: Pull ZAP Docker image
+        # Warms the image before ZapAdapter's integration test runs, so that
+        # test's own timeout isn't dominated by a cold pull. Docker itself
+        # needs no setup step — it's preinstalled on ubuntu-latest. Pinned
+        # to the digest ZapAdapter's docker_image default uses (see that
+        # file's comment for when/how it was verified), not the floating
+        # :stable tag, per ADR-0009.
+        run: >-
+          docker pull ghcr.io/zaproxy/zaproxy@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef
+
       - name: Unit tests (pytest)
         run: uv run pytest
 
