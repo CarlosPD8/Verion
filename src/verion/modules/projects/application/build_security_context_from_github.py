@@ -1,29 +1,51 @@
 from urllib.parse import urlparse
 
 from verion.modules.projects.application.build_security_context import BuildSecurityContextUseCase
+from verion.modules.projects.domain.authorization import require_owner
 from verion.modules.projects.domain.context_detection import relevant_file_paths
 from verion.modules.projects.domain.exceptions import (
     ConnectedRepoNotFound,
+    ProjectNotFound,
     UnsupportedRepoProvider,
 )
 from verion.modules.projects.domain.project import ConnectedRepo
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.ports.connected_repo_repository import ConnectedRepoRepositoryPort
+from verion.modules.projects.ports.project_membership_repository import (
+    ProjectMembershipRepositoryPort,
+)
+from verion.modules.projects.ports.project_repository import ProjectRepositoryPort
 from verion.modules.projects.ports.vcs_provider import VcsProviderPort
 
 
 class BuildSecurityContextFromGitHubUseCase:
     def __init__(
         self,
+        projects: ProjectRepositoryPort,
+        memberships: ProjectMembershipRepositoryPort,
         connected_repos: ConnectedRepoRepositoryPort,
         vcs_provider: VcsProviderPort,
         build_security_context: BuildSecurityContextUseCase,
     ) -> None:
+        self._projects = projects
+        self._memberships = memberships
         self._connected_repos = connected_repos
         self._vcs_provider = vcs_provider
         self._build_security_context = build_security_context
 
-    async def execute(self, project_id: str, access_token: str) -> SecurityContext:
+    async def execute(self, project_id: str, user_id: str, access_token: str) -> SecurityContext:
+        project = await self._projects.get_by_id(project_id)
+        if project is None:
+            raise ProjectNotFound(f"No project with id '{project_id}'")
+
+        # Checked here too, before any VcsProviderPort call — not just relying
+        # on the composed BuildSecurityContextUseCase's own check at the end.
+        # A non-owner's request must never reach GitHub: that would burn the
+        # connected repo's API quota and let permission-less callers probe
+        # repo existence/contents via timing or error responses.
+        membership = await self._memberships.get_by_project_and_user(project_id, user_id)
+        require_owner(membership)
+
         connected_repo = await self._connected_repos.get_by_project_id(project_id)
         if connected_repo is None:
             raise ConnectedRepoNotFound(f"No connected repo for project '{project_id}'")
@@ -40,7 +62,7 @@ class BuildSecurityContextFromGitHubUseCase:
         # GitHubApiError is already a projects-domain exception (not a raw
         # adapter exception, per vcs_provider.py's contract) — propagate
         # unchanged, same precedent as ConnectRepositoryViaGitHubUseCase.
-        return await self._build_security_context.execute(project_id, files)
+        return await self._build_security_context.execute(project_id, user_id, files)
 
 
 def _parse_github_owner_repo(connected_repo: ConnectedRepo) -> tuple[str, str]:

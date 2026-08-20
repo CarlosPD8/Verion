@@ -28,18 +28,31 @@ from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresProjectMembershipRepository,
     PostgresProjectRepository,
+    PostgresSecurityContextRepository,
 )
 from verion.modules.projects.adapters.outbound.vcs.github_adapter import GitHubAdapter
+from verion.modules.projects.application.build_security_context import (
+    BuildSecurityContextUseCase,
+)
+from verion.modules.projects.application.build_security_context_from_github import (
+    BuildSecurityContextFromGitHubUseCase,
+)
 from verion.modules.projects.application.connect_repository import ConnectRepositoryUseCase
 from verion.modules.projects.application.connect_repository_via_github import (
     ConnectRepositoryViaGitHubUseCase,
 )
 from verion.modules.projects.application.create_project import CreateProjectUseCase
+from verion.modules.projects.application.get_security_context import GetSecurityContextUseCase
+from verion.modules.projects.application.update_exposure_tags import UpdateExposureTagsUseCase
+from verion.modules.projects.domain.context_detection import detect_stack
 from verion.modules.projects.ports.connected_repo_repository import ConnectedRepoRepositoryPort
 from verion.modules.projects.ports.project_membership_repository import (
     ProjectMembershipRepositoryPort,
 )
 from verion.modules.projects.ports.project_repository import ProjectRepositoryPort
+from verion.modules.projects.ports.security_context_repository import (
+    SecurityContextRepositoryPort,
+)
 from verion.modules.projects.ports.vcs_provider import VcsProviderPort
 from verion.platform.clock import SystemClock
 from verion.platform.db import get_db_session
@@ -264,4 +277,92 @@ def get_connect_repository_via_github_use_case(
 
 ConnectRepositoryViaGitHubUseCaseDep = Annotated[
     ConnectRepositoryViaGitHubUseCase, Depends(get_connect_repository_via_github_use_case)
+]
+
+
+def get_security_context_repository(session: DbSessionDep) -> SecurityContextRepositoryPort:
+    return PostgresSecurityContextRepository(session)
+
+
+SecurityContextRepositoryDep = Annotated[
+    SecurityContextRepositoryPort, Depends(get_security_context_repository)
+]
+
+
+def get_build_security_context_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    security_contexts: SecurityContextRepositoryDep,
+    id_generator: IdGeneratorDep,
+    clock: ClockDep,
+) -> BuildSecurityContextUseCase:
+    return BuildSecurityContextUseCase(
+        projects=projects,
+        memberships=memberships,
+        security_contexts=security_contexts,
+        detector=detect_stack,
+        id_generator=id_generator,
+        clock=clock,
+    )
+
+
+BuildSecurityContextUseCaseDep = Annotated[
+    BuildSecurityContextUseCase, Depends(get_build_security_context_use_case)
+]
+
+
+def get_build_security_context_from_github_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    connected_repos: ConnectedRepoRepositoryDep,
+    vcs_provider: VcsProviderDep,
+    build_security_context: BuildSecurityContextUseCaseDep,
+) -> BuildSecurityContextFromGitHubUseCase:
+    return BuildSecurityContextFromGitHubUseCase(
+        projects=projects,
+        memberships=memberships,
+        connected_repos=connected_repos,
+        vcs_provider=vcs_provider,
+        build_security_context=build_security_context,
+    )
+
+
+BuildSecurityContextFromGitHubUseCaseDep = Annotated[
+    BuildSecurityContextFromGitHubUseCase, Depends(get_build_security_context_from_github_use_case)
+]
+
+
+def get_get_security_context_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    security_contexts: SecurityContextRepositoryDep,
+) -> GetSecurityContextUseCase:
+    return GetSecurityContextUseCase(
+        projects=projects, memberships=memberships, security_contexts=security_contexts
+    )
+
+
+GetSecurityContextUseCaseDep = Annotated[
+    GetSecurityContextUseCase, Depends(get_get_security_context_use_case)
+]
+
+
+def get_update_exposure_tags_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    security_contexts: SecurityContextRepositoryDep,
+    id_generator: IdGeneratorDep,
+    clock: ClockDep,
+) -> UpdateExposureTagsUseCase:
+    return UpdateExposureTagsUseCase(
+        projects=projects,
+        memberships=memberships,
+        security_contexts=security_contexts,
+        id_generator=id_generator,
+        clock=clock,
+    )
+
+
+UpdateExposureTagsUseCaseDep = Annotated[
+    UpdateExposureTagsUseCase, Depends(get_update_exposure_tags_use_case)
 ]

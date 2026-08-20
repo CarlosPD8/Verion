@@ -205,7 +205,7 @@ erDiagram
 | `ProjectRepositoryPort` | Persist/query projects | Postgres adapter |
 | `ProjectMembershipRepositoryPort` | Persist/query project RBAC memberships | Postgres adapter |
 | `ConnectedRepoRepositoryPort` | Persist/query connected repositories | Postgres adapter |
-| `SecurityContextRepositoryPort` | Persist/query a project's Security Context | Postgres adapter (M2.2+) |
+| `SecurityContextRepositoryPort` | Persist/query a project's Security Context | Postgres adapter (M2.3) |
 | `FindingRepositoryPort` | Persist/query findings, dedup lookups | Postgres adapter |
 | `RiskRepositoryPort` | Persist/query risks, history | Postgres adapter |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |

@@ -16,3 +16,7 @@ class ConnectedRepoNotFound(Exception):
 
 class UnsupportedRepoProvider(Exception):
     pass
+
+
+class SecurityContextNotFound(Exception):
+    pass

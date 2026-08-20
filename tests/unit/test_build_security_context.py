@@ -6,8 +6,8 @@ from verion.modules.projects.application.build_security_context import (
     BuildSecurityContextUseCase,
 )
 from verion.modules.projects.domain.context_detection import DetectionResult, detect_stack
-from verion.modules.projects.domain.exceptions import ProjectNotFound
-from verion.modules.projects.domain.project import Project
+from verion.modules.projects.domain.exceptions import InsufficientPermissions, ProjectNotFound
+from verion.modules.projects.domain.project import Project, ProjectMembership, Role
 
 
 async def _seed_project(project_repository, clock, project_id="project-1", owner_id="owner-1"):
@@ -16,9 +16,17 @@ async def _seed_project(project_repository, clock, project_id="project-1", owner
     return project
 
 
-def _use_case(project_repository, security_context_repository, clock, id_generator, detector):
+def _use_case(
+    project_repository,
+    membership_repository,
+    security_context_repository,
+    clock,
+    id_generator,
+    detector,
+):
     return BuildSecurityContextUseCase(
         projects=project_repository,
+        memberships=membership_repository,
         security_contexts=security_context_repository,
         detector=detector,
         id_generator=id_generator,
@@ -27,15 +35,24 @@ def _use_case(project_repository, security_context_repository, clock, id_generat
 
 
 async def test_builds_and_persists_a_security_context(
-    project_repository, security_context_repository, clock, id_generator
+    project_repository, membership_repository, security_context_repository, clock, id_generator
 ):
     project = await _seed_project(project_repository, clock)
+    await membership_repository.add(
+        ProjectMembership(project_id=project.id, user_id="owner-1", role=Role.OWNER)
+    )
     use_case = _use_case(
-        project_repository, security_context_repository, clock, id_generator, detect_stack
+        project_repository,
+        membership_repository,
+        security_context_repository,
+        clock,
+        id_generator,
+        detect_stack,
     )
 
     context = await use_case.execute(
         project_id=project.id,
+        user_id="owner-1",
         files={"pyproject.toml": 'dependencies = ["fastapi"]', "Dockerfile": "FROM python:3.12"},
     )
 
@@ -51,31 +68,77 @@ async def test_builds_and_persists_a_security_context(
 
 
 async def test_raises_project_not_found_for_an_unknown_project(
-    project_repository, security_context_repository, clock, id_generator
+    project_repository, membership_repository, security_context_repository, clock, id_generator
 ):
     use_case = _use_case(
-        project_repository, security_context_repository, clock, id_generator, detect_stack
+        project_repository,
+        membership_repository,
+        security_context_repository,
+        clock,
+        id_generator,
+        detect_stack,
     )
 
     with pytest.raises(ProjectNotFound):
-        await use_case.execute(project_id="does-not-exist", files={})
+        await use_case.execute(project_id="does-not-exist", user_id="owner-1", files={})
+
+
+async def test_rejects_a_non_member(
+    project_repository, membership_repository, security_context_repository, clock, id_generator
+):
+    project = await _seed_project(project_repository, clock)
+    use_case = _use_case(
+        project_repository,
+        membership_repository,
+        security_context_repository,
+        clock,
+        id_generator,
+        detect_stack,
+    )
+
+    with pytest.raises(InsufficientPermissions):
+        await use_case.execute(project_id=project.id, user_id="stranger", files={})
+
+
+async def test_rejects_a_member_who_is_not_an_owner(
+    project_repository, membership_repository, security_context_repository, clock, id_generator
+):
+    project = await _seed_project(project_repository, clock)
+    await membership_repository.add(
+        ProjectMembership(project_id=project.id, user_id="member-1", role=Role.MEMBER)
+    )
+    use_case = _use_case(
+        project_repository,
+        membership_repository,
+        security_context_repository,
+        clock,
+        id_generator,
+        detect_stack,
+    )
+
+    with pytest.raises(InsufficientPermissions):
+        await use_case.execute(project_id=project.id, user_id="member-1", files={})
 
 
 async def test_uses_the_injected_detector_rather_than_a_hardcoded_one(
-    project_repository, security_context_repository, clock, id_generator
+    project_repository, membership_repository, security_context_repository, clock, id_generator
 ):
     project = await _seed_project(project_repository, clock)
+    await membership_repository.add(
+        ProjectMembership(project_id=project.id, user_id="owner-1", role=Role.OWNER)
+    )
     stub_result = DetectionResult(
         language="rust", framework=None, deployment_target=None, ci_provider=None
     )
     use_case = _use_case(
         project_repository,
+        membership_repository,
         security_context_repository,
         clock,
         id_generator,
         detector=lambda files: stub_result,
     )
 
-    context = await use_case.execute(project_id=project.id, files={})
+    context = await use_case.execute(project_id=project.id, user_id="owner-1", files={})
 
     assert context.language == "rust"

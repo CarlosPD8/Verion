@@ -96,6 +96,9 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 - **M2.3 — Manual context annotation**
   Module: `projects` · Depends on: M2.1
   - API + minimal UI for user to confirm/edit context (`public_facing`, `handles_pii`, etc.).
+  - Note: the UI portion ships as part of M8.4's onboarding flow, which already depends on this
+    issue — M2.3 itself delivers the API only (detect/get/annotate routes, Postgres persistence,
+    owner/member permission gating).
 
 ---
 

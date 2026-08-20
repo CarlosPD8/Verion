@@ -1,11 +1,14 @@
+import dataclasses
 from datetime import UTC, datetime
 
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresProjectMembershipRepository,
     PostgresProjectRepository,
+    PostgresSecurityContextRepository,
 )
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
+from verion.modules.projects.domain.security_context import SecurityContext
 
 
 def _project(project_id: str = "project-1") -> Project:
@@ -68,3 +71,51 @@ async def test_get_membership_returns_none_when_missing(db_session):
     repository = PostgresProjectMembershipRepository(db_session)
 
     assert await repository.get_by_project_and_user("project-1", "nobody") is None
+
+
+async def test_round_trips_a_security_context_through_postgres(db_session):
+    await PostgresProjectRepository(db_session).add(_project())
+    repository = PostgresSecurityContextRepository(db_session)
+    context = SecurityContext(
+        id="context-1",
+        project_id="project-1",
+        language="python",
+        framework="fastapi",
+        database=None,
+        deployment_target="docker",
+        ci_provider=None,
+        exposure_tags=["public_facing", "handles_pii"],
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    await repository.add(context)
+
+    assert await repository.get_by_project_id("project-1") == context
+
+
+async def test_get_security_context_by_project_id_returns_none_when_missing(db_session):
+    repository = PostgresSecurityContextRepository(db_session)
+
+    assert await repository.get_by_project_id("does-not-exist") is None
+
+
+async def test_update_persists_changed_exposure_tags(db_session):
+    await PostgresProjectRepository(db_session).add(_project())
+    repository = PostgresSecurityContextRepository(db_session)
+    context = SecurityContext(
+        id="context-1",
+        project_id="project-1",
+        language=None,
+        framework=None,
+        database=None,
+        deployment_target=None,
+        ci_provider=None,
+        exposure_tags=[],
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    await repository.add(context)
+
+    updated = dataclasses.replace(context, exposure_tags=["public_facing"])
+    await repository.update(updated)
+
+    assert await repository.get_by_project_id("project-1") == updated

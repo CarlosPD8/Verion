@@ -103,6 +103,9 @@ class InMemorySecurityContextRepository:
     async def get_by_project_id(self, project_id: str) -> SecurityContext | None:
         return self._contexts.get(project_id)
 
+    async def update(self, context: SecurityContext) -> None:
+        self._contexts[context.project_id] = context
+
 
 class FakeVcsProvider:
     """Returns fixed metadata/files — proves the use-case flow, no real GitHub call."""

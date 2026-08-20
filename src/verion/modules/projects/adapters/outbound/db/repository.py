@@ -5,8 +5,10 @@ from verion.modules.projects.adapters.outbound.db.models import (
     ConnectedRepoModel,
     ProjectMembershipModel,
     ProjectModel,
+    SecurityContextModel,
 )
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
+from verion.modules.projects.domain.security_context import SecurityContext
 
 
 def _project_to_domain(model: ProjectModel) -> Project:
@@ -58,6 +60,34 @@ def _membership_from_domain(membership: ProjectMembership) -> ProjectMembershipM
     )
 
 
+def _security_context_to_domain(model: SecurityContextModel) -> SecurityContext:
+    return SecurityContext(
+        id=model.id,
+        project_id=model.project_id,
+        language=model.language,
+        framework=model.framework,
+        database=model.database,
+        deployment_target=model.deployment_target,
+        ci_provider=model.ci_provider,
+        exposure_tags=list(model.exposure_tags),
+        created_at=model.created_at,
+    )
+
+
+def _security_context_from_domain(context: SecurityContext) -> SecurityContextModel:
+    return SecurityContextModel(
+        id=context.id,
+        project_id=context.project_id,
+        language=context.language,
+        framework=context.framework,
+        database=context.database,
+        deployment_target=context.deployment_target,
+        ci_provider=context.ci_provider,
+        exposure_tags=list(context.exposure_tags),
+        created_at=context.created_at,
+    )
+
+
 class PostgresProjectRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -104,3 +134,29 @@ class PostgresProjectMembershipRepository:
     ) -> ProjectMembership | None:
         model = await self._session.get(ProjectMembershipModel, (project_id, user_id))
         return _membership_to_domain(model) if model is not None else None
+
+
+class PostgresSecurityContextRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, context: SecurityContext) -> None:
+        self._session.add(_security_context_from_domain(context))
+        await self._session.flush()
+
+    async def get_by_project_id(self, project_id: str) -> SecurityContext | None:
+        result = await self._session.execute(
+            select(SecurityContextModel).where(SecurityContextModel.project_id == project_id)
+        )
+        model = result.scalar_one_or_none()
+        return _security_context_to_domain(model) if model is not None else None
+
+    async def update(self, context: SecurityContext) -> None:
+        model = await self._session.get(SecurityContextModel, context.id)
+        model.language = context.language
+        model.framework = context.framework
+        model.database = context.database
+        model.deployment_target = context.deployment_target
+        model.ci_provider = context.ci_provider
+        model.exposure_tags = list(context.exposure_tags)
+        await self._session.flush()
