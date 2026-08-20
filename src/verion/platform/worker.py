@@ -15,6 +15,8 @@ from verion.modules.scanning.adapters.outbound.db.repository import (
 from verion.modules.scanning.adapters.outbound.scanners.semgrep_adapter import SemgrepAdapter
 from verion.modules.scanning.adapters.outbound.vcs.git_repo_checkout import GitRepoCheckout
 from verion.modules.scanning.application.run_scan import RunScanUseCase
+from verion.modules.scanning.ports.repo_checkout import RepoCheckoutPort
+from verion.modules.scanning.ports.scanner import ScannerPort
 from verion.platform.clock import SystemClock
 from verion.platform.db import engine, session_factory
 from verion.platform.id_generator import UuidIdGenerator
@@ -24,8 +26,18 @@ from verion.platform.settings import get_settings
 async def on_startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     # Stateless, safe to build once and share across jobs.
-    ctx["scanner"] = SemgrepAdapter(config=settings.semgrep_ruleset)
-    ctx["repo_checkout"] = GitRepoCheckout()
+    #
+    # Annotated as the ports rather than assigned straight into ctx: arq's ctx
+    # is dict[str, Any], so anything stored in it is invisible to mypy. These
+    # two lines are the only place an adapter meets its port here, and so the
+    # only place the type checker can verify conformance at all — every other
+    # adapter in the project gets that for free from platform/di.py's
+    # port-annotated factories. Keep the annotations when M3.7 turns this into
+    # multi-scanner dispatch.
+    scanner: ScannerPort = SemgrepAdapter(config=settings.semgrep_ruleset)
+    repo_checkout: RepoCheckoutPort = GitRepoCheckout()
+    ctx["scanner"] = scanner
+    ctx["repo_checkout"] = repo_checkout
 
 
 async def on_shutdown(ctx: dict[str, Any]) -> None:

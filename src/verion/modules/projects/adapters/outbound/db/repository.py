@@ -7,6 +7,7 @@ from verion.modules.projects.adapters.outbound.db.models import (
     ProjectModel,
     SecurityContextModel,
 )
+from verion.modules.projects.domain.exceptions import SecurityContextNotFound
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
 from verion.modules.projects.domain.security_context import SecurityContext
 
@@ -160,6 +161,12 @@ class PostgresSecurityContextRepository:
 
     async def update(self, context: SecurityContext) -> None:
         model = await self._session.get(SecurityContextModel, context.id)
+        if model is None:
+            # get_by_project_id three methods up already guards its lookup; this
+            # one simply missed it. Without the guard a stale id raises an opaque
+            # AttributeError instead of the 404 the router already knows how to
+            # translate SecurityContextNotFound into.
+            raise SecurityContextNotFound(f"No security context with id '{context.id}'")
         model.language = context.language
         model.framework = context.framework
         model.database = context.database

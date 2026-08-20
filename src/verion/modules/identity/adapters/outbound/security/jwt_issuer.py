@@ -34,4 +34,15 @@ class JwtAccessTokenIssuer:
             payload = jwt.decode(token, self._secret_key, algorithms=[self._algorithm])
         except jwt.InvalidTokenError as exc:
             raise InvalidAccessToken("Access token is malformed, invalid, or expired") from exc
-        return payload["sub"]
+        # Runtime check rather than a cast, even though issue() above is the
+        # only writer of `sub` and always writes a str: this value becomes the
+        # user_id every downstream permission check resolves against, so it's a
+        # security control, not a typing formality. A cast asserts an invariant
+        # that holds by our own convention today; this holds regardless of a
+        # future PyJWT change or a token-generation bug. Same reasoning as
+        # SystemDnsResolver narrowing its resolved IPs for ADR-013's gate.
+        # Also closes a latent KeyError on a signed token with no `sub` at all.
+        subject = payload.get("sub")
+        if not isinstance(subject, str):
+            raise InvalidAccessToken("Access token is malformed, invalid, or expired")
+        return subject

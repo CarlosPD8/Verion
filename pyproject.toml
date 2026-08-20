@@ -42,10 +42,25 @@ dependencies = [
 dev = [
     "httpx2>=2.12.0",
     "import-linter>=2.13",
+    # mypy: the CI type-checking gate (ADR-015). Verified per ADR-009 against
+    # primary sources, not memory: org-owned repo (github.com/python/mypy),
+    # MIT, current release 2.3.1, maintained by a team rather than a single
+    # person — no abandonment signal. Chosen over pyright specifically because
+    # it is pure-Python and arrives via `uv sync` alone; pyright needs either a
+    # node toolchain in CI or a PyPI wrapper that downloads a node binary at
+    # runtime, which is exactly the supply-chain surface ADR-009 exists to
+    # scrutinize.
+    "mypy>=2.3.1",
     "pre-commit>=3.8",
     "pytest>=8.3",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.6",
+    # types-PyYAML: stubs for the pyyaml runtime dependency, needed for
+    # ZapAdapter's plan serialization to type-check. Verified per ADR-009
+    # against primary sources, not memory: org-owned repo
+    # (github.com/python/typeshed, stubs/PyYAML), Apache-2.0, released
+    # 2026-08-15 — actively maintained alongside PyYAML itself.
+    "types-PyYAML>=6.0.12.20260815",
 ]
 
 [build-system]
@@ -62,6 +77,17 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.mypy]
+# Scoped to src/ deliberately (ADR-015). src/ was already ~100% annotated when
+# the gate was introduced, so --strict cost 5 errors more than default mode and
+# there is no annotation backlog to pay down. tests/ is the opposite: hundreds
+# of unannotated helpers, plus a duplicate `conftest` module name that halts
+# mypy before it checks anything. Widening scope to tests/ is a deliberate
+# future decision, not an oversight.
+python_version = "3.12"
+files = ["src"]
+strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

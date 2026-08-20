@@ -1,12 +1,18 @@
+from typing import TYPE_CHECKING, Any, cast
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from sqlalchemy import CursorResult
 
 from verion.modules.scanning.adapters.outbound.db.models import (
     ScanModel,
     ScanResultModel,
     WebhookDeliveryModel,
 )
+from verion.modules.scanning.domain.exceptions import ScanNotFound
 from verion.modules.scanning.domain.scan import Scan, ScanStatus
 from verion.modules.scanning.domain.scan_result import ScanResult
 
@@ -49,6 +55,13 @@ class PostgresScanRepository:
 
     async def update(self, scan: Scan) -> None:
         model = await self._session.get(ScanModel, scan.id)
+        if model is None:
+            # Not defensive padding: RunScanUseCase's failure path calls update()
+            # to persist FAILED + failure_reason. Dereferencing None here would
+            # raise an opaque AttributeError *from inside the failure handler*,
+            # masking the original exception it was trying to record — the exact
+            # persisted-failure visibility M3.3 was built to protect.
+            raise ScanNotFound(f"No scan with id '{scan.id}'")
         model.status = str(scan.status)
         model.started_at = scan.started_at
         model.finished_at = scan.finished_at
@@ -113,4 +126,8 @@ class PostgresWebhookDeliveryRepository:
         )
         result = await self._session.execute(statement)
         await self._session.flush()
-        return result.rowcount == 1
+        # session.execute() is typed as returning Result[Any], which doesn't
+        # declare rowcount — it's on CursorResult, the concrete type a DML
+        # statement actually returns at runtime. A typing gap in SQLAlchemy's
+        # overloads, not a wrong call.
+        return bool(cast("CursorResult[Any]", result).rowcount == 1)

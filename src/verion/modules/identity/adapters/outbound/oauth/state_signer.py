@@ -39,4 +39,12 @@ class GitHubOAuthStateSigner:
         if payload.get("purpose") != _PURPOSE:
             raise InvalidOAuthState("OAuth state has the wrong purpose claim")
 
-        return payload["sub"]
+        # Runtime check rather than a cast — same reasoning as
+        # JwtAccessTokenIssuer.decode: this `sub` is the user identity the OAuth
+        # callback resolves the connection against, so it's a security control
+        # and not a typing formality, regardless of the signature and purpose
+        # claim already being verified above.
+        subject = payload.get("sub")
+        if not isinstance(subject, str):
+            raise InvalidOAuthState("OAuth state is malformed, invalid, or expired")
+        return subject

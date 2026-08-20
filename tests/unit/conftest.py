@@ -279,8 +279,8 @@ class FakeScanner:
         self._fail = fail
         self.run_calls: list[str] = []
 
-    async def run(self, repo_path: str) -> RawScanResult:
-        self.run_calls.append(repo_path)
+    async def run(self, target: str) -> RawScanResult:
+        self.run_calls.append(target)
         if self._fail:
             raise ScannerExecutionFailed("simulated scanner failure")
         return self._result

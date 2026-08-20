@@ -18,6 +18,10 @@ class ScannerExecutionFailed(Exception):
     pass
 
 
+class ScanNotFound(Exception):
+    pass
+
+
 class ConnectedRepoNotFound(Exception):
     pass
 

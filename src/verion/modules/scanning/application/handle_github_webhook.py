@@ -1,3 +1,5 @@
+from typing import Any
+
 # ConnectedRepoRepositoryPort/ProjectRepositoryPort belong to projects —
 # importing their *ports* (not .domain/.adapters) is import-linter-legal
 # (cross-module-scanning only forbids .domain/.adapters), same precedent as
@@ -26,7 +28,9 @@ class HandleGitHubWebhookUseCase:
         self._projects = projects
         self._trigger_scan = trigger_scan
 
-    async def execute(self, delivery_id: str, event_type: str, payload: dict) -> Scan | None:
+    async def execute(
+        self, delivery_id: str, event_type: str, payload: dict[str, Any]
+    ) -> Scan | None:
         """Called only after the router has already verified the request's
         HMAC signature — this use case trusts `payload`, it never verifies
         it (that's a security gate, kept in the inbound adapter, not here).

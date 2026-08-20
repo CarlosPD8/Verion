@@ -11,12 +11,16 @@ _API_BASE = "https://api.github.com"
 class GitHubAdapter:
     def __init__(
         self,
-        transport: httpx2.BaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
         webhook_url: str | None = None,
         webhook_secret: str | None = None,
     ) -> None:
         # Injection seam for tests (httpx2.MockTransport over fixture data);
         # None keeps real network behavior for production DI wiring.
+        # AsyncBaseTransport, not BaseTransport: every method here builds an
+        # AsyncClient, which accepts only the async variant — the two are
+        # unrelated classes. The old annotation was wrong but harmless, since
+        # MockTransport subclasses both and production passes None.
         self._transport = transport
         # webhook_url/webhook_secret are only required for register_webhook
         # (M3.6) — every other method on this adapter predates them and

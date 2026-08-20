@@ -54,6 +54,9 @@ jobs:
       - name: Format check (ruff format)
         run: uv run ruff format --check .
 
+      - name: Type check (mypy --strict, src/ only — ADR-015)
+        run: uv run mypy
+
       - name: Architecture boundaries (import-linter)
         run: uv run lint-imports
 

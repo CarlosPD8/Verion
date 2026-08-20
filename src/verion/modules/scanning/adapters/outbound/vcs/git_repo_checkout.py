@@ -4,6 +4,7 @@ import os
 import shutil
 import stat
 import tempfile
+from collections.abc import Callable
 
 from verion.modules.scanning.domain.exceptions import RepoCheckoutFailed
 from verion.modules.scanning.domain.repo_url import build_git_auth_env, parse_github_clone_url
@@ -86,7 +87,9 @@ def _rmtree(path: str) -> None:
     # Windows especially) that plain shutil.rmtree can't remove — clear the
     # read-only bit and retry before giving up, instead of silently leaving
     # the directory behind (which ignore_errors=True alone would do).
-    def _clear_readonly_and_retry(func, path: str, exc: BaseException) -> None:
+    def _clear_readonly_and_retry(
+        func: Callable[[str], object], path: str, exc: BaseException
+    ) -> None:
         os.chmod(path, stat.S_IWRITE)
         func(path)
 

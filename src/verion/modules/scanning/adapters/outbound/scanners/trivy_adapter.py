@@ -18,11 +18,11 @@ class TrivyAdapter:
         # on a given run. See ADR-0012.
         self._skip_db_update = skip_db_update
 
-    async def run(self, repo_path: str) -> RawScanResult:
+    async def run(self, target: str) -> RawScanResult:
         args = ["fs", "--format", "json"]
         if self._skip_db_update:
             args.append("--skip-db-update")
-        args.append(repo_path)
+        args.append(target)
 
         process = await asyncio.create_subprocess_exec(
             "trivy",
@@ -38,7 +38,7 @@ class TrivyAdapter:
             # asyncio.wait_for alone does not kill the underlying child.
             process.kill()
             await process.wait()
-            raise ScannerExecutionFailed(f"trivy scan of '{repo_path}' timed out") from None
+            raise ScannerExecutionFailed(f"trivy scan of '{target}' timed out") from None
 
         if process.returncode != 0:
             # No --exit-code flag is passed above: Trivy's default behavior
@@ -48,7 +48,7 @@ class TrivyAdapter:
             # failure) — simpler than SemgrepAdapter's case, nothing to
             # opt out of here.
             raise ScannerExecutionFailed(
-                f"trivy scan of '{repo_path}' failed: {stderr.decode(errors='replace')}"
+                f"trivy scan of '{target}' failed: {stderr.decode(errors='replace')}"
             )
 
         return RawScanResult(tool="trivy", raw_output=stdout.decode())

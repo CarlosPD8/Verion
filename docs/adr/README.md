@@ -19,3 +19,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0012](0012-trivy-vulnerability-db-freshness.md) | Trivy vulnerability database defaults to a live refresh in production | Accepted |
 | [0013](0013-zap-target-url-ssrf-validation.md) | ZapAdapter target-URL SSRF validation | Accepted |
 | [0014](0014-github-webhook-verification.md) | GitHub webhook signature verification and delivery handling | Accepted |
+| [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted |
