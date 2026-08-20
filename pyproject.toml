@@ -91,6 +91,13 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# --durations=10 keeps the slowest tests visible in every CI log. The suite's
+# runtime is driven by a handful of container-bound tests, not by test count
+# (ZapAdapter's two take 31-34s of a ~58s local run), so the number that
+# matters is which tests are slow, not how many there are. Until this landed
+# there was no per-test breakdown of a CI run at all. See CLAUDE.md's testing
+# requirements for the tracked baseline and its thresholds.
+addopts = ["--durations=10"]
 asyncio_mode = "auto"
 # Session-scoped: a session-scoped async engine (see tests/integration/conftest.py)
 # needs a session-scoped event loop, or asyncpg connections created in one test's
