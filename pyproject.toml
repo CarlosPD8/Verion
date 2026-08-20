@@ -8,6 +8,14 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.19.1",
     "argon2-cffi>=25.1.0",
+    # arq: the only async-native Redis job queue (Celery/RQ are sync-first,
+    # fighting rule 7's async-by-default principle). Verified per ADR-009
+    # against primary sources, not memory: as of this writing it is in
+    # "maintenance only mode" (github.com/python-arq/arq issue #510,
+    # maintainer Samuel Colvin, 2025-10-18) — security fixes continue and
+    # the repo stays open to community PRs, but no active new-feature work.
+    # Not abandoned (0.28.0 shipped 2026-04-16, after the announcement).
+    "arq>=0.28.0",
     "asyncpg>=0.31.0",
     "fastapi>=0.141.1",
     "pydantic-settings>=2.15.0",
@@ -362,5 +370,6 @@ forbidden_modules = [
     "fastapi",
     "sqlalchemy",
     "redis",
+    "arq",
     "uvicorn",
 ]

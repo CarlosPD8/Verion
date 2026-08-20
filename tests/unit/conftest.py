@@ -7,6 +7,7 @@ from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.ports.vcs_provider import RepoMetadata
+from verion.modules.scanning.domain.scan import Scan
 
 
 class InMemoryUserRepository:
@@ -190,3 +191,34 @@ def vcs_provider_factory() -> type[FakeVcsProvider]:
 @pytest.fixture
 def security_context_repository() -> InMemorySecurityContextRepository:
     return InMemorySecurityContextRepository()
+
+
+class InMemoryScanRepository:
+    def __init__(self) -> None:
+        self._scans: dict[str, Scan] = {}
+
+    async def add(self, scan: Scan) -> None:
+        self._scans[scan.id] = scan
+
+    async def get_by_id(self, scan_id: str) -> Scan | None:
+        return self._scans.get(scan_id)
+
+
+class FakeJobQueue:
+    """Records enqueued scan IDs — proves the use-case flow, no real Redis."""
+
+    def __init__(self) -> None:
+        self.enqueued_scan_ids: list[str] = []
+
+    async def enqueue_scan(self, scan_id: str) -> None:
+        self.enqueued_scan_ids.append(scan_id)
+
+
+@pytest.fixture
+def scan_repository() -> InMemoryScanRepository:
+    return InMemoryScanRepository()
+
+
+@pytest.fixture
+def job_queue() -> FakeJobQueue:
+    return FakeJobQueue()

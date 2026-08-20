@@ -54,6 +54,8 @@ from verion.modules.projects.ports.security_context_repository import (
     SecurityContextRepositoryPort,
 )
 from verion.modules.projects.ports.vcs_provider import VcsProviderPort
+from verion.modules.scanning.adapters.outbound.db.repository import PostgresScanRepository
+from verion.modules.scanning.ports.scan_repository import ScanRepositoryPort
 from verion.platform.clock import SystemClock
 from verion.platform.db import get_db_session
 from verion.platform.id_generator import UuidIdGenerator
@@ -366,3 +368,10 @@ def get_update_exposure_tags_use_case(
 UpdateExposureTagsUseCaseDep = Annotated[
     UpdateExposureTagsUseCase, Depends(get_update_exposure_tags_use_case)
 ]
+
+
+def get_scan_repository(session: DbSessionDep) -> ScanRepositoryPort:
+    return PostgresScanRepository(session)
+
+
+ScanRepositoryDep = Annotated[ScanRepositoryPort, Depends(get_scan_repository)]

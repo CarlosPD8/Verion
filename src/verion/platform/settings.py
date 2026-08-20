@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
 
     database_url: str = "postgresql+asyncpg://verion:verion@localhost:5432/verion"
+    redis_url: str = "redis://localhost:6379/0"
 
     # Dev-only default. Not a secrets-management solution (that's M10) — just
     # a safe local default, with a fail-fast guard below so a real deployment
