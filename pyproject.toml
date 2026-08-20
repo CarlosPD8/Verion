@@ -20,6 +20,13 @@ dependencies = [
     "fastapi>=0.141.1",
     "pydantic-settings>=2.15.0",
     "pyjwt>=2.13.0",
+    # semgrep: SAST engine per PRODUCT_SPEC's tech stack. Verified per ADR-009
+    # against primary sources, not memory: published to PyPI by Semgrep Inc.
+    # (San Francisco security company, formerly r2c), actively maintained,
+    # releases as recent as 2026-07 (v1.170.0) — no abandonment signal. The
+    # PyPI wheel bundles the compiled binary, so `uv sync --locked` alone
+    # makes the `semgrep` CLI available — no extra CI install step needed.
+    "semgrep>=1.170.0",
     "sqlalchemy[asyncio]>=2.0.52",
     "uvicorn>=0.52.4",
 ]
