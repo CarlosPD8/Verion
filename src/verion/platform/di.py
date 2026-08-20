@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,9 +57,15 @@ from verion.modules.projects.ports.vcs_provider import VcsProviderPort
 from verion.modules.scanning.adapters.outbound.db.repository import (
     PostgresScanRepository,
     PostgresScanResultRepository,
+    PostgresWebhookDeliveryRepository,
 )
+from verion.modules.scanning.adapters.outbound.queue.arq_job_queue import ArqJobQueue
+from verion.modules.scanning.application.handle_github_webhook import HandleGitHubWebhookUseCase
+from verion.modules.scanning.application.trigger_scan import TriggerScanUseCase
+from verion.modules.scanning.ports.job_queue import JobQueuePort
 from verion.modules.scanning.ports.scan_repository import ScanRepositoryPort
 from verion.modules.scanning.ports.scan_result_repository import ScanResultRepositoryPort
+from verion.modules.scanning.ports.webhook_delivery_repository import WebhookDeliveryRepositoryPort
 from verion.platform.clock import SystemClock
 from verion.platform.db import get_db_session
 from verion.platform.id_generator import UuidIdGenerator
@@ -257,9 +263,17 @@ def get_github_oauth_client(settings: SettingsDep) -> GitHubOAuthClientPort:
 GitHubOAuthClientDep = Annotated[GitHubOAuthClientPort, Depends(get_github_oauth_client)]
 
 
-@lru_cache
-def get_vcs_provider() -> VcsProviderPort:
-    return GitHubAdapter()
+def get_vcs_provider(settings: SettingsDep) -> VcsProviderPort:
+    # Not @lru_cache: unlike the old zero-arg factory, this now takes
+    # SettingsDep — a pydantic BaseSettings instance isn't hashable
+    # (no frozen=True), so lru_cache would raise on the first request.
+    # Every other settings-dependent factory in this file (e.g.
+    # get_access_token_issuer, get_github_oauth_client) is uncached for the
+    # same reason; get_settings() is itself already an lru_cache'd
+    # singleton, so this stays cheap without needing its own cache.
+    return GitHubAdapter(
+        webhook_url=settings.github_webhook_url, webhook_secret=settings.github_webhook_secret
+    )
 
 
 VcsProviderDep = Annotated[VcsProviderPort, Depends(get_vcs_provider)]
@@ -386,3 +400,62 @@ def get_scan_result_repository(session: DbSessionDep) -> ScanResultRepositoryPor
 
 
 ScanResultRepositoryDep = Annotated[ScanResultRepositoryPort, Depends(get_scan_result_repository)]
+
+
+def get_webhook_secret(settings: SettingsDep) -> str:
+    return settings.github_webhook_secret
+
+
+WebhookSecretDep = Annotated[str, Depends(get_webhook_secret)]
+
+
+def get_webhook_delivery_repository(session: DbSessionDep) -> WebhookDeliveryRepositoryPort:
+    return PostgresWebhookDeliveryRepository(session)
+
+
+WebhookDeliveryRepositoryDep = Annotated[
+    WebhookDeliveryRepositoryPort, Depends(get_webhook_delivery_repository)
+]
+
+
+def get_job_queue(request: Request) -> JobQueuePort:
+    # Reads the already-constructed arq pool from app.state — never
+    # constructs one itself. The pool is created exactly once, at process
+    # startup, by app.py's lifespan handler (the first in this project);
+    # by the time any request reaches this dependency, lifespan's startup
+    # phase has already completed. This preserves ArqJobQueue's own
+    # "pool creation is the caller's responsibility, no lazy-init race"
+    # contract — di.py is that caller, and it constructs the pool once at
+    # a well-defined point, not scattered across first-request-wins logic.
+    return ArqJobQueue(request.app.state.arq_redis)
+
+
+JobQueueDep = Annotated[JobQueuePort, Depends(get_job_queue)]
+
+
+def get_trigger_scan_use_case(
+    scans: ScanRepositoryDep, job_queue: JobQueueDep, id_generator: IdGeneratorDep
+) -> TriggerScanUseCase:
+    return TriggerScanUseCase(scans=scans, job_queue=job_queue, id_generator=id_generator)
+
+
+TriggerScanUseCaseDep = Annotated[TriggerScanUseCase, Depends(get_trigger_scan_use_case)]
+
+
+def get_handle_github_webhook_use_case(
+    webhook_deliveries: WebhookDeliveryRepositoryDep,
+    connected_repos: ConnectedRepoRepositoryDep,
+    projects: ProjectRepositoryDep,
+    trigger_scan: TriggerScanUseCaseDep,
+) -> HandleGitHubWebhookUseCase:
+    return HandleGitHubWebhookUseCase(
+        webhook_deliveries=webhook_deliveries,
+        connected_repos=connected_repos,
+        projects=projects,
+        trigger_scan=trigger_scan,
+    )
+
+
+HandleGitHubWebhookUseCaseDep = Annotated[
+    HandleGitHubWebhookUseCase, Depends(get_handle_github_webhook_use_case)
+]

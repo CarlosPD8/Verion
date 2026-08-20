@@ -42,6 +42,10 @@ class _FakeVcsProvider:
             raise GitHubApiError("simulated GitHub API failure")
         return RepoMetadata(default_branch=self._default_branch, description="")
 
+    async def register_webhook(self, access_token: str, owner: str, repo: str) -> None:
+        if self._fail:
+            raise GitHubApiError("simulated GitHub API failure")
+
 
 @pytest.fixture(autouse=True)
 def _clear_dependency_overrides():

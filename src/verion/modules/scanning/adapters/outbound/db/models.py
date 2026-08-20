@@ -32,3 +32,13 @@ class ScanResultModel(Base):
     scan_id: Mapped[str] = mapped_column(ForeignKey("scans.id"), nullable=False)
     tool: Mapped[str] = mapped_column(String, nullable=False)
     raw_output: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class WebhookDeliveryModel(Base):
+    __tablename__ = "webhook_deliveries"
+
+    # delivery_id (GitHub's X-GitHub-Delivery GUID) as the primary key IS
+    # the dedup mechanism: record_if_new relies on the resulting unique-
+    # constraint violation to detect a redelivery race-safely, the same
+    # defensive-constraint idiom as ScanResultModel's (scan_id, tool).
+    delivery_id: Mapped[str] = mapped_column(String, primary_key=True)

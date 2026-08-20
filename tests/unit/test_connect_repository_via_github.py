@@ -57,6 +57,9 @@ async def test_connects_a_repository_via_github_as_owner(
     assert connected_repo.url == "https://github.com/example/repo"
     assert connected_repo.default_branch == "main"
     assert await connected_repo_repository.get_by_id(connected_repo.id) == connected_repo
+    # M3.6: registering the push webhook composes onto this same use case,
+    # right after the ConnectedRepo is persisted.
+    assert vcs_provider.registered_webhooks == [("example", "repo")]
 
 
 async def test_rejects_a_non_member(

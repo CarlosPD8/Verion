@@ -108,6 +108,9 @@ class InMemoryConnectedRepoRepository:
             None,
         )
 
+    async def get_by_url(self, url: str) -> ConnectedRepo | None:
+        return next((repo for repo in self._connected_repos.values() if repo.url == url), None)
+
 
 class InMemorySecurityContextRepository:
     def __init__(self) -> None:
@@ -137,6 +140,7 @@ class FakeVcsProvider:
         self._description = description
         self._files = files or {}
         self._fail = fail
+        self.registered_webhooks: list[tuple[str, str]] = []
 
     async def fetch_repo_metadata(self, access_token: str, owner: str, repo: str) -> RepoMetadata:
         if self._fail:
@@ -154,6 +158,11 @@ class FakeVcsProvider:
         if self._fail:
             raise GitHubApiError("simulated GitHub API failure")
         return self._files.get(path)
+
+    async def register_webhook(self, access_token: str, owner: str, repo: str) -> None:
+        if self._fail:
+            raise GitHubApiError("simulated GitHub API failure")
+        self.registered_webhooks.append((owner, repo))
 
 
 @pytest.fixture
@@ -347,3 +356,23 @@ def dns_resolver() -> FakeDnsResolver:
 def dns_resolver_factory() -> type[FakeDnsResolver]:
     """Lets a test construct a FakeDnsResolver with custom resolved ips."""
     return FakeDnsResolver
+
+
+class InMemoryWebhookDeliveryRepository:
+    def __init__(self) -> None:
+        self._seen: set[str] = set()
+        # Records every call, including redeliveries — lets a test assert
+        # the dedup check itself ran, not just its outcome.
+        self.record_calls: list[str] = []
+
+    async def record_if_new(self, delivery_id: str) -> bool:
+        self.record_calls.append(delivery_id)
+        if delivery_id in self._seen:
+            return False
+        self._seen.add(delivery_id)
+        return True
+
+
+@pytest.fixture
+def webhook_delivery_repository() -> InMemoryWebhookDeliveryRepository:
+    return InMemoryWebhookDeliveryRepository()

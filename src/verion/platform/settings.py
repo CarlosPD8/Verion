@@ -20,6 +20,7 @@ _DEFAULT_SEMGREP_RULESET = str(
 
 _DEV_ONLY_JWT_SECRET_KEY = "dev-secret-change-in-production-32b"
 _DEV_ONLY_GITHUB_CLIENT_SECRET = "dev-github-client-secret-placeholder"
+_DEV_ONLY_GITHUB_WEBHOOK_SECRET = "dev-github-webhook-secret-placeholder"
 
 # Sensitive settings that must never silently boot with their dev-only
 # placeholder outside app_env='local'. Add a new (field_name, dev_value)
@@ -29,6 +30,7 @@ _DEV_ONLY_GITHUB_CLIENT_SECRET = "dev-github-client-secret-placeholder"
 _DEV_ONLY_DEFAULTS = {
     "jwt_secret_key": _DEV_ONLY_JWT_SECRET_KEY,
     "github_client_secret": _DEV_ONLY_GITHUB_CLIENT_SECRET,
+    "github_webhook_secret": _DEV_ONLY_GITHUB_WEBHOOK_SECRET,
 }
 
 
@@ -59,6 +61,15 @@ class Settings(BaseSettings):
 
     # No real frontend exists yet — placeholder like database_url's default.
     oauth_success_redirect_url: str = "http://localhost:3000/dashboard"
+
+    # Same dev-only-default treatment as jwt_secret_key/github_client_secret,
+    # see _DEV_ONLY_DEFAULTS. Used both to verify inbound GitHub webhook
+    # deliveries (HMAC-SHA256 over the raw payload) and to sign outbound
+    # webhook registration calls (GitHubAdapter.register_webhook, M3.6).
+    github_webhook_secret: str = _DEV_ONLY_GITHUB_WEBHOOK_SECRET
+    # Not sensitive — just the public callback path GitHub delivers push
+    # events to. Same placeholder-URL shape as github_oauth_redirect_uri.
+    github_webhook_url: str = "http://localhost:8000/scanning/webhooks/github"
 
     # Deliberately a small, bundled, version-controlled ruleset — not
     # "auto"/"p/*", which fetch from Semgrep's cloud registry over the

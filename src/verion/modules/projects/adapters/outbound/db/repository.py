@@ -120,6 +120,13 @@ class PostgresConnectedRepoRepository:
         model = result.scalar_one_or_none()
         return _connected_repo_to_domain(model) if model is not None else None
 
+    async def get_by_url(self, url: str) -> ConnectedRepo | None:
+        result = await self._session.execute(
+            select(ConnectedRepoModel).where(ConnectedRepoModel.url == url)
+        )
+        model = result.scalar_one_or_none()
+        return _connected_repo_to_domain(model) if model is not None else None
+
 
 class PostgresProjectMembershipRepository:
     def __init__(self, session: AsyncSession) -> None:

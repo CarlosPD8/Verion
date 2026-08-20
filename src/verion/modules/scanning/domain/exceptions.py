@@ -32,3 +32,11 @@ class UnsupportedRepoProvider(Exception):
 
 class UnsafeDastTarget(Exception):
     pass
+
+
+class RepoNotConnected(Exception):
+    pass
+
+
+class InvalidWebhookPayload(Exception):
+    pass

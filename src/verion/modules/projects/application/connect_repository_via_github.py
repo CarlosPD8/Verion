@@ -46,4 +46,11 @@ class ConnectRepositoryViaGitHubUseCase:
         )
         await self._connected_repos.add(connected_repo)
 
+        # M3.6: registers this app's push webhook using the same scope=repo
+        # token already granted at OAuth-connect time (M1.5a) — no new
+        # user-facing authorization step. Composed as the last step of this
+        # use case rather than a separate endpoint, per ROADMAP.md's M3.6
+        # "GitHub Actions integration / webhook receiver" line.
+        await self._vcs_provider.register_webhook(access_token, owner, repo)
+
         return connected_repo

@@ -110,3 +110,62 @@ async def test_list_repo_files_raises_github_api_error_for_an_unknown_repo():
 
     with pytest.raises(GitHubApiError):
         await adapter.list_repo_files("gho_faketoken", "octocat", "unknown-repo")
+
+
+_WEBHOOK_URL = "https://verion.example.com/scanning/webhooks/github"
+
+
+def _webhook_adapter(existing_hooks: list[dict]) -> tuple[GitHubAdapter, list[httpx2.Request]]:
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "GET":
+            return httpx2.Response(200, json=existing_hooks)
+        return httpx2.Response(201, json={"id": 1})
+
+    adapter = GitHubAdapter(
+        transport=httpx2.MockTransport(handler),
+        webhook_url=_WEBHOOK_URL,
+        webhook_secret="test-secret",
+    )
+    return adapter, requests
+
+
+async def test_register_webhook_creates_one_when_none_exists():
+    adapter, requests = _webhook_adapter(existing_hooks=[])
+
+    await adapter.register_webhook("gho_faketoken", "octocat", "fastapi-demo")
+
+    methods = [request.method for request in requests]
+    assert methods == ["GET", "POST"]
+    post_body = json.loads(requests[1].content)
+    assert post_body["config"]["url"] == _WEBHOOK_URL
+    assert post_body["config"]["secret"] == "test-secret"
+    assert post_body["events"] == ["push"]
+
+
+async def test_register_webhook_is_a_no_op_when_an_identical_url_hook_already_exists():
+    adapter, requests = _webhook_adapter(
+        existing_hooks=[{"id": 42, "config": {"url": _WEBHOOK_URL}}]
+    )
+
+    await adapter.register_webhook("gho_faketoken", "octocat", "fastapi-demo")
+
+    assert [request.method for request in requests] == ["GET"]
+
+
+async def test_register_webhook_raises_github_api_error_on_failure():
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(500, json={"message": "boom"})
+
+    adapter = GitHubAdapter(
+        transport=httpx2.MockTransport(handler),
+        webhook_url=_WEBHOOK_URL,
+        webhook_secret="test-secret",
+    )
+
+    with pytest.raises(GitHubApiError) as exc_info:
+        await adapter.register_webhook("gho_faketoken", "octocat", "fastapi-demo")
+    # Rule 12: the webhook secret must never leak into an exception message.
+    assert "test-secret" not in str(exc_info.value)

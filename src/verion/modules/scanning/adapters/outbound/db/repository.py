@@ -2,7 +2,11 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from verion.modules.scanning.adapters.outbound.db.models import ScanModel, ScanResultModel
+from verion.modules.scanning.adapters.outbound.db.models import (
+    ScanModel,
+    ScanResultModel,
+    WebhookDeliveryModel,
+)
 from verion.modules.scanning.domain.scan import Scan, ScanStatus
 from verion.modules.scanning.domain.scan_result import ScanResult
 
@@ -88,3 +92,25 @@ class PostgresScanResultRepository:
             select(ScanResultModel).where(ScanResultModel.scan_id == scan_id)
         )
         return [_scan_result_to_domain(model) for model in result.scalars()]
+
+
+class PostgresWebhookDeliveryRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def record_if_new(self, delivery_id: str) -> bool:
+        # ON CONFLICT DO NOTHING + rowcount, not INSERT + catch IntegrityError:
+        # an IntegrityError puts the session in a failed-transaction state
+        # that needs its own rollback before the caller's session can be
+        # reused, which would fight the request-scoped session's own
+        # commit/rollback lifecycle (platform/db.py's get_db_session). This
+        # stays race-safe on the same unique-constraint mechanism without
+        # that entanglement.
+        statement = (
+            insert(WebhookDeliveryModel)
+            .values(delivery_id=delivery_id)
+            .on_conflict_do_nothing(index_elements=["delivery_id"])
+        )
+        result = await self._session.execute(statement)
+        await self._session.flush()
+        return result.rowcount == 1

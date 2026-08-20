@@ -18,3 +18,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0011](0011-subprocess-execution-safety.md) | Subprocess execution safety pattern | Accepted |
 | [0012](0012-trivy-vulnerability-db-freshness.md) | Trivy vulnerability database defaults to a live refresh in production | Accepted |
 | [0013](0013-zap-target-url-ssrf-validation.md) | ZapAdapter target-URL SSRF validation | Accepted |
+| [0014](0014-github-webhook-verification.md) | GitHub webhook signature verification and delivery handling | Accepted |

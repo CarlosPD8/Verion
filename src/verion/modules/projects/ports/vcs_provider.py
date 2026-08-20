@@ -25,3 +25,12 @@ class VcsProviderPort(Protocol):
     async def get_file_content(
         self, access_token: str, owner: str, repo: str, path: str
     ) -> str | None: ...
+
+    async def register_webhook(self, access_token: str, owner: str, repo: str) -> None:
+        """Registers (idempotently) this app's push webhook on the given
+        repo. The target URL and signing secret are adapter configuration
+        (constructor-injected), not call arguments — mirrors
+        SemgrepAdapter(config=...)'s existing config-via-constructor shape
+        rather than threading platform config through use-case call
+        signatures. M3.6."""
+        ...

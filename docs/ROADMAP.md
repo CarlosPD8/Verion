@@ -106,6 +106,8 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 
 **Goal:** a scan can be triggered and produces raw tool output, end to end for one scanner first. FR-4.
 
+> **⚠ Known gap, unassigned as of M3.6 (confirmed three times — M3.4, M3.5, M3.6):** multi-scanner orchestration — a single trigger (manual or webhook) firing Semgrep+Trivy+ZAP together — is not assigned to any issue in this milestone or any other. Each of M3.2/M3.4/M3.5 adds exactly one scanner path end to end (per M3.2's own "first scanner, walking skeleton" framing), and `platform/worker.py` is hardcoded to `SemgrepAdapter` alone. ZAP's "optional per project" status (M3.5) adds its own per-project-config dimension that any real dispatch design will need to account for. This needs a deliberate decision — likely touching `RunScanUseCase`, `platform/worker.py`'s composition, and `Scan`'s data model — before it gets folded into a future issue; it is not silently deferred without a plan, and not silently built without one either.
+
 - **M3.1 — Scan orchestration domain**
   Module: `scanning` · Depends on: M2
   - `Scan` entity, `TriggerScanUseCase`, `JobQueuePort`.
