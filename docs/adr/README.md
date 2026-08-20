@@ -15,3 +15,5 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0008](0008-manual-di-wiring.md) | Explicit `Depends()`-based DI wiring instead of a DI framework | Accepted |
 | [0009](0009-dependency-verification-protocol.md) | Verify dependency-safety claims against primary sources before acting | Accepted |
 | [0010](0010-allow-indirect-imports.md) | `allow_indirect_imports` for cross-module contracts | Accepted |
+| [0011](0011-subprocess-execution-safety.md) | Subprocess execution safety pattern | Accepted |
+| [0012](0012-trivy-vulnerability-db-freshness.md) | Trivy vulnerability database defaults to a live refresh in production | Accepted |

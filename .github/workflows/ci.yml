@@ -60,6 +60,37 @@ jobs:
       - name: Apply database migrations
         run: uv run alembic upgrade head
 
+      - name: Install Trivy
+        # Trivy is a Go binary, not pip-installable (unlike Semgrep, whose
+        # PyPI wheel bundles the compiled binary) — this is a genuinely new
+        # class of CI dependency. Pinned to a commit SHA (not just the tag)
+        # per this repo's dependency-verification standard (ADR-0009):
+        # 81e51434... is aquasecurity/setup-trivy's v0.3.1 tag, the current
+        # release as of writing (v0.3.0 is broken upstream, do not use).
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.74.0
+          cache: true
+
+      - name: Compute daily cache key
+        id: trivy-cache-date
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Trivy vulnerability DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ steps.trivy-cache-date.outputs.date }}
+          restore-keys: trivy-db-
+
+      - name: Warm Trivy vulnerability DB cache
+        # Trivy refuses --skip-db-update on a genuinely empty cache ("cannot
+        # be specified on the first run") — verified directly. TrivyAdapter's
+        # integration tests always pass skip_db_update=True (see ADR-0012),
+        # so the cache must already be populated before pytest runs; this
+        # step is a no-op download once actions/cache has a same-day hit.
+        run: trivy fs --download-db-only
+
       - name: Unit tests (pytest)
         run: uv run pytest
 
