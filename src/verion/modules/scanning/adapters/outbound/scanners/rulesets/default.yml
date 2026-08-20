@@ -1,0 +1,15 @@
+# Default Semgrep ruleset for the worker's SemgrepAdapter (Settings.semgrep_ruleset).
+# Deliberately small and pinned rather than --config auto/p/*: those fetch
+# rules from Semgrep's cloud registry over the network on every scan, which
+# would make a background worker depend on live registry availability for
+# every job. Determinism/no-network-dependency is an accepted MVP trade-off
+# over registry-level coverage breadth — not an oversight. The same file is
+# used by tests (tests/integration/test_semgrep_adapter.py,
+# test_scanning_walking_skeleton.py) so what's tested is what actually runs.
+rules:
+  - id: dangerous-eval
+    languages: [python]
+    severity: ERROR
+    message: Avoid eval() on untrusted input.
+    patterns:
+      - pattern: eval(...)

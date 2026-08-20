@@ -1,7 +1,22 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Absolute, not CWD-relative like env_file below — this is read by the arq
+# worker process (platform/worker.py, M3.3), which has no guarantee of
+# running from the repo root the way `uv run uvicorn`/pytest do.
+_DEFAULT_SEMGREP_RULESET = str(
+    Path(__file__).resolve().parents[1]
+    / "modules"
+    / "scanning"
+    / "adapters"
+    / "outbound"
+    / "scanners"
+    / "rulesets"
+    / "default.yml"
+)
 
 _DEV_ONLY_JWT_SECRET_KEY = "dev-secret-change-in-production-32b"
 _DEV_ONLY_GITHUB_CLIENT_SECRET = "dev-github-client-secret-placeholder"
@@ -44,6 +59,14 @@ class Settings(BaseSettings):
 
     # No real frontend exists yet — placeholder like database_url's default.
     oauth_success_redirect_url: str = "http://localhost:3000/dashboard"
+
+    # Deliberately a small, bundled, version-controlled ruleset — not
+    # "auto"/"p/*", which fetch from Semgrep's cloud registry over the
+    # network on every scan. Determinism/no-network-dependency at scan time
+    # is an accepted MVP trade-off over registry-level coverage breadth (see
+    # the ruleset file's own comment). The same file backs both this
+    # production default and the scanning integration tests.
+    semgrep_ruleset: str = _DEFAULT_SEMGREP_RULESET
 
     @model_validator(mode="after")
     def _reject_dev_secrets_outside_local(self) -> "Settings":

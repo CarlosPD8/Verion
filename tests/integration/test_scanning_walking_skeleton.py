@@ -8,7 +8,21 @@ from verion.modules.scanning.adapters.outbound.vcs.git_repo_checkout import GitR
 # genuinely chain together against a real repo — without any use case, queue,
 # or persistence, which are explicitly M3.3's scope, not this issue's.
 _PUBLIC_REPO = "https://github.com/octocat/Hello-World"
-_RULESET = Path(__file__).parent / "fixtures" / "semgrep_rules" / "basic.yml"
+# The same ruleset the worker uses in production (Settings.semgrep_ruleset,
+# M3.3), not a test-only copy — see that file's own comment for why it's a
+# small pinned ruleset, not --config auto/p/*.
+_RULESET = (
+    Path(__file__).parents[2]
+    / "src"
+    / "verion"
+    / "modules"
+    / "scanning"
+    / "adapters"
+    / "outbound"
+    / "scanners"
+    / "rulesets"
+    / "default.yml"
+)
 
 
 async def test_checkout_then_scan_produces_raw_results():

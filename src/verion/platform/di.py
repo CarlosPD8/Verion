@@ -54,8 +54,12 @@ from verion.modules.projects.ports.security_context_repository import (
     SecurityContextRepositoryPort,
 )
 from verion.modules.projects.ports.vcs_provider import VcsProviderPort
-from verion.modules.scanning.adapters.outbound.db.repository import PostgresScanRepository
+from verion.modules.scanning.adapters.outbound.db.repository import (
+    PostgresScanRepository,
+    PostgresScanResultRepository,
+)
 from verion.modules.scanning.ports.scan_repository import ScanRepositoryPort
+from verion.modules.scanning.ports.scan_result_repository import ScanResultRepositoryPort
 from verion.platform.clock import SystemClock
 from verion.platform.db import get_db_session
 from verion.platform.id_generator import UuidIdGenerator
@@ -375,3 +379,10 @@ def get_scan_repository(session: DbSessionDep) -> ScanRepositoryPort:
 
 
 ScanRepositoryDep = Annotated[ScanRepositoryPort, Depends(get_scan_repository)]
+
+
+def get_scan_result_repository(session: DbSessionDep) -> ScanResultRepositoryPort:
+    return PostgresScanResultRepository(session)
+
+
+ScanResultRepositoryDep = Annotated[ScanResultRepositoryPort, Depends(get_scan_result_repository)]

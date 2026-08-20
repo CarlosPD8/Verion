@@ -16,3 +16,15 @@ class RepoCheckoutFailed(Exception):
 
 class ScannerExecutionFailed(Exception):
     pass
+
+
+class ConnectedRepoNotFound(Exception):
+    pass
+
+
+class GitHubConnectionNotFound(Exception):
+    pass
+
+
+class UnsupportedRepoProvider(Exception):
+    pass

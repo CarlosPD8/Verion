@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 
 from verion.modules.scanning.adapters.outbound.db.repository import PostgresScanRepository
@@ -12,6 +13,7 @@ def _scan(scan_id: str = "scan-1") -> Scan:
         triggered_by="owner-1",
         started_at=None,
         finished_at=None,
+        failure_reason=None,
     )
 
 
@@ -33,6 +35,7 @@ async def test_round_trips_a_scan_with_timestamps_through_postgres(db_session):
         triggered_by="owner-1",
         started_at=datetime(2026, 1, 1, tzinfo=UTC),
         finished_at=None,
+        failure_reason=None,
     )
 
     await repository.add(scan)
@@ -44,3 +47,20 @@ async def test_get_scan_by_id_returns_none_when_missing(db_session):
     repository = PostgresScanRepository(db_session)
 
     assert await repository.get_by_id("does-not-exist") is None
+
+
+async def test_updates_a_scan_through_postgres(db_session):
+    repository = PostgresScanRepository(db_session)
+    scan = _scan("scan-3")
+    await repository.add(scan)
+
+    updated = dataclasses.replace(
+        scan,
+        status=ScanStatus.FAILED,
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
+        finished_at=datetime(2026, 1, 1, 0, 5, tzinfo=UTC),
+        failure_reason="checkout failed",
+    )
+    await repository.update(updated)
+
+    assert await repository.get_by_id(scan.id) == updated

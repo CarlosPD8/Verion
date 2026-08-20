@@ -10,11 +10,22 @@ from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _TARGET_DIR = _FIXTURES_DIR / "semgrep_target"
-_RULESET = _FIXTURES_DIR / "semgrep_rules" / "basic.yml"
-
-# A pinned local ruleset, not --config auto/p/*: those fetch from Semgrep's
-# cloud registry over the network, which would make this test flaky/slow and
-# dependent on registry availability for no benefit — see M3.2's plan.
+# The same ruleset the worker uses in production (Settings.semgrep_ruleset,
+# M3.3) — not a test-only copy, so what's tested is what actually runs. See
+# that file's own comment for why it's a small pinned ruleset, not
+# --config auto/p/*.
+_RULESET = (
+    Path(__file__).parents[2]
+    / "src"
+    / "verion"
+    / "modules"
+    / "scanning"
+    / "adapters"
+    / "outbound"
+    / "scanners"
+    / "rulesets"
+    / "default.yml"
+)
 
 
 def _copy_target_outside_of_any_test_directory() -> str:

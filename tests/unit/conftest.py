@@ -2,12 +2,16 @@ from datetime import UTC, datetime
 
 import pytest
 
+from verion.modules.identity.domain.github_connection import GitHubConnection
 from verion.modules.identity.domain.user import User
 from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.ports.vcs_provider import RepoMetadata
+from verion.modules.scanning.domain.exceptions import RepoCheckoutFailed, ScannerExecutionFailed
+from verion.modules.scanning.domain.raw_scan_result import RawScanResult
 from verion.modules.scanning.domain.scan import Scan
+from verion.modules.scanning.domain.scan_result import ScanResult
 
 
 class InMemoryUserRepository:
@@ -22,6 +26,17 @@ class InMemoryUserRepository:
 
     async def get_by_id(self, user_id: str) -> User | None:
         return self._users.get(user_id)
+
+
+class InMemoryGitHubConnectionRepository:
+    def __init__(self) -> None:
+        self._connections: dict[str, GitHubConnection] = {}
+
+    async def add(self, connection: GitHubConnection) -> None:
+        self._connections[connection.user_id] = connection
+
+    async def get_by_user_id(self, user_id: str) -> GitHubConnection | None:
+        return self._connections.get(user_id)
 
 
 class FakePasswordHasher:
@@ -147,6 +162,11 @@ def user_repository() -> InMemoryUserRepository:
 
 
 @pytest.fixture
+def github_connection_repository() -> InMemoryGitHubConnectionRepository:
+    return InMemoryGitHubConnectionRepository()
+
+
+@pytest.fixture
 def password_hasher() -> FakePasswordHasher:
     return FakePasswordHasher()
 
@@ -203,6 +223,9 @@ class InMemoryScanRepository:
     async def get_by_id(self, scan_id: str) -> Scan | None:
         return self._scans.get(scan_id)
 
+    async def update(self, scan: Scan) -> None:
+        self._scans[scan.id] = scan
+
 
 class FakeJobQueue:
     """Records enqueued scan IDs — proves the use-case flow, no real Redis."""
@@ -222,3 +245,80 @@ def scan_repository() -> InMemoryScanRepository:
 @pytest.fixture
 def job_queue() -> FakeJobQueue:
     return FakeJobQueue()
+
+
+class InMemoryScanResultRepository:
+    def __init__(self) -> None:
+        # Keyed by (scan_id, tool) — mirrors the Postgres adapter's
+        # (scan_id, tool) unique constraint, so upsert-not-insert behavior
+        # is provable in unit tests too.
+        self._results: dict[tuple[str, str], ScanResult] = {}
+
+    async def upsert(self, scan_result: ScanResult) -> None:
+        self._results[(scan_result.scan_id, scan_result.tool)] = scan_result
+
+    async def get_by_scan_id(self, scan_id: str) -> list[ScanResult]:
+        return [result for result in self._results.values() if result.scan_id == scan_id]
+
+
+class FakeScanner:
+    """Records each call to `run` — proves whether a retry redoes real work,
+    no real subprocess."""
+
+    def __init__(self, result: RawScanResult | None = None, fail: bool = False) -> None:
+        self._result = result or RawScanResult(tool="semgrep", raw_output="{}")
+        self._fail = fail
+        self.run_calls: list[str] = []
+
+    async def run(self, repo_path: str) -> RawScanResult:
+        self.run_calls.append(repo_path)
+        if self._fail:
+            raise ScannerExecutionFailed("simulated scanner failure")
+        return self._result
+
+
+class FakeRepoCheckout:
+    """Records each call to `checkout`/`cleanup` — proves whether a retry
+    redoes real work, no real git subprocess."""
+
+    def __init__(self, local_path: str = "/tmp/fake-checkout", fail: bool = False) -> None:
+        self.local_path = local_path
+        self._fail = fail
+        self.checkout_calls: list[str] = []
+        self.cleanup_calls: list[str] = []
+
+    async def checkout(self, repo_url: str, access_token: str | None) -> str:
+        self.checkout_calls.append(repo_url)
+        if self._fail:
+            raise RepoCheckoutFailed("simulated checkout failure")
+        return self.local_path
+
+    async def cleanup(self, local_path: str) -> None:
+        self.cleanup_calls.append(local_path)
+
+
+@pytest.fixture
+def scan_result_repository() -> InMemoryScanResultRepository:
+    return InMemoryScanResultRepository()
+
+
+@pytest.fixture
+def scanner() -> FakeScanner:
+    return FakeScanner()
+
+
+@pytest.fixture
+def scanner_factory() -> type[FakeScanner]:
+    """Lets a test construct a FakeScanner with custom result/fail args."""
+    return FakeScanner
+
+
+@pytest.fixture
+def repo_checkout() -> FakeRepoCheckout:
+    return FakeRepoCheckout()
+
+
+@pytest.fixture
+def repo_checkout_factory() -> type[FakeRepoCheckout]:
+    """Lets a test construct a FakeRepoCheckout with custom fail args."""
+    return FakeRepoCheckout

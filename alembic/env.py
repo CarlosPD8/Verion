@@ -15,6 +15,10 @@ from verion.modules.projects.adapters.outbound.db.models import (  # noqa: F401
     ProjectMembershipModel,
     ProjectModel,
 )
+from verion.modules.scanning.adapters.outbound.db.models import (  # noqa: F401
+    ScanModel,
+    ScanResultModel,
+)
 from verion.platform.db import Base
 from verion.platform.settings import get_settings
 

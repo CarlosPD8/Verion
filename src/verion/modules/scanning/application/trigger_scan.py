@@ -32,6 +32,7 @@ class TriggerScanUseCase:
             triggered_by=user_id,
             started_at=None,
             finished_at=None,
+            failure_reason=None,
         )
         await self._scans.add(scan)
         await self._job_queue.enqueue_scan(scan.id)

@@ -18,3 +18,4 @@ class Scan:
     triggered_by: str
     started_at: datetime | None
     finished_at: datetime | None
+    failure_reason: str | None
