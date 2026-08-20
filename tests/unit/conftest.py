@@ -4,6 +4,7 @@ import pytest
 
 from verion.modules.identity.domain.user import User
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
+from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.ports.vcs_provider import RepoMetadata
 
 
@@ -85,6 +86,17 @@ class InMemoryConnectedRepoRepository:
         return self._connected_repos.get(connected_repo_id)
 
 
+class InMemorySecurityContextRepository:
+    def __init__(self) -> None:
+        self._contexts: dict[str, SecurityContext] = {}
+
+    async def add(self, context: SecurityContext) -> None:
+        self._contexts[context.project_id] = context
+
+    async def get_by_project_id(self, project_id: str) -> SecurityContext | None:
+        return self._contexts.get(project_id)
+
+
 class FakeVcsProvider:
     """Returns fixed metadata — proves the use-case flow, no real GitHub call."""
 
@@ -134,3 +146,8 @@ def connected_repo_repository() -> InMemoryConnectedRepoRepository:
 @pytest.fixture
 def vcs_provider() -> FakeVcsProvider:
     return FakeVcsProvider()
+
+
+@pytest.fixture
+def security_context_repository() -> InMemorySecurityContextRepository:
+    return InMemorySecurityContextRepository()

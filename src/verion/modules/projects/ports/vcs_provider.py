@@ -16,3 +16,12 @@ class VcsProviderPort(Protocol):
     async def fetch_repo_metadata(
         self, access_token: str, owner: str, repo: str
     ) -> RepoMetadata: ...
+
+    # Signatures only as of M2.1 — GitHubAdapter doesn't implement these yet.
+    # Real implementation (and the context-extraction adapter that calls
+    # them) lands in M2.2.
+    async def list_repo_files(self, access_token: str, owner: str, repo: str) -> list[str]: ...
+
+    async def get_file_content(
+        self, access_token: str, owner: str, repo: str, path: str
+    ) -> str | None: ...
