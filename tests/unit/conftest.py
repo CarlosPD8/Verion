@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from verion.modules.identity.domain.user import User
+from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.ports.vcs_provider import RepoMetadata
@@ -85,6 +86,12 @@ class InMemoryConnectedRepoRepository:
     async def get_by_id(self, connected_repo_id: str) -> ConnectedRepo | None:
         return self._connected_repos.get(connected_repo_id)
 
+    async def get_by_project_id(self, project_id: str) -> ConnectedRepo | None:
+        return next(
+            (repo for repo in self._connected_repos.values() if repo.project_id == project_id),
+            None,
+        )
+
 
 class InMemorySecurityContextRepository:
     def __init__(self) -> None:
@@ -98,14 +105,36 @@ class InMemorySecurityContextRepository:
 
 
 class FakeVcsProvider:
-    """Returns fixed metadata — proves the use-case flow, no real GitHub call."""
+    """Returns fixed metadata/files — proves the use-case flow, no real GitHub call."""
 
-    def __init__(self, default_branch: str = "main", description: str = "") -> None:
+    def __init__(
+        self,
+        default_branch: str = "main",
+        description: str = "",
+        files: dict[str, str] | None = None,
+        fail: bool = False,
+    ) -> None:
         self._default_branch = default_branch
         self._description = description
+        self._files = files or {}
+        self._fail = fail
 
     async def fetch_repo_metadata(self, access_token: str, owner: str, repo: str) -> RepoMetadata:
+        if self._fail:
+            raise GitHubApiError("simulated GitHub API failure")
         return RepoMetadata(default_branch=self._default_branch, description=self._description)
+
+    async def list_repo_files(self, access_token: str, owner: str, repo: str) -> list[str]:
+        if self._fail:
+            raise GitHubApiError("simulated GitHub API failure")
+        return list(self._files.keys())
+
+    async def get_file_content(
+        self, access_token: str, owner: str, repo: str, path: str
+    ) -> str | None:
+        if self._fail:
+            raise GitHubApiError("simulated GitHub API failure")
+        return self._files.get(path)
 
 
 @pytest.fixture
@@ -146,6 +175,13 @@ def connected_repo_repository() -> InMemoryConnectedRepoRepository:
 @pytest.fixture
 def vcs_provider() -> FakeVcsProvider:
     return FakeVcsProvider()
+
+
+@pytest.fixture
+def vcs_provider_factory() -> type[FakeVcsProvider]:
+    """Lets a test construct a FakeVcsProvider with custom files/fail args,
+    without importing across test modules (tests/ isn't a package)."""
+    return FakeVcsProvider
 
 
 @pytest.fixture

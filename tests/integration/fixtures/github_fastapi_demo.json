@@ -1,0 +1,52 @@
+{
+  "tree": {
+    "tree": [
+      {
+        "path": ".github",
+        "type": "tree"
+      },
+      {
+        "path": ".github/workflows",
+        "type": "tree"
+      },
+      {
+        "path": ".github/workflows/ci.yml",
+        "type": "blob"
+      },
+      {
+        "path": "src",
+        "type": "tree"
+      },
+      {
+        "path": "src/main.py",
+        "type": "blob"
+      },
+      {
+        "path": "pyproject.toml",
+        "type": "blob"
+      },
+      {
+        "path": "Dockerfile",
+        "type": "blob"
+      },
+      {
+        "path": "README.md",
+        "type": "blob"
+      }
+    ]
+  },
+  "contents": {
+    "pyproject.toml": {
+      "content": "W3Byb2plY3RdCm5hbWUgPSAiZmFzdGFwaS1kZW1vIgpkZXBlbmRlbmNpZXMg\nPSBbImZhc3RhcGk+PTAuMTAwIiwgInV2aWNvcm4iXQo=\n",
+      "encoding": "base64"
+    },
+    "Dockerfile": {
+      "content": "RlJPTSBweXRob246My4xMi1zbGltCkNPUFkgLiAvYXBwCg==\n",
+      "encoding": "base64"
+    },
+    ".github/workflows/ci.yml": {
+      "content": "bmFtZTogQ0kKb246IFtwdXNoXQpqb2JzOgogIHRlc3Q6CiAgICBydW5zLW9u\nOiB1YnVudHUtbGF0ZXN0Cg==\n",
+      "encoding": "base64"
+    }
+  }
+}

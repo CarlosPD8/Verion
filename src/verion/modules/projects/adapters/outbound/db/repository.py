@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from verion.modules.projects.adapters.outbound.db.models import (
@@ -80,6 +81,13 @@ class PostgresConnectedRepoRepository:
 
     async def get_by_id(self, connected_repo_id: str) -> ConnectedRepo | None:
         model = await self._session.get(ConnectedRepoModel, connected_repo_id)
+        return _connected_repo_to_domain(model) if model is not None else None
+
+    async def get_by_project_id(self, project_id: str) -> ConnectedRepo | None:
+        result = await self._session.execute(
+            select(ConnectedRepoModel).where(ConnectedRepoModel.project_id == project_id)
+        )
+        model = result.scalar_one_or_none()
         return _connected_repo_to_domain(model) if model is not None else None
 
 

@@ -8,3 +8,11 @@ class InsufficientPermissions(Exception):
 
 class GitHubApiError(Exception):
     pass
+
+
+class ConnectedRepoNotFound(Exception):
+    pass
+
+
+class UnsupportedRepoProvider(Exception):
+    pass

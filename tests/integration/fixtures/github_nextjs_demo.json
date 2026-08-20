@@ -1,0 +1,28 @@
+{
+  "tree": {
+    "tree": [
+      {
+        "path": "pages",
+        "type": "tree"
+      },
+      {
+        "path": "pages/index.js",
+        "type": "blob"
+      },
+      {
+        "path": "package.json",
+        "type": "blob"
+      },
+      {
+        "path": "README.md",
+        "type": "blob"
+      }
+    ]
+  },
+  "contents": {
+    "package.json": {
+      "content": "ewogICJuYW1lIjogIm5leHRqcy1kZW1vIiwKICAiZGVwZW5kZW5jaWVzIjog\newogICAgIm5leHQiOiAiXjE0LjAuMCIsCiAgICAicmVhY3QiOiAiXjE4LjAu\nMCIKICB9Cn0=\n",
+      "encoding": "base64"
+    }
+  }
+}

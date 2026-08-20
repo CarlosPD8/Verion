@@ -19,6 +19,22 @@ _JAVASCRIPT_FRAMEWORK_SIGNATURES = ("next", "express", "react")
 
 _CI_WORKFLOWS_PREFIX = ".github/workflows/"
 
+# The fixed set of paths detect_stack actually inspects (language/framework
+# signature files, plus Dockerfile and any CI workflow file) — used to avoid
+# fetching a repo's entire file tree when only these ever affect detection.
+_RELEVANT_FILENAMES = frozenset(
+    {
+        "pyproject.toml",
+        "requirements.txt",
+        "package.json",
+        "go.mod",
+        "Gemfile",
+        "pom.xml",
+        "build.gradle",
+        "Dockerfile",
+    }
+)
+
 
 @dataclass(frozen=True)
 class DetectionResult:
@@ -42,6 +58,14 @@ def detect_stack(files: dict[str, str]) -> DetectionResult:
         deployment_target=deployment_target,
         ci_provider=ci_provider,
     )
+
+
+def relevant_file_paths(all_paths: list[str]) -> list[str]:
+    return [
+        path
+        for path in all_paths
+        if path in _RELEVANT_FILENAMES or path.startswith(_CI_WORKFLOWS_PREFIX)
+    ]
 
 
 def _detect_language(files: dict[str, str]) -> tuple[str | None, tuple[str, ...]]:

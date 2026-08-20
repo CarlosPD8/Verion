@@ -1,4 +1,4 @@
-from verion.modules.projects.domain.context_detection import detect_stack
+from verion.modules.projects.domain.context_detection import detect_stack, relevant_file_paths
 
 
 def test_detects_python_fastapi_repo():
@@ -63,3 +63,32 @@ def test_javascript_framework_is_matched_as_a_dependency_key_not_a_substring():
 
     assert result.language == "javascript"
     assert result.framework is None
+
+
+def test_relevant_file_paths_selects_known_signature_files_and_workflow_files():
+    all_paths = [
+        "pyproject.toml",
+        "src/main.py",
+        "README.md",
+        "Dockerfile",
+        ".github/workflows/ci.yml",
+        ".github/workflows/nested/deploy.yml",
+        "package.json",
+        "docs/architecture.md",
+    ]
+
+    result = relevant_file_paths(all_paths)
+
+    assert set(result) == {
+        "pyproject.toml",
+        "Dockerfile",
+        ".github/workflows/ci.yml",
+        ".github/workflows/nested/deploy.yml",
+        "package.json",
+    }
+
+
+def test_relevant_file_paths_returns_empty_list_when_nothing_matches():
+    all_paths = ["src/main.py", "README.md", "docs/architecture.md"]
+
+    assert relevant_file_paths(all_paths) == []
