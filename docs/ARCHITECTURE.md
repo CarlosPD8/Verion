@@ -348,9 +348,11 @@ Key property: **priority and reasoning are fully computed before the LLM is ever
 
 To keep this from becoming aspirational documentation that the code drifts away from:
 
-- **Import-linter / dependency-cruiser rule in CI**: fails the build if `domain/` imports anything from `adapters/` or third-party frameworks.
-- **Port interfaces defined with Python `Protocol` / ABCs**, adapters type-checked against them.
-- **A module cannot import another module's `domain/` or `adapters/` directly** — only its published ports.
+- **Import-linter contracts in CI** (ADR-007): fail the build if `domain/` imports from `adapters/`, or if `domain/`/`application/` import a listed framework. Note the framework check names specific packages rather than detecting "a framework" generically — see `pyproject.toml`'s `framework-isolation` contract for the current list.
+- **Port interfaces defined with Python `Protocol`**, adapters type-checked against them by `mypy --strict` in CI (ADR-015). Structural typing means conformance is verified where an adapter meets a port-annotated site — a `platform/di.py` factory's return type, or an explicit annotation at construction — not merely by an adapter existing.
+- **A module cannot import another module's `domain/` or `adapters/` directly** — only its published ports. Also an import-linter contract, one per module.
+
+`CLAUDE.md`'s *How these rules are enforced* section is the authoritative, rule-by-rule breakdown of what CI does and does not catch; this list is the architectural summary of it.
 
 ---
 

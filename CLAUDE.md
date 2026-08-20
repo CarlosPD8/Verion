@@ -35,7 +35,7 @@ Full context lives in:
 
 ## Non-negotiable architectural rules
 
-This project uses **Hexagonal Architecture (Ports & Adapters)** inside a **modular monolith**. These rules are enforced by CI (import-linter), not just convention. Numbered 1–15 below; numbers are stable and never get reassigned (they're referenced by ADRs, code comments, and tests) — the subheadings are purely for scanning, not a renumbering.
+This project uses **Hexagonal Architecture (Ports & Adapters)** inside a **modular monolith**. Rules 1–3 are mechanically enforced by CI (import-linter); most of the rest are not, and hold by review alone — see *How these rules are enforced* below for exactly which is which, and don't assume a green CI run means a change is compliant. Numbered 1–15 below; numbers are stable and never get reassigned (they're referenced by ADRs, code comments, and tests) — the subheadings are purely for scanning, not a renumbering.
 
 ### Hexagonal boundaries
 
@@ -77,6 +77,38 @@ If a requested change would violate one of these, say so explicitly before imple
 
 ---
 
+## How these rules are enforced
+
+Two tiers. Both are binding; only one fails the build. Know which is which before treating a green CI run as proof a change is compliant.
+
+### Tier 1 — mechanically enforced
+
+CI rejects the change in about two minutes, without a reviewer. Every row below is a step that exists in `.github/workflows/ci.yml`:
+
+| CI step | What it actually covers |
+|---|---|
+| `uv run lint-imports` (17 contracts, ADR-007 / ADR-010) | Rules 2 and 3 fully. Rule 1's `adapters/` clause fully; its "any third-party framework" clause **only for the packages named** in the `framework-isolation` contract — a new integration importing an unlisted library into `domain/` passes. |
+| `uv run mypy` (`--strict`, `src/` only, ADR-015) | Port/adapter Protocol conformance — but only where an adapter meets a port-annotated site (a `di.py` factory's return type, or an explicit annotation). An adapter constructed into an `Any` is unchecked. |
+| `uv run pytest` | Rule 12 — but only because the rule requires each module to ship its own non-leakage test. Nothing verifies that a *new* module actually did. |
+| `uv run ruff check` / `ruff format --check` | Style only. No security or architecture rules — bandit (`S`) is not in the selected rule set, so `shell=True` is not caught. |
+| `uv run alembic upgrade head` | That migrations apply cleanly. **Not** rule 8 — a model on a second declarative base silently gets no migration and this step still passes. |
+
+Rule 4 is partly covered: the layers contract blocks its most common violation (importing a concrete adapter from `application/`), but "add the integration as an adapter behind a port" is a design requirement no linter can check.
+
+Rules **5, 6, 7, 8, 9, 10, 11, 13, 14, 15** have no mechanical check at all. They hold because this file and reviewers hold them.
+
+### Tier 2 — documented judgment, enforced only by review
+
+Equally binding in practice, and invisible to CI: a change violating one of these ships green. `docs/adr/` (indexed in `docs/adr/README.md`) is the second rulebook — read it before writing an adapter, not after.
+
+- **ADR-011 — subprocess execution safety.** Nine mandatory points for *every* subprocess call: argument-list only and never `shell=True`; validate untrusted input before it reaches an argument; a hard timeout *with* an explicit kill, since `wait_for` alone does not terminate the child; credentials via env, never argv or a URL; guaranteed temp cleanup on every exit path; redact captured output before it reaches a log or exception; disable interactive prompting up front; `docker kill <name>` in the timeout handler; `chmod 0777` on bind-mounted temp dirs.
+- **ADR-013 — SSRF validation.** Both gates run as the literal first lines of the adapter's `run()`, before any network or subprocess call. `allow_private_targets` is a test-only escape hatch and must never be `True` in production wiring.
+- **ADR-008** (DI factory shape — rule 15's naming and `@lru_cache` restrictions), **ADR-009** (verify dependency-safety claims against primary sources *before* adding a dependency), **ADR-012** (Trivy vulnerability-DB freshness default).
+
+When a Tier 2 rule becomes mechanically checkable, move it to Tier 1 and say so here — that migration is the point of keeping the two lists side by side.
+
+---
+
 ## Testing requirements (definition of done)
 
 No issue is complete without:
@@ -84,7 +116,7 @@ No issue is complete without:
 - **Unit tests** for any `domain/` or `application/` code, using **in-memory fakes of the relevant ports** — no real DB/network/LLM calls in unit tests.
 - **Integration tests** for any new adapter, against the real dependency (Postgres, Redis, or the actual tool CLI/API), using `docker-compose` services.
 - For `correlation` and `risk_engine` specifically: tests must cover both positive cases (should correlate / should score high) and negative cases (should NOT correlate / should score low) — these two modules are the product's core differentiator and deserve disproportionate test rigor.
-- Passing CI (lint, import-linter architecture check, unit + integration tests) before considering an issue done.
+- Passing CI (lint, type check, import-linter architecture check, unit + integration tests) before considering an issue done.
 - Async integration tests sharing a session-scoped fixture (e.g. a DB engine) require a session-scoped event loop — `asyncio_default_fixture_loop_scope`/`asyncio_default_test_loop_scope = "session"` in `pyproject.toml`. Without it, asyncpg connections created in one test's loop get reused in another's and fail with `InterfaceError`. Don't remove these two settings.
 
 ---
