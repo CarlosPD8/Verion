@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import os
 import shutil
 import tempfile
 import uuid
@@ -63,6 +64,24 @@ class ZapAdapter:
             validate_resolved_ips_are_public(resolved_ips)
 
         plan_dir = tempfile.mkdtemp(prefix="verion-zap-")
+        # tempfile.mkdtemp creates the dir mode 0700 (owner-only). The ZAP
+        # image runs zap.sh as a baked-in non-root user (uid 1000, "zap" -
+        # confirmed via `docker inspect`/`id` against the real image, not
+        # assumed), which on a native Linux Docker host is NOT the same uid
+        # that created this directory - a bind mount does not remap
+        # ownership, so 0700 leaves the container's user with no access at
+        # all to even traverse into it (verified directly: reproduced this
+        # exact permission-denied failure with a real cross-uid bind mount,
+        # confirmed the container could read AND write once the directory
+        # was reopened to 0777). Docker Desktop's Windows bind-mount layer
+        # doesn't enforce this the same way, which is why this only surfaced
+        # on the Linux CI runner (ADR-0011 point #9). 0777 is deliberately
+        # permissive rather than matching uids: this directory holds a scan
+        # target URL and (once written) alert findings, not a credential -
+        # rule 12 doesn't apply - and it's removed in the finally block
+        # below regardless of outcome, so the exposure window is this one
+        # call's lifetime, not persistent.
+        os.chmod(plan_dir, 0o777)
         container_name = f"verion-zap-{uuid.uuid4().hex}"
         try:
             Path(plan_dir, _PLAN_FILENAME).write_text(_build_plan_yaml(target))
