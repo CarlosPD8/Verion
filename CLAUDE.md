@@ -135,6 +135,7 @@ No issue is complete without:
 - If you add a new architectural decision of consequence, propose an ADR entry in `docs/adr/` rather than only writing code.
 - At each milestone boundary, run the **Milestone-boundary review** in `ROADMAP.md` (~45 min, five steps, every step produces a written artifact even when that artifact is "checked, no change"). That section holds the checklist, the cadence, and the exit ramp for dropping to every other milestone; this is a pointer to it, not a copy.
 - When you find a real gap but decide not to fix it now, record it in `ROADMAP.md`'s **Deferred gaps** register rather than only in a commit message — including what it would break if left, which is the field that actually matters. At three confirmations it must be assigned or explicitly justified, and CI enforces that. The register holds the rules; this is a pointer to them, not a copy.
+- **An ADR that defers something with a trigger condition seeds a register entry in the same commit.** The ADR keeps the reasoning; the register carries the `Blocks-if-unresolved:` field and the escalation check, which prose has neither of. This is the bullet above applied to the artifact it kept getting missed in: ADR-012 deferred validating Trivy's timeout and named the issue that would fire the trigger, M3.7 shipped that wiring, used the unvalidated number as an input to ADR-016, and nothing noticed — a Consequences section is not re-read at a milestone boundary.
 
 ---
 
