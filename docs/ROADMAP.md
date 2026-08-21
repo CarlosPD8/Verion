@@ -329,6 +329,25 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 
 ---
 
+## Deferred gaps
+
+Known gaps that are not yet anybody's issue. This exists because noting a gap in a commit message does not scale: **multi-scanner orchestration was correctly identified and correctly deferred three times (M3.4, M3.5, M3.6) and still became a critical-path blocker for M4 and M5 without anyone noticing.** It took a dedicated review pass to catch, and had it been missed, it would have surfaced at M8 with four milestones built on top.
+
+**`Blocks-if-unresolved:` is the field that does the real work.** G1 was not missed because it went unrecorded — it was recorded three times, in increasing detail. It was missed because nobody wrote down *what it would break*, so its promotion from background debt to critical path was invisible. Fill that field in seriously: name the milestone and the concrete thing that breaks, not "may cause problems later". An entry whose `Blocks-if-unresolved:` is vague is an entry that will be re-read and skipped.
+
+Rules, enforced by `scripts/check_claims.py`:
+
+- Entries use fixed fields so they can be parsed: `Confirmed:`, `Status:`, `Blocks-if-unresolved:`, and optionally `Deferral rationale:`.
+- Add a milestone to `Confirmed:` each time the gap is re-encountered and deferred again.
+- **At three or more confirmations**, an entry must carry either `Status: assigned → <issue>` or an explicit `Deferral rationale:`. Re-noting it a fourth time with neither fails CI. Three is the threshold because three is where this one broke: M3.4 and M3.5 were reasonable deferrals, but by M3.6 the repetition had become information nobody was acting on.
+- Resolved entries stay here with `Status: resolved → <issue>`, as the record of how long it took and what it was blocking.
+
+### G1 — Multi-scanner orchestration
+Confirmed: M3.4, M3.5, M3.6 · Status: assigned → M3.7
+Blocks-if-unresolved: M4 (the `Finding` schema and its per-scanner mappers would be designed without ever seeing Semgrep+Trivy+ZAP output for the same scan), M5 (`CorrelateFindingsUseCase` exists to link findings across *different* tools, and a `Scan` can only ever produce one)
+
+---
+
 ## V2 Backlog (explicitly out of this roadmap)
 
 Tracked separately, not scheduled: AI-driven automated remediation, attack graph modeling, MCP/LLM security scanning, cloud/CSPM integration, runtime telemetry, additional scanners, team collaboration, Jira/Slack integrations, advanced analytics, fix-effort prediction as a scored dimension.

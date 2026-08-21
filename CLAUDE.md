@@ -130,6 +130,7 @@ No issue is complete without:
 - Prefer small, reviewable diffs over large ones — this project is meant to demonstrate engineering discipline, and that includes commit/PR hygiene.
 - When a decision has real trade-offs (e.g., how to weight a signal in the Risk Engine, how to structure a correlation rule), surface the trade-off and a recommendation rather than silently picking one — these are exactly the decisions worth documenting in an ADR.
 - If you add a new architectural decision of consequence, propose an ADR entry in `docs/adr/` rather than only writing code.
+- When you find a real gap but decide not to fix it now, record it in `ROADMAP.md`'s **Deferred gaps** register rather than only in a commit message — including what it would break if left, which is the field that actually matters. At three confirmations it must be assigned or explicitly justified, and CI enforces that. The register holds the rules; this is a pointer to them, not a copy.
 
 ---
 

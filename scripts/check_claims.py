@@ -47,6 +47,12 @@ RETIRED_TOOLS: dict[str, str] = {
 
 CI_WORKFLOW = ".github/workflows/ci.yml"
 GUARDIAN = ".claude/agents/architecture-guardian.md"
+ROADMAP = "docs/ROADMAP.md"
+
+# Confirmations after which a deferred gap must be assigned or explicitly
+# justified. Three, because three is where G1 broke: M3.4 and M3.5 were
+# reasonable deferrals, and by M3.6 the repetition was information nobody acted on.
+ESCALATION_THRESHOLD = 3
 
 
 def _read(relative_path: str) -> str:
@@ -178,10 +184,70 @@ def check_rule_count_is_in_sync(findings: list[tuple[str, int, str]]) -> None:
     )
 
 
+def check_deferred_gaps_are_escalated(findings: list[tuple[str, int, str]]) -> None:
+    """A gap re-confirmed three or more times must be assigned or justified.
+
+    Noting a gap does not scale on its own: multi-scanner orchestration (G1) was
+    correctly flagged and correctly deferred three times and still became a
+    critical-path blocker for M4/M5 unnoticed. Three is the threshold because
+    three is where that one broke — the first two deferrals were reasonable, the
+    third was repetition nobody acted on.
+    """
+    lines = _read(ROADMAP).splitlines()
+
+    section_start = None
+    for index, line in enumerate(lines):
+        if line.startswith("## Deferred gaps"):
+            section_start = index
+        elif section_start is not None and line.startswith("## "):
+            lines = lines[section_start:index]
+            break
+    else:
+        if section_start is None:
+            findings.append(
+                (ROADMAP, 1, "no '## Deferred gaps' section — the register was removed")
+            )
+            return
+        lines = lines[section_start:]
+
+    entries: list[tuple[int, str, list[str]]] = []
+    for offset, line in enumerate(lines):
+        if line.startswith("### "):
+            entries.append((section_start + offset + 1, line.removeprefix("### ").strip(), []))
+        elif entries:
+            entries[-1][2].append(line)
+
+    for line_number, title, body in entries:
+        text = "\n".join(body)
+        confirmed = re.search(r"^Confirmed:\s*(.+?)(?:·|$)", text, flags=re.MULTILINE)
+        if not confirmed:
+            findings.append((ROADMAP, line_number, f"gap '{title}' has no 'Confirmed:' field"))
+            continue
+
+        count = len([m for m in confirmed.group(1).split(",") if m.strip()])
+        if count < ESCALATION_THRESHOLD:
+            continue
+
+        assigned = re.search(r"Status:\s*(assigned|resolved)\s*→", text)
+        justified = re.search(r"^Deferral rationale:\s*\S", text, flags=re.MULTILINE)
+        if not assigned and not justified:
+            findings.append(
+                (
+                    ROADMAP,
+                    line_number,
+                    f"gap '{title}' has been confirmed {count} times "
+                    f"(threshold {ESCALATION_THRESHOLD}) but carries neither "
+                    f"'Status: assigned → <issue>' nor 'Deferral rationale:' — "
+                    f"re-noting it again is not a decision",
+                )
+            )
+
+
 CHECKS = (
     check_ci_steps_match_tier1_table,
     check_retired_tools_are_not_named,
     check_rule_count_is_in_sync,
+    check_deferred_gaps_are_escalated,
 )
 
 
