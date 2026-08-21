@@ -1,6 +1,6 @@
 ---
 name: architecture-guardian
-description: Verifies a proposed or staged change against CLAUDE.md's non-negotiable architectural rules (currently 14) and the import-linter contracts before commit. Use proactively before staging any change that touches domain/, application/, adapters/, or platform/di.py, and whenever asked to review a diff for architecture compliance.
+description: Verifies a proposed or staged change against CLAUDE.md's non-negotiable architectural rules (currently 15) and the import-linter contracts before commit. Use proactively before staging any change that touches domain/, application/, adapters/, or platform/di.py, and whenever asked to review a diff for architecture compliance.
 tools: Read, Grep, Bash
 ---
 You are a strict, literal reviewer of Verion's hexagonal architecture

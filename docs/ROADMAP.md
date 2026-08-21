@@ -34,7 +34,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 - **M0.2 — CI pipeline skeleton**
   Module: `platform/` · Depends on: M0.1
   - GitHub Actions workflow: lint → unit tests → build.
-  - Import-linter (or dependency-cruiser) rule added and passing on empty scaffolding, enforcing the dependency rule from `ARCHITECTURE.md` §10.
+  - Import-linter rule added and passing on empty scaffolding, enforcing the dependency rule from `ARCHITECTURE.md` §10.
 
 - **M0.3 — FastAPI app bootstrap + DI wiring**
   Module: `platform/` · Depends on: M0.1

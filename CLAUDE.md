@@ -92,6 +92,7 @@ CI rejects the change in about two minutes, without a reviewer. Every row below 
 | `uv run pytest` | Rule 12 — but only because the rule requires each module to ship its own non-leakage test. Nothing verifies that a *new* module actually did. |
 | `uv run ruff check` / `ruff format --check` | Style only. No security or architecture rules — bandit (`S`) is not in the selected rule set, so `shell=True` is not caught. |
 | `uv run alembic upgrade head` | That migrations apply cleanly. **Not** rule 8 — a model on a second declarative base silently gets no migration and this step still passes. |
+| `uv run python scripts/check_claims.py` | No numbered rule — it keeps *this table* honest, plus the other doc↔artifact claims listed in the script. Every gate above must appear both here and in `ci.yml`, or the build fails. |
 
 Rule 4 is partly covered: the layers contract blocks its most common violation (importing a concrete adapter from `application/`), but "add the integration as an adapter behind a port" is a design requirement no linter can check.
 
