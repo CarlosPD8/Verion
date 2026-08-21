@@ -65,10 +65,10 @@ Full design and rationale: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 Building in 16 weeks across 12 milestones — see [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full breakdown.
 
-- [ ] M0 — Foundations
-- [ ] M1 — Identity & Projects
-- [ ] M2 — Security Context
-- [ ] M3 — Scanning Infrastructure
+- [X] M0 — Foundations
+- [X] M1 — Identity & Projects
+- [X] M2 — Security Context
+- [X] M3 — Scanning Infrastructure
 - [ ] M4 — Normalization
 - [ ] M5 — Correlation Engine
 - [ ] M6 — Risk / Decision Engine

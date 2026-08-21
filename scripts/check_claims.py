@@ -243,6 +243,42 @@ def check_deferred_gaps_are_escalated(findings: list[tuple[str, int, str]]) -> N
             )
 
 
+def report_type_suppressions() -> list[str]:
+    """Reports, and deliberately does not block on, type/lint suppressions.
+
+    This is the one metric that detects the mypy gate being *bypassed* rather
+    than satisfied — a mechanical check degrading into theatre while still
+    reporting green. Baseline at introduction: zero, which makes any increase a
+    visible, arguable event rather than a number lost in noise.
+
+    Non-blocking on purpose. A hard zero would push people toward
+    pyproject.toml's `disable_error_code` / `ignore_missing_imports` / per-module
+    `overrides`, which are strictly worse: they suppress silently and are
+    invisible at the call site. Those are counted here too, so the quieter
+    escape route is watched as closely as the loud one.
+    """
+    inline: list[str] = []
+    for path in sorted((ROOT / "src").rglob("*.py")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if "# type: ignore" in line or "# noqa" in line:
+                relative = path.relative_to(ROOT).as_posix()
+                inline.append(f"{relative}:{number}")
+
+    config = [
+        f"pyproject.toml:{number}"
+        for number, line in enumerate(_read("pyproject.toml").splitlines(), start=1)
+        if re.search(
+            r"disable_error_code|ignore_missing_imports|\[\[tool\.mypy\.overrides\]\]", line
+        )
+    ]
+
+    lines = [f"suppressions: {len(inline)} inline in src/, {len(config)} mypy escape(s) in config"]
+    if inline or config:
+        lines.append("  (baseline was 0/0 — each of these should carry a one-line reason)")
+        lines.extend(f"  {location}" for location in inline + config)
+    return lines
+
+
 CHECKS = (
     check_ci_steps_match_tier1_table,
     check_retired_tools_are_not_named,
@@ -256,11 +292,15 @@ def main() -> int:
     for check in CHECKS:
         check(findings)
 
+    # Printed on every run, pass or fail — a metric nobody sees is not tracked.
+    for line in report_type_suppressions():
+        print(f"check_claims: {line}" if not line.startswith(" ") else line)
+
     if not findings:
         print(f"check_claims: {len(CHECKS)} checks passed.")
         return 0
 
-    print("check_claims: documentation no longer matches the artifacts it describes.\n")
+    print("\ncheck_claims: documentation no longer matches the artifacts it describes.\n")
     for line in _findings_to_lines(sorted(findings)):
         print(f"  {line}")
     print(
