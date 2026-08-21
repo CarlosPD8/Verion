@@ -135,7 +135,7 @@ Users can see prior scans, resolved risks, and re-opened risks over time per pro
 - **Explainability over automation:** every score, correlation, and recommendation must be traceable to explicit inputs. No opaque "AI magic number."
 - **Extensibility:** adding a new scanner should only require a new adapter into the `Finding` schema, not changes to correlation/risk logic.
 - **Reliability of scanning:** scan jobs must be idempotent and safely retryable (workers can fail/restart without corrupting state).
-- **Security of the platform itself:** Verion handles sensitive data (source code context, vulnerability details) and must be built to the same standard it recommends — see Section 12.
+- **Security of the platform itself:** Verion handles sensitive data (source code context, vulnerability details) and must be built to the same standard it recommends — see Section 11.
 - **Reasonable performance:** a scan + brief generation for a typical small/medium repo should complete within a few minutes, not hours.
 - **Auditability:** all resolved/dismissed risks must retain a permanent history (who, when, why).
 
@@ -222,6 +222,7 @@ Since this is a portfolio/CV project rather than a funded product, success is me
 4. **SSRF protection is mandatory** for any component that triggers DAST scans against user-provided URLs.
 5. **Everything auditable.** Every risk state change (opened, dismissed, resolved) is logged with actor and timestamp.
 6. **Dogfooding.** Verion should scan its own repository as part of CI, using itself as the first proof point.
+7. **Inbound events are verified before they are trusted.** Any endpoint accepting provider-originated events (GitHub push/PR today) verifies the payload signature over the *raw* request body before any use case runs, and deduplicates redeliveries. An unauthenticated endpoint that triggers real work — cloning a repo, running scanners — is otherwise a spoofing and free-work surface. See ADR-014. *(Appended as 7 rather than inserted: `§11.1` and `§11.5` are cited by ADR-011 and ADR-014, so renumbering would break them.)*
 
 ---
 

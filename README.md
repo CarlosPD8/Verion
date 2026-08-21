@@ -4,7 +4,7 @@
 
 Verion is a developer-first AppSec platform that unifies signals from existing security tools — SAST, SCA, secrets, DAST — understands the context of the application being protected, correlates evidence across sources, and turns raw findings into prioritized, explainable, and verifiable remediation decisions.
 
-> **Status:** early development (M0). This repo currently holds the product and architecture specs; implementation is in progress following the roadmap below.
+> **Status:** in development — M0–M3 complete, M4 (Normalization) next. The scanning pipeline works end to end: a trigger (API or GitHub webhook) fans out to Semgrep, Trivy and OWASP ZAP concurrently and persists each tool's raw output. The layers that turn that output into decisions — normalization, correlation, risk scoring, the explanation layer, and the dashboard — are M4 onward. See the roadmap below.
 
 ---
 
@@ -80,7 +80,7 @@ Building in 16 weeks across 12 milestones — see [`docs/ROADMAP.md`](docs/ROADM
 
 ## Getting started
 
-M0 is in progress — this covers the repository/tooling scaffolding (M0.1). The app itself isn't runnable yet (that lands in M0.3).
+The API and the background worker both run. Postgres and Redis come from `docker-compose`; Semgrep and Trivy need to be on `PATH` and ZAP runs as a Docker container, so a scan needs Docker available.
 
 ```bash
 # install uv (https://docs.astral.sh/uv/) if you don't have it
@@ -94,6 +94,15 @@ uv run pre-commit install
 
 # start local Postgres + Redis
 docker compose -f infra/docker-compose.yml up -d
+
+# apply migrations
+uv run alembic upgrade head
+
+# run the API
+uv run uvicorn verion.platform.app:app --reload
+
+# in a second terminal: run the worker that executes scans
+uv run arq verion.platform.worker.WorkerSettings
 ```
 
 ## License

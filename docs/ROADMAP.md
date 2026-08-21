@@ -345,7 +345,11 @@ So the review has shrunk to roughly its most valuable third. **That is the argum
 Ordered by observed value, not tidiness. Steps 2 and 4 are mostly mechanical now.
 
 1. **Do the next milestone's stated dependencies still hold in code?** Take its first two issues and trace each `Depends on:` to the code that must already exist. *This is the step that found M3.7, and the only step here that has ever found something no gate could.*
-2. **Run `uv run python scripts/check_claims.py`, then review what it structurally cannot check** — prose comments about implementation status, and any `TODO` or "as of M#.#" marker older than one milestone. *Found `vcs_provider.py`'s "GitHubAdapter doesn't implement these yet", three milestones stale.*
+2. **Run `uv run python scripts/check_claims.py`, then review what it structurally cannot check.** *Scope is listed explicitly because the first execution of this checklist proved that leaving it implicit narrows it: the original wording named only code comments and time-stamped markers, so the sweep grepped for those, covered `ARCHITECTURE.md`, and never opened `PRODUCT_SPEC.md` or `README.md` — where three drifts were sitting, including a status line four milestones stale.*
+   - **Files:** `CLAUDE.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_SPEC.md`, `README.md`, `.claude/agents/`.
+   - **Drift classes:** stale prose about implementation status; `TODO` / "as of M#.#" markers older than one milestone; broken or outdated internal cross-references (§ numbers, section names); and completion or status claims that outran reality.
+   - *Found `vcs_provider.py`'s "GitHubAdapter doesn't implement these yet", three milestones stale; and, once the scope above was written down, `PRODUCT_SPEC.md`'s "see Section 12" pointing at Architecture Principles instead of Security Principles.*
+   - When renumbering a numbered list in any of these files, grep for citations of the old numbers first — `§11.1` and `§11.5` are each cited by ADRs, so an insert would break a cross-reference while fixing one.
 3. **Review the Deferred gaps register** — anything at 3+ confirmations, and re-read every `Blocks-if-unresolved:` against the milestone now starting. A gap that was background debt last milestone may be critical path this one; that transition is the thing being watched for.
 4. **Compare tracked metrics against the latest green CI run** — the `Tests (pytest …)` step duration and the suppression count — and record the new baseline in `CLAUDE.md`. *This is where the ±8s variance and the 71%-of-runtime-in-2-tests concentration surfaced.*
 5. **Spot-check the newest adapter against the Tier 2 ADRs** — ADR-011's nine subprocess points and ADR-013's gate placement. CI cannot see these, and adapters are the only place they apply.
@@ -364,6 +368,7 @@ One row per review. The last two rows are what the exit-ramp test reads.
 | Date | Boundary | Steps with findings | Cadence |
 |---|---|---|---|
 | 2026-08-20 | post-M3 | 1 (M3.7 critical path); 2 (7 doc drifts, incl. `vcs_provider.py`); 3 (register created, G1 seeded retrospectively); 4 (runtime + suppression baselines recorded); 5 **not performed** — this checklist postdates the pass | every milestone |
+| 2026-08-21 | post-M3.7 (M3→M4) | 1 (no captured scanner-output fixtures; §8's pipeline/`status=complete` conflicts with the M3.3/M3.7 state machine; §9's `IngestScanResultUseCase` does not exist); 2 (§4 stale for `Scan`/`ScanResult`; §4's `Finding.source` duplicates `ScannerTool`) — **plus 3 more found only after this pass widened step 2's scope**, which is the change recorded above: `PRODUCT_SPEC.md`'s "see Section 12", §11's missing webhook principle, `README.md` claiming M0/not-runnable four milestones late; 3 **checked, no change** — G1 resolved → M3.7, G2 re-read against M4 and not on its critical path; 4 (pytest step 45s → **64s**, suppressions 0/0 unchanged); 5 (ADR-011 point 9's "not a credential" premise became conditionally false when M3.7 made the ZAP target user-configured) | every milestone |
 
 ---
 
