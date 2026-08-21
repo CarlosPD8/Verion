@@ -329,6 +329,45 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 
 ---
 
+## Milestone-boundary review
+
+Run at **every milestone boundary**, timeboxed to **~45 minutes**. Reads the Deferred gaps register below as its main input.
+
+**Why this is scheduled rather than ad-hoc, stated honestly — because the case for it is narrower than the first pass makes it look.** The post-M3 review found seven documentation drifts, three latent bugs, and one critical-path blocker. Most of that does not recur:
+
+- The **three bugs** were a one-time backlog flush, and were surfaced by *introducing* `mypy --strict` rather than by any step below. They existed because no type checker had ever run; it now runs on every commit and that class cannot accumulate again.
+- The **doc drifts** are now largely automated by `scripts/check_claims.py`, whose blocking checks and non-blocking suppression report are enumerated in the script itself.
+- The **critical-path blocker is the recurring value.** No per-commit gate can notice that M5 has become unbuildable — that takes stepping back and asking whether the next milestone's assumptions still hold in code.
+
+So the review has shrunk to roughly its most valuable third. **That is the argument for scheduling it, not against it:** the expensive parts were automated away, and the part that remains is cheap and irreplaceable.
+
+### The checklist
+
+Ordered by observed value, not tidiness. Steps 2 and 4 are mostly mechanical now.
+
+1. **Do the next milestone's stated dependencies still hold in code?** Take its first two issues and trace each `Depends on:` to the code that must already exist. *This is the step that found M3.7, and the only step here that has ever found something no gate could.*
+2. **Run `uv run python scripts/check_claims.py`, then review what it structurally cannot check** — prose comments about implementation status, and any `TODO` or "as of M#.#" marker older than one milestone. *Found `vcs_provider.py`'s "GitHubAdapter doesn't implement these yet", three milestones stale.*
+3. **Review the Deferred gaps register** — anything at 3+ confirmations, and re-read every `Blocks-if-unresolved:` against the milestone now starting. A gap that was background debt last milestone may be critical path this one; that transition is the thing being watched for.
+4. **Compare tracked metrics against the latest green CI run** — the `Tests (pytest …)` step duration and the suppression count — and record the new baseline in `CLAUDE.md`. *This is where the ±8s variance and the 71%-of-runtime-in-2-tests concentration surfaced.*
+5. **Spot-check the newest adapter against the Tier 2 ADRs** — ADR-011's nine subprocess points and ADR-013's gate placement. CI cannot see these, and adapters are the only place they apply.
+
+### Keeping it from becoming box-ticking
+
+A checklist that reports "all clear" every time is worse than no checklist. Two mitigations:
+
+- **Every step produces a written artifact** — either a finding, or an explicit "checked X against Y, no change". Recorded in the review's commit message, and summarised as one row in the log below. "No change" is a valid result; silence is not.
+- **The exit ramp, defined now rather than when it is needed.** If **two consecutive reviews** produce only "checked, no change" artifacts for **steps 1, 3, and 5** — meaning no finding, no new issue, and no register entry from any of those three, twice running — cut the cadence to every other milestone. A step recorded as **not performed** does not count as "checked, no change" and does not advance this test; only a step that was actually run and found nothing does. Record it as a new row in the log with `Cadence:` set to the new value, and say why in that review's commit message. Steps 2 and 4 are excluded from this test on purpose: they are mechanical and will keep passing, so including them would make the condition unreachable.
+
+### Review log
+
+One row per review. The last two rows are what the exit-ramp test reads.
+
+| Date | Boundary | Steps with findings | Cadence |
+|---|---|---|---|
+| 2026-08-20 | post-M3 | 1 (M3.7 critical path); 2 (7 doc drifts, incl. `vcs_provider.py`); 3 (register created, G1 seeded retrospectively); 4 (runtime + suppression baselines recorded); 5 **not performed** — this checklist postdates the pass | every milestone |
+
+---
+
 ## Deferred gaps
 
 Known gaps that are not yet anybody's issue. This exists because noting a gap in a commit message does not scale: **multi-scanner orchestration was correctly identified and correctly deferred three times (M3.4, M3.5, M3.6) and still became a critical-path blocker for M4 and M5 without anyone noticing.** It took a dedicated review pass to catch, and had it been missed, it would have surfaced at M8 with four milestones built on top.

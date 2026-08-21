@@ -27,6 +27,15 @@ specifically:
   DbSessionDep or another per-request resource
 - Run `uv run lint-imports` yourself and report its actual output,
   don't just infer compliance from reading imports
+- If the diff changes a CI step, a tool, or a rule, check whether any
+  live doc still describes the old state; report the file and line.
+  `scripts/check_claims.py` covers the mechanically checkable cases —
+  run it and read its `CHECKS` tuple for the current list rather than
+  assuming one; you are looking for the class it structurally cannot — prose
+  about implementation status, and stale "as of M#.#" markers. The
+  worked example is a port comment reading "GitHubAdapter doesn't
+  implement these yet" that survived three milestones after the
+  adapter was finished
 
 Report only concrete violations found, quoting the exact file/line and
 the CLAUDE.md rule it breaks. If none found, say so plainly — don't
