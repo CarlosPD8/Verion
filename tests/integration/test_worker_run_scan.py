@@ -13,8 +13,10 @@ from verion.modules.identity.domain.github_connection import GitHubConnection
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresProjectRepository,
+    PostgresScannerConfigRepository,
 )
 from verion.modules.projects.domain.project import ConnectedRepo, Project
+from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.scanning.adapters.outbound.db.repository import (
     PostgresScanRepository,
     PostgresScanResultRepository,
@@ -29,6 +31,7 @@ from verion.platform.clock import SystemClock
 from verion.platform.id_generator import UuidIdGenerator
 from verion.platform.settings import get_settings
 from verion.platform.worker import WorkerSettings
+from verion.shared_kernel.scanner_tools import ScannerTool
 
 # A real, public repo — same one M3.2's walking skeleton test already uses.
 _REPO_URL = "https://github.com/octocat/Hello-World"
@@ -78,6 +81,20 @@ async def test_worker_processes_a_real_enqueued_scan_job_end_to_end(db_session):
         failure_reason=None,
     )
     await PostgresScanRepository(db_session).add(scan)
+    # Semgrep only. The worker now registers all three adapters, so without a
+    # config row this project would take the Semgrep+Trivy default and this
+    # test would silently start paying for a Trivy run it does not assert on.
+    # Dispatch breadth is test_multi_scanner_dispatch.py's subject; this test
+    # is about the arq round trip.
+    await PostgresScannerConfigRepository(db_session).upsert(
+        ScannerConfig(
+            id=f"config-worker-{run_id}",
+            project_id=project.id,
+            enabled_tools=(ScannerTool.SEMGREP,),
+            zap_target_url=None,
+            updated_at=datetime.now(UTC),
+        )
+    )
     # Committed, not just flushed: the worker job runs in a separate session
     # over a separate connection — it can only see rows this transaction has
     # actually committed.
@@ -153,17 +170,27 @@ async def test_no_access_token_leaks_into_the_persisted_failure_reason(db_sessio
         failure_reason=None,
     )
     await PostgresScanRepository(db_session).add(scan)
+    await PostgresScannerConfigRepository(db_session).upsert(
+        ScannerConfig(
+            id=f"config-leak-{run_id}",
+            project_id=project.id,
+            enabled_tools=(ScannerTool.SEMGREP,),
+            zap_target_url=None,
+            updated_at=datetime.now(UTC),
+        )
+    )
     await db_session.commit()
 
     use_case = RunScanUseCase(
         scans=PostgresScanRepository(db_session),
         scan_results=PostgresScanResultRepository(db_session),
-        # Never reached — checkout fails first — but ScannerPort needs a
-        # real instance to construct RunScanUseCase.
-        scanner=SemgrepAdapter(config=get_settings().semgrep_ruleset),
+        # Never reached — checkout fails first — but the registry needs a
+        # real entry to construct RunScanUseCase.
+        scanners={ScannerTool.SEMGREP: SemgrepAdapter(config=get_settings().semgrep_ruleset)},
         repo_checkout=GitRepoCheckout(),
         connected_repos=PostgresConnectedRepoRepository(db_session),
         github_connections=PostgresGitHubConnectionRepository(db_session),
+        scanner_configs=PostgresScannerConfigRepository(db_session),
         id_generator=UuidIdGenerator(),
         clock=SystemClock(),
     )

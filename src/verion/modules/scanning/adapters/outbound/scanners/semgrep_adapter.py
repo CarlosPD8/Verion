@@ -2,9 +2,17 @@ import asyncio
 
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
+from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
+from verion.shared_kernel.scanner_tools import ScannerTool
 
 
 class SemgrepAdapter:
+    # Declared before run(), so dispatch can select this adapter without
+    # running it, and reused below as RawScanResult's tool so the identity
+    # selected on and the identity persisted cannot drift (ADR-016 decision 4).
+    tool = ScannerTool.SEMGREP
+    target_kind = ScannerTargetKind.REPO_PATH
+
     def __init__(self, config: str, timeout_seconds: float = 60.0) -> None:
         self._config = config
         self._timeout_seconds = timeout_seconds
@@ -38,4 +46,4 @@ class SemgrepAdapter:
                 f"semgrep scan of '{target}' failed: {stderr.decode(errors='replace')}"
             )
 
-        return RawScanResult(tool="semgrep", raw_output=stdout.decode())
+        return RawScanResult(tool=self.tool, raw_output=stdout.decode())

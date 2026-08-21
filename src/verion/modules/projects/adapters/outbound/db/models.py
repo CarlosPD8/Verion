@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import ARRAY, DateTime, ForeignKey, String
+from sqlalchemy import ARRAY, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from verion.platform.db import Base
@@ -48,3 +48,21 @@ class SecurityContextModel(Base):
     ci_provider: Mapped[str | None] = mapped_column(String, nullable=True)
     exposure_tags: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ScannerConfigModel(Base):
+    __tablename__ = "scanner_configs"
+    # Named explicitly (same idiom as ScanResultModel's (scan_id, tool)) so the
+    # repository's ON CONFLICT can target it by name. It also enforces the
+    # one-row-per-project shape at the storage layer, not just by convention —
+    # a second row for a project would make "which config applies?" ambiguous.
+    __table_args__ = (UniqueConstraint("project_id", name="uq_scanner_configs_project_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    # ARRAY(String), same precedent as SecurityContextModel.exposure_tags above.
+    # Absent from this list means the tool is off; there is no separate row
+    # whose absence would have to be interpreted (ADR-016 decision 3).
+    enabled_tools: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
+    zap_target_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

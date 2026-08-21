@@ -2,9 +2,15 @@ import asyncio
 
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
+from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
+from verion.shared_kernel.scanner_tools import ScannerTool
 
 
 class TrivyAdapter:
+    # See SemgrepAdapter for why these are class-level and reused below.
+    tool = ScannerTool.TRIVY
+    target_kind = ScannerTargetKind.REPO_PATH
+
     def __init__(self, timeout_seconds: float = 180.0, skip_db_update: bool = False) -> None:
         self._timeout_seconds = timeout_seconds
         # Deliberately the opposite default from SemgrepAdapter's bundled,
@@ -51,4 +57,4 @@ class TrivyAdapter:
                 f"trivy scan of '{target}' failed: {stderr.decode(errors='replace')}"
             )
 
-        return RawScanResult(tool="trivy", raw_output=stdout.decode())
+        return RawScanResult(tool=self.tool, raw_output=stdout.decode())

@@ -106,7 +106,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 
 **Goal:** a scan can be triggered and produces raw tool output, end to end for one scanner first. FR-4.
 
-> **Note — multi-scanner orchestration is M3.7.** M3.2/M3.4/M3.5 each add exactly one scanner path end to end (per M3.2's own "first scanner, walking skeleton" framing), and `platform/worker.py` dispatches `SemgrepAdapter` alone. Carrying that gap unassigned through three issues was deliberate, but a post-M3 review moved it onto the critical path: M4 designs the `Finding` schema and its per-scanner mappers, and M5 exists specifically to correlate findings across *different* tools — neither is meaningfully exercisable while a `Scan` can only ever produce one `ScanResult`. Assigned as M3.7 below, ahead of M4.
+> **Note — multi-scanner orchestration was M3.7, and is resolved.** M3.2/M3.4/M3.5 each added exactly one scanner path end to end (per M3.2's own "first scanner, walking skeleton" framing), and `platform/worker.py` dispatched `SemgrepAdapter` alone. Carrying that gap unassigned through three issues was deliberate, but a post-M3 review moved it onto the critical path: M4 designs the `Finding` schema and its per-scanner mappers, and M5 exists specifically to correlate findings across *different* tools — neither was meaningfully exercisable while a `Scan` could only ever produce one `ScanResult`. Closed by M3.7 below (see `docs/adr/0016-multi-scanner-dispatch.md`), ahead of M4; G1 in the Deferred gaps register records the full history.
 
 - **M3.1 — Scan orchestration domain**
   Module: `scanning` · Depends on: M2
@@ -137,18 +137,17 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
   Module: `scanning` · Depends on: M3.3
   - GitHub Actions integration / webhook receiver triggers `TriggerScanUseCase` on push.
 
-- **M3.7 — Multi-scanner dispatch**
-  Module: `scanning` · Depends on: M3.3, M3.4, M3.5
-  - One trigger fans out to every scanner enabled for the project. **Prerequisite for M4 and M5**, not a nice-to-have: `CorrelateFindingsUseCase` (M5.1) exists to link findings from *different* tools, and a `Scan` can currently only ever produce one.
-  - **This is drift, not an open design question.** The schema and the architecture doc already assume N tools per scan — `ScanResultModel`'s `UniqueConstraint(scan_id, tool)`, `ARCHITECTURE.md` §4's `raw_results: [ScanResult]  # one per tool that ran`, and §8's sequence diagram showing `ScannerPort (Semgrep/Trivy/ZAP)` returning per-tool results. Only the roadmap and the code diverged from that.
-  - **This issue is a decision first and code second** — the four questions below get answered and recorded in an ADR before implementation.
-  - **Decision — dispatch shape:** one arq job per `Scan` running scanners concurrently, vs. fan-out to one job per `(scan, tool)`. The `(scan_id, tool)` constraint already anticipates fan-out; a single job keeps `RunScanUseCase` the sole owner of `Scan` status, as M3.3's state machine deliberately designed it. Weigh ZAP's 300s timeout against Semgrep's 60s when sizing a shared job budget.
-  - **Decision — partial-failure semantics:** `PRODUCT_SPEC.md` §12 already requires surviving "ZAP times out but Semgrep succeeds" without corrupting state. `ScanStatus` cannot express that today, and one `Scan`-level `failure_reason` cannot say *which* tool failed. Decide where per-tool outcome lives and what `Scan.status` derives to. A blanket `Scan`-level `FAILED` would discard a succeeding scanner's output — precisely the corruption §12 forbids — and M4 must be able to tell which raw results are safe to normalize.
-  - **Decision — where per-project scanner configuration lives:** nothing stores which scanners a project enables, nor ZAP's target URL; M3.5's "optional per project" was never given a home. Decide between new columns on `SecurityContext` and a dedicated config entity in `projects`. **Do not overload `SecurityContext.exposure_tags`** — that is user-confirmed annotation owned by `UpdateExposureTagsUseCase`, not configuration. `scanning` reads whichever is chosen through a published port, same precedent as `ConnectedRepoRepositoryPort` (rule 3).
-  - **Decision — whether `ScannerPort` gains a tool identity:** dispatch must select scanners by name, but `tool` is only known *after* `run()` returns, inside `RawScanResult`.
-  - `ScanStatus` / `ScanResult` schema changes land with Alembic migrations.
-  - **SSRF re-validation stays inside `ZapAdapter.run()`** — persisting a validated target does not replace ADR-013's gate, since DNS can rebind between configuration time and scan time, which is the entire reason the gate exists.
-  - Integration test: one trigger produces `ScanResult` rows for more than one tool, and a deliberately failing scanner does not discard a succeeding scanner's output.
+- **M3.7 — Multi-scanner dispatch** — done
+  Module: `scanning` · Depends on: M3.3, M3.4, M3.5 · **Decisions recorded in `docs/adr/0016-multi-scanner-dispatch.md`**
+  - One trigger fans out to every scanner enabled for the project. **Prerequisite for M4 and M5**, not a nice-to-have: `CorrelateFindingsUseCase` (M5.1) exists to link findings from *different* tools, and a `Scan` could previously only ever produce one.
+  - **This was drift, not an open design question.** The schema and the architecture doc already assumed N tools per scan — `ScanResultModel`'s `UniqueConstraint(scan_id, tool)`, `ARCHITECTURE.md` §4's `raw_results: [ScanResult]  # one per tool that ran`, and §8's sequence diagram showing `ScannerPort (Semgrep/Trivy/ZAP)` returning per-tool results. Only the roadmap and the code had diverged from that.
+  - **Decided — dispatch shape:** one arq job per `Scan`, scanners concurrent via `asyncio.gather`, **not** fan-out per `(scan, tool)`. The deciding argument turned out not to be the job budget but *snapshot coherence*: fan-out means one checkout per job, so a push landing mid-scan lets Semgrep and Trivy see different commits — which makes M5's cross-tool correlation unsound with nothing recording that it happened. `arq`'s default 300s `job_timeout` had to be raised to 600s, since concurrent wall-clock is `max()` (ZAP's 300s) plus checkout.
+  - **Decided — partial-failure semantics:** per-tool `status`/`failure_reason` on `ScanResult` (a failed tool still gets a row), `ScanStatus.PARTIAL`, and `Scan.status` derived from the per-tool outcomes. **M4's entry point is `ScanResultRepositoryPort.get_succeeded_by_scan_id`** — never `Scan.status`, which is a human-facing summary. A DB `CHECK` constraint makes "succeeded implies non-null `raw_output`" true for any writer, so M4's mappers take `str`, not `str | None`.
+  - **Decided — scanner configuration:** a `ScannerConfig` entity in `projects` (one row per project, `enabled_tools` array + `zap_target_url`), read by `scanning` through `ScannerConfigRepositoryPort` (rule 3). `SecurityContext` was rejected on lifecycle grounds — detection re-derives it and would clobber configuration. Unconfigured defaults to Semgrep+Trivy, with ZAP structurally undefaultable because only a user can supply its target. Ships with an owner-gated `PUT /projects/{id}/scanner-config`, without which ZAP dispatch would be dead-by-construction.
+  - **Decided — `ScannerPort` identity:** gains `tool` (a shared `ScannerTool` enum) *and* `target_kind`, the half the question above did not name — Semgrep/Trivy take a checkout path, ZAP takes a URL, and dispatch routes on that rather than on a `tool == "zap"` branch (rule 4).
+  - `ScanStatus` / `ScanResult` schema changes landed with Alembic migrations (`b1c4d7e29a03`, `c2d5e8f31b14`).
+  - **SSRF re-validation stays inside `ZapAdapter.run()`** — persisting a validated target does not replace ADR-013's gate, since DNS can rebind between configuration time and scan time, which is the entire reason the gate exists. The write path checks well-formedness only, deliberately, so the stored URL never looks pre-approved.
+  - Integration test: one trigger produces `ScanResult` rows for three real tools, and a deliberately failing scanner does not discard a succeeding scanner's output — asserted through `get_succeeded_by_scan_id`, the query M4 will actually use, not merely by both rows existing.
 
 ---
 
@@ -382,8 +381,14 @@ Rules, enforced by `scripts/check_claims.py`:
 - Resolved entries stay here with `Status: resolved → <issue>`, as the record of how long it took and what it was blocking.
 
 ### G1 — Multi-scanner orchestration
-Confirmed: M3.4, M3.5, M3.6 · Status: assigned → M3.7
+Confirmed: M3.4, M3.5, M3.6 · Status: resolved → M3.7
 Blocks-if-unresolved: M4 (the `Finding` schema and its per-scanner mappers would be designed without ever seeing Semgrep+Trivy+ZAP output for the same scan), M5 (`CorrelateFindingsUseCase` exists to link findings across *different* tools, and a `Scan` can only ever produce one)
+Resolution: M3.7 — ADR-016. Three milestones between first confirmation (M3.4) and assignment, one issue between assignment and resolution. The `Blocks-if-unresolved:` field turned out to understate it: designing this properly also required a partial-failure model (`ScanResult.status`, `ScanStatus.PARTIAL`) and a home for per-project scanner configuration, neither of which was visible while the gap was recorded only as "orchestration is missing".
+
+### G2 — `zap_target_url` is a per-integration value inside generic dispatch
+Confirmed: M3.7 · Status: open · Deferral rationale: fixing it now means normalizing `scanner_configs` to `(project_id, tool)` for a second URL scanner that does not exist and that `PRODUCT_SPEC.md` §9 puts in V2 — the pre-normalizing-for-a-hypothetical that ADR-016 decision 3 argues against, on the same reasoning ADR-014 used to reject a per-project webhook secret. Resolve on the trigger already stated there: **when a second tool needs tool-specific settings.**
+Blocks-if-unresolved: any future `ScannerTargetKind.URL` scanner. `RunScanUseCase.execute` takes a single `zap_target_url: str | None` and routes it in the `else` branch of the `target_kind` check, so a second URL-kind adapter is silently handed **ZAP's** target rather than its own. It fails silently — the scanner runs, succeeds, and produces a real `ScanResult` for the wrong target, which M4 then normalizes and M5 correlates as if it were that tool's view of the system. Nothing raises, and no test today would catch it.
+Note: `ScannerPort.target_kind` itself is fine — dispatch's *shape* is generic and carries no `tool == "zap"` branch (rule 4). What is per-integration is the *value*, in the use case's signature. Recorded here and not only in ADR-016 because prose has no `Blocks-if-unresolved:` field and no escalation check, which is the exact lesson G1 above is the record of.
 
 ---
 

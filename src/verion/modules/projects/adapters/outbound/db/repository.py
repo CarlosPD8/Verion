@@ -1,15 +1,19 @@
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from verion.modules.projects.adapters.outbound.db.models import (
     ConnectedRepoModel,
     ProjectMembershipModel,
     ProjectModel,
+    ScannerConfigModel,
     SecurityContextModel,
 )
 from verion.modules.projects.domain.exceptions import SecurityContextNotFound
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
+from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
+from verion.shared_kernel.scanner_tools import ScannerTool
 
 
 def _project_to_domain(model: ProjectModel) -> Project:
@@ -173,4 +177,57 @@ class PostgresSecurityContextRepository:
         model.deployment_target = context.deployment_target
         model.ci_provider = context.ci_provider
         model.exposure_tags = list(context.exposure_tags)
+        await self._session.flush()
+
+
+def _scanner_config_to_domain(model: ScannerConfigModel) -> ScannerConfig:
+    return ScannerConfig(
+        id=model.id,
+        project_id=model.project_id,
+        # Parsed back into the enum at the boundary, so an unknown name stored
+        # by some future hand-edit fails here rather than silently reaching
+        # dispatch as a tool nothing answers to.
+        enabled_tools=tuple(ScannerTool(name) for name in model.enabled_tools),
+        zap_target_url=model.zap_target_url,
+        updated_at=model.updated_at,
+    )
+
+
+class PostgresScannerConfigRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_by_project_id(self, project_id: str) -> ScannerConfig | None:
+        result = await self._session.execute(
+            select(ScannerConfigModel).where(ScannerConfigModel.project_id == project_id)
+        )
+        model = result.scalar_one_or_none()
+        return _scanner_config_to_domain(model) if model is not None else None
+
+    async def upsert(self, config: ScannerConfig) -> None:
+        # ON CONFLICT DO UPDATE on the project_id unique constraint, same idiom
+        # as PostgresScanResultRepository.upsert — one row per project, and a
+        # caller changing configuration doesn't have to know whether the
+        # project has ever been configured before.
+        statement = (
+            insert(ScannerConfigModel)
+            .values(
+                id=config.id,
+                project_id=config.project_id,
+                enabled_tools=[str(tool) for tool in config.enabled_tools],
+                zap_target_url=config.zap_target_url,
+                updated_at=config.updated_at,
+            )
+            .on_conflict_do_update(
+                constraint="uq_scanner_configs_project_id",
+                set_={
+                    "enabled_tools": [str(tool) for tool in config.enabled_tools],
+                    # Set together with enabled_tools, never independently:
+                    # disabling ZAP must not leave its stale target behind.
+                    "zap_target_url": config.zap_target_url,
+                    "updated_at": config.updated_at,
+                },
+            )
+        )
+        await self._session.execute(statement)
         await self._session.flush()

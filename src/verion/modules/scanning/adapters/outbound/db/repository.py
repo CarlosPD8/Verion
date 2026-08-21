@@ -14,7 +14,7 @@ from verion.modules.scanning.adapters.outbound.db.models import (
 )
 from verion.modules.scanning.domain.exceptions import ScanNotFound
 from verion.modules.scanning.domain.scan import Scan, ScanStatus
-from verion.modules.scanning.domain.scan_result import ScanResult
+from verion.modules.scanning.domain.scan_result import ScanResult, ScanResultStatus
 
 
 def _scan_to_domain(model: ScanModel) -> Scan:
@@ -71,7 +71,12 @@ class PostgresScanRepository:
 
 def _scan_result_to_domain(model: ScanResultModel) -> ScanResult:
     return ScanResult(
-        id=model.id, scan_id=model.scan_id, tool=model.tool, raw_output=model.raw_output
+        id=model.id,
+        scan_id=model.scan_id,
+        tool=model.tool,
+        status=ScanResultStatus(model.status),
+        raw_output=model.raw_output,
+        failure_reason=model.failure_reason,
     )
 
 
@@ -90,11 +95,22 @@ class PostgresScanResultRepository:
                 id=scan_result.id,
                 scan_id=scan_result.scan_id,
                 tool=scan_result.tool,
+                status=str(scan_result.status),
                 raw_output=scan_result.raw_output,
+                failure_reason=scan_result.failure_reason,
             )
             .on_conflict_do_update(
                 constraint="uq_scan_results_scan_id_tool",
-                set_={"raw_output": scan_result.raw_output},
+                # All three together, never raw_output alone: a retry that
+                # turns a previously-succeeding tool into a failing one would
+                # otherwise leave the old output sitting under a FAILED status,
+                # which the table's CHECK constraint forbids anyway — it would
+                # fail loudly, but only after the write was already wrong.
+                set_={
+                    "status": str(scan_result.status),
+                    "raw_output": scan_result.raw_output,
+                    "failure_reason": scan_result.failure_reason,
+                },
             )
         )
         await self._session.execute(statement)
@@ -103,6 +119,18 @@ class PostgresScanResultRepository:
     async def get_by_scan_id(self, scan_id: str) -> list[ScanResult]:
         result = await self._session.execute(
             select(ScanResultModel).where(ScanResultModel.scan_id == scan_id)
+        )
+        return [_scan_result_to_domain(model) for model in result.scalars()]
+
+    async def get_succeeded_by_scan_id(self, scan_id: str) -> list[ScanResult]:
+        # Filtered in SQL, not in Python after get_by_scan_id: this is M4's
+        # entry point, and it should not have to pull a failed scanner's row
+        # across the wire to discard it.
+        result = await self._session.execute(
+            select(ScanResultModel).where(
+                ScanResultModel.scan_id == scan_id,
+                ScanResultModel.status == str(ScanResultStatus.SUCCEEDED),
+            )
         )
         return [_scan_result_to_domain(model) for model in result.scalars()]
 

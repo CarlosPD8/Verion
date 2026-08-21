@@ -6,12 +6,15 @@ from verion.modules.identity.domain.github_connection import GitHubConnection
 from verion.modules.identity.domain.user import User
 from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
+from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.ports.vcs_provider import RepoMetadata
 from verion.modules.scanning.domain.exceptions import RepoCheckoutFailed, ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
 from verion.modules.scanning.domain.scan import Scan
-from verion.modules.scanning.domain.scan_result import ScanResult
+from verion.modules.scanning.domain.scan_result import ScanResult, ScanResultStatus
+from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
+from verion.shared_kernel.scanner_tools import ScannerTool
 
 
 class InMemoryUserRepository:
@@ -269,18 +272,57 @@ class InMemoryScanResultRepository:
     async def get_by_scan_id(self, scan_id: str) -> list[ScanResult]:
         return [result for result in self._results.values() if result.scan_id == scan_id]
 
+    async def get_succeeded_by_scan_id(self, scan_id: str) -> list[ScanResult]:
+        return [
+            result
+            for result in self._results.values()
+            if result.scan_id == scan_id and result.status is ScanResultStatus.SUCCEEDED
+        ]
+
+
+class InMemoryScannerConfigRepository:
+    def __init__(self) -> None:
+        self._configs: dict[str, ScannerConfig] = {}
+
+    async def get_by_project_id(self, project_id: str) -> ScannerConfig | None:
+        return self._configs.get(project_id)
+
+    async def upsert(self, config: ScannerConfig) -> None:
+        self._configs[config.project_id] = config
+
 
 class FakeScanner:
     """Records each call to `run` — proves whether a retry redoes real work,
-    no real subprocess."""
+    no real subprocess.
 
-    def __init__(self, result: RawScanResult | None = None, fail: bool = False) -> None:
-        self._result = result or RawScanResult(tool="semgrep", raw_output="{}")
+    `tool`/`target_kind` are instance attributes rather than class constants
+    (as the real adapters use) so one test can stand up several distinct fake
+    scanners; ScannerPort is a Protocol, and an instance attribute satisfies it
+    the same way.
+    """
+
+    def __init__(
+        self,
+        result: RawScanResult | None = None,
+        fail: bool = False,
+        tool: ScannerTool = ScannerTool.SEMGREP,
+        target_kind: ScannerTargetKind = ScannerTargetKind.REPO_PATH,
+        error: Exception | None = None,
+    ) -> None:
+        self.tool = tool
+        self.target_kind = target_kind
+        self._result = result or RawScanResult(tool=tool, raw_output="{}")
         self._fail = fail
+        # Lets a test raise something *other* than ScannerExecutionFailed, to
+        # prove per-scanner isolation holds for unanticipated failures too —
+        # which is the whole reason RunScanUseCase catches broadly.
+        self._error = error
         self.run_calls: list[str] = []
 
     async def run(self, target: str) -> RawScanResult:
         self.run_calls.append(target)
+        if self._error is not None:
+            raise self._error
         if self._fail:
             raise ScannerExecutionFailed("simulated scanner failure")
         return self._result
@@ -312,13 +354,25 @@ def scan_result_repository() -> InMemoryScanResultRepository:
 
 
 @pytest.fixture
+def scanner_config_repository() -> InMemoryScannerConfigRepository:
+    return InMemoryScannerConfigRepository()
+
+
+@pytest.fixture
 def scanner() -> FakeScanner:
     return FakeScanner()
 
 
 @pytest.fixture
+def scanners(scanner: FakeScanner) -> dict[ScannerTool, FakeScanner]:
+    """The single-scanner registry most RunScanUseCase tests want. A test
+    exercising dispatch across several tools builds its own."""
+    return {scanner.tool: scanner}
+
+
+@pytest.fixture
 def scanner_factory() -> type[FakeScanner]:
-    """Lets a test construct a FakeScanner with custom result/fail args."""
+    """Lets a test construct a FakeScanner with custom result/fail/tool args."""
     return FakeScanner
 
 

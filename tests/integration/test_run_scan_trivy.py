@@ -9,8 +9,10 @@ from verion.modules.identity.domain.github_connection import GitHubConnection
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresProjectRepository,
+    PostgresScannerConfigRepository,
 )
 from verion.modules.projects.domain.project import ConnectedRepo, Project
+from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.scanning.adapters.outbound.db.repository import (
     PostgresScanRepository,
     PostgresScanResultRepository,
@@ -21,6 +23,7 @@ from verion.modules.scanning.application.run_scan import RunScanUseCase
 from verion.modules.scanning.domain.scan import Scan, ScanStatus
 from verion.platform.clock import SystemClock
 from verion.platform.id_generator import UuidIdGenerator
+from verion.shared_kernel.scanner_tools import ScannerTool
 
 # Same public repo M3.2/M3.3's own walking-skeleton tests already use.
 _REPO_URL = "https://github.com/octocat/Hello-World"
@@ -72,16 +75,30 @@ async def test_run_scan_use_case_completes_with_trivy_adapter_injected(db_sessio
         failure_reason=None,
     )
     await PostgresScanRepository(db_session).add(scan)
+    # Trivy only. Without a config row this project would get the
+    # Semgrep+Trivy default, and this test is about one adapter being
+    # substitutable, not about dispatch breadth (that is
+    # test_multi_scanner_dispatch.py's job).
+    await PostgresScannerConfigRepository(db_session).upsert(
+        ScannerConfig(
+            id=f"config-trivy-{run_id}",
+            project_id=project.id,
+            enabled_tools=(ScannerTool.TRIVY,),
+            zap_target_url=None,
+            updated_at=datetime.now(UTC),
+        )
+    )
     await db_session.commit()
 
     use_case = RunScanUseCase(
         scans=PostgresScanRepository(db_session),
         scan_results=PostgresScanResultRepository(db_session),
         # The only line that differs from test_worker_run_scan.py's setup.
-        scanner=TrivyAdapter(skip_db_update=True),
+        scanners={ScannerTool.TRIVY: TrivyAdapter(skip_db_update=True)},
         repo_checkout=GitRepoCheckout(),
         connected_repos=PostgresConnectedRepoRepository(db_session),
         github_connections=PostgresGitHubConnectionRepository(db_session),
+        scanner_configs=PostgresScannerConfigRepository(db_session),
         id_generator=UuidIdGenerator(),
         clock=SystemClock(),
     )

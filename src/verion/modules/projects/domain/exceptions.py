@@ -20,3 +20,7 @@ class UnsupportedRepoProvider(Exception):
 
 class SecurityContextNotFound(Exception):
     pass
+
+
+class InvalidScannerConfig(Exception):
+    pass

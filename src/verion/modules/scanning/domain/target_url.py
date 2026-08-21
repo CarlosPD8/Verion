@@ -25,11 +25,24 @@ def validate_target_url_syntax(url: str) -> None:
     """
     parsed = urlparse(url)
 
+    # Deliberately the FIRST check, ahead of the scheme check below, and the
+    # only branch here that does not echo the URL. The rejected value contains
+    # a credential by construction, and since M3.7 this message can be
+    # persisted (RunScanUseCase writes a failed scanner's exception text into
+    # ScanResult.failure_reason) — rule 12 covers exception messages and DB
+    # columns alike. Order is load-bearing, not stylistic: with the scheme
+    # check first, `ftp://user:pass@host` raises *there* and interpolates the
+    # whole URL, credential included. Every other branch below is free to quote
+    # the URL precisely because this one has already rejected the shape that
+    # makes quoting unsafe. The hostname is safe to name and identifies which
+    # target was rejected.
+    if parsed.username is not None or parsed.password is not None:
+        raise UnsafeDastTarget(
+            f"target for host '{parsed.hostname}' must not contain userinfo (user:pass@host)"
+        )
+
     if parsed.scheme not in ("http", "https"):
         raise UnsafeDastTarget(f"'{url}' must use http or https, not '{parsed.scheme}'")
-
-    if parsed.username is not None or parsed.password is not None:
-        raise UnsafeDastTarget(f"'{url}' must not contain userinfo (user:pass@host)")
 
     hostname = parsed.hostname
     if not hostname:

@@ -28,6 +28,7 @@ from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresProjectMembershipRepository,
     PostgresProjectRepository,
+    PostgresScannerConfigRepository,
     PostgresSecurityContextRepository,
 )
 from verion.modules.projects.adapters.outbound.vcs.github_adapter import GitHubAdapter
@@ -44,12 +45,14 @@ from verion.modules.projects.application.connect_repository_via_github import (
 from verion.modules.projects.application.create_project import CreateProjectUseCase
 from verion.modules.projects.application.get_security_context import GetSecurityContextUseCase
 from verion.modules.projects.application.update_exposure_tags import UpdateExposureTagsUseCase
+from verion.modules.projects.application.update_scanner_config import UpdateScannerConfigUseCase
 from verion.modules.projects.domain.context_detection import detect_stack
 from verion.modules.projects.ports.connected_repo_repository import ConnectedRepoRepositoryPort
 from verion.modules.projects.ports.project_membership_repository import (
     ProjectMembershipRepositoryPort,
 )
 from verion.modules.projects.ports.project_repository import ProjectRepositoryPort
+from verion.modules.projects.ports.scanner_config_repository import ScannerConfigRepositoryPort
 from verion.modules.projects.ports.security_context_repository import (
     SecurityContextRepositoryPort,
 )
@@ -385,6 +388,36 @@ def get_update_exposure_tags_use_case(
 
 UpdateExposureTagsUseCaseDep = Annotated[
     UpdateExposureTagsUseCase, Depends(get_update_exposure_tags_use_case)
+]
+
+
+def get_scanner_config_repository(session: DbSessionDep) -> ScannerConfigRepositoryPort:
+    return PostgresScannerConfigRepository(session)
+
+
+ScannerConfigRepositoryDep = Annotated[
+    ScannerConfigRepositoryPort, Depends(get_scanner_config_repository)
+]
+
+
+def get_update_scanner_config_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    scanner_configs: ScannerConfigRepositoryDep,
+    id_generator: IdGeneratorDep,
+    clock: ClockDep,
+) -> UpdateScannerConfigUseCase:
+    return UpdateScannerConfigUseCase(
+        projects=projects,
+        memberships=memberships,
+        scanner_configs=scanner_configs,
+        id_generator=id_generator,
+        clock=clock,
+    )
+
+
+UpdateScannerConfigUseCaseDep = Annotated[
+    UpdateScannerConfigUseCase, Depends(get_update_scanner_config_use_case)
 ]
 
 

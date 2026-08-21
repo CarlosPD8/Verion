@@ -6,17 +6,21 @@ from verion.modules.projects.adapters.inbound.api.schemas import (
     ConnectRepositoryViaGitHubRequest,
     CreateProjectRequest,
     ProjectResponse,
+    ScannerConfigResponse,
     SecurityContextResponse,
     UpdateExposureTagsRequest,
+    UpdateScannerConfigRequest,
 )
 from verion.modules.projects.domain.exceptions import (
     ConnectedRepoNotFound,
     GitHubApiError,
     InsufficientPermissions,
+    InvalidScannerConfig,
     ProjectNotFound,
     SecurityContextNotFound,
     UnsupportedRepoProvider,
 )
+from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.platform.di import (
     BuildSecurityContextFromGitHubUseCaseDep,
@@ -27,6 +31,7 @@ from verion.platform.di import (
     CurrentUserIdDep,
     GetSecurityContextUseCaseDep,
     UpdateExposureTagsUseCaseDep,
+    UpdateScannerConfigUseCaseDep,
 )
 
 router = APIRouter()
@@ -202,3 +207,41 @@ async def update_exposure_tags(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     return _security_context_response(context)
+
+
+def _scanner_config_response(config: ScannerConfig) -> ScannerConfigResponse:
+    return ScannerConfigResponse(
+        id=config.id,
+        project_id=config.project_id,
+        enabled_tools=[str(tool) for tool in config.enabled_tools],
+        zap_target_url=config.zap_target_url,
+        updated_at=config.updated_at,
+    )
+
+
+@router.put(
+    "/{project_id}/scanner-config",
+    status_code=status.HTTP_200_OK,
+    response_model=ScannerConfigResponse,
+)
+async def update_scanner_config(
+    project_id: str,
+    request: UpdateScannerConfigRequest,
+    user_id: CurrentUserIdDep,
+    use_case: UpdateScannerConfigUseCaseDep,
+) -> ScannerConfigResponse:
+    try:
+        config = await use_case.execute(
+            project_id=project_id,
+            user_id=user_id,
+            enabled_tools=request.enabled_tools,
+            zap_target_url=request.zap_target_url,
+        )
+    except ProjectNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InsufficientPermissions as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except InvalidScannerConfig as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return _scanner_config_response(config)

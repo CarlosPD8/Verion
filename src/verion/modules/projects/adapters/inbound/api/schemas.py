@@ -22,6 +22,15 @@ class UpdateExposureTagsRequest(BaseModel):
     exposure_tags: list[str]
 
 
+class UpdateScannerConfigRequest(BaseModel):
+    # Plain list[str], not list[ScannerTool]: an unknown name should come back
+    # as this API's own "Unknown scanner 'x'. Known scanners: ..." message from
+    # the use case, not as a pydantic enum-coercion error that names the field
+    # but not the alternatives.
+    enabled_tools: list[str]
+    zap_target_url: str | None = None
+
+
 class ProjectResponse(BaseModel):
     """Dedicated response schema, never the domain Project directly (rule 10)."""
 
@@ -53,3 +62,13 @@ class SecurityContextResponse(BaseModel):
     ci_provider: str | None
     exposure_tags: list[str]
     created_at: datetime
+
+
+class ScannerConfigResponse(BaseModel):
+    """Dedicated response schema, never the domain ScannerConfig directly (rule 10)."""
+
+    id: str
+    project_id: str
+    enabled_tools: list[str]
+    zap_target_url: str | None
+    updated_at: datetime

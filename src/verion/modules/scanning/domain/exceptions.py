@@ -44,3 +44,17 @@ class RepoNotConnected(Exception):
 
 class InvalidWebhookPayload(Exception):
     pass
+
+
+class NoScannersEnabled(Exception):
+    pass
+
+
+class UnknownScanner(Exception):
+    """A configured tool name that no registered adapter answers to.
+
+    A deployment/configuration error, not a tool outcome — so it fails the
+    whole scan loudly rather than being recorded as one tool's failure. The
+    write path validates against ScannerTool, so reaching this means config
+    was written around it or an adapter was dropped from the worker registry.
+    """

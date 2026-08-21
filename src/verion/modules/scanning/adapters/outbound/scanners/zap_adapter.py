@@ -11,11 +11,13 @@ import yaml
 
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
+from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.modules.scanning.domain.target_url import (
     validate_resolved_ips_are_public,
     validate_target_url_syntax,
 )
 from verion.modules.scanning.ports.dns_resolver import DnsResolverPort
+from verion.shared_kernel.scanner_tools import ScannerTool
 
 _REPORT_FILENAME = "report.json"
 _PLAN_FILENAME = "plan.yaml"
@@ -23,6 +25,13 @@ _WORKDIR_IN_CONTAINER = "/zap/wrk"
 
 
 class ZapAdapter:
+    # The only URL-kind scanner. Dispatch reads target_kind to decide what to
+    # pass as `target` — a configured target URL here, the shared checkout path
+    # for the repo-based scanners — rather than branching on `tool == "zap"`,
+    # which would special-case an integration inside application logic (rule 4).
+    tool = ScannerTool.ZAP
+    target_kind = ScannerTargetKind.URL
+
     def __init__(
         self,
         dns_resolver: DnsResolverPort,
@@ -130,7 +139,7 @@ class ZapAdapter:
                 )
 
             report_path = Path(plan_dir, _REPORT_FILENAME)
-            return RawScanResult(tool="zap", raw_output=report_path.read_text())
+            return RawScanResult(tool=self.tool, raw_output=report_path.read_text())
         finally:
             shutil.rmtree(plan_dir, ignore_errors=True)
 
