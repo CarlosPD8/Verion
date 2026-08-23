@@ -40,7 +40,7 @@ class NormalizationRunModel(Base):
     scan_id: Mapped[str] = mapped_column(String(36), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Unconstrained on purpose: these belong to transitions M4.1 writes.
+    # Unconstrained on purpose: these belong to transitions M4.4 writes.
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String, nullable=True)

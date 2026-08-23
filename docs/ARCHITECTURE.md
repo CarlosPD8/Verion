@@ -154,14 +154,40 @@ NormalizationRun   # M4.0 — normalization; pipeline progress, one row per Scan
  # Written by RunScanUseCase in the same transaction as the ScanResult rows.
  # Exists iff ScanResult rows were persisted. See ADR-0017.
 
-Finding
+Finding   # M4.1 — normalization; produced by the per-scanner mappers
  ├── id, scan_id, source: ScannerTool   # shared_kernel/scanner_tools.py — not a literal set
- ├── severity, confidence, cwe, owasp_category, cvss
- ├── location (file/line or endpoint), evidence: Evidence
- └── dedup_hash
+ ├── severity: Severity                 # shared_kernel/severity.py — the normalized scale
+ ├── native_severity                    # what the tool literally said ("ERROR", "CRITICAL", "Low")
+ ├── title
+ ├── cwe, owasp_category, cvss          # nullable; None means the tool supplied nothing
+ ├── location: Location, evidence: Evidence
+ # severity collapses three incompatible tool scales into one, so it is lossy for
+ # ORDERING; native_severity is what keeps it lossless for PROVENANCE (FR-9).
+ # A field with no source is None — never "" and never a guess, or a mapper would
+ # be inventing a Risk Engine input (rule 5). See ADR-0018.
+ # NOT here yet, each deferred to the issue that can decide it properly:
+ #   confidence  — M6.1. Only ZAP supplies it, as an opaque numeric code whose
+ #                 vocabulary mixes degrees with states (Confirmed/False Positive),
+ #                 and RiskReasoning's five signals do not include it.
+ #   dedup_hash  — M4.2, with the Finding identity question (G5).
+
+Location   # M4.1 — an EMBEDDED value object on Finding, not an entity: no id, no
+           # table of its own, and deliberately absent from the §4.2 ERD. One flat
+           # shape, not a tagged union of three.
+ ├── file_path, start_line, end_line          # Semgrep
+ ├── package, installed_version               # Trivy
+ └── url, http_method, parameter              # ZAP
+ # All nullable, and an all-None Location is valid (a ZAP site-level alert can
+ # carry no instances). A tagged union would force downstream readers to branch on
+ # which tool produced the finding — per-tool knowledge past normalization, which
+ # is the leak the common schema exists to prevent.
 
 Evidence
- ├── id, finding_id, raw_payload, source_tool, captured_at
+ ├── id, finding_id, raw_payload, source_tool: ScannerTool, captured_at
+ # raw_payload is a verbatim COPY of the one source element (a Semgrep result, a
+ # Trivy vulnerability, a ZAP alert), not a reference into ScanResult.raw_output:
+ # that blob is replaceable by a retry's upsert, so a reference would dangle
+ # silently. ADR-0018 decision 6.
 
 Risk
  ├── id, project_id
@@ -300,7 +326,7 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
 │       │   │   └── adapters/outbound/explanation/
 │       │   │       └── llm_adapter.py
 │       │   └── history/
-│       ├── shared_kernel/               # cross-module value objects (e.g. Severity, CWE)
+│       ├── shared_kernel/               # cross-cutting Protocols + shared vocabulary
 │       └── platform/                    # framework wiring: FastAPI app, DI container,
 │                                         # DB session mgmt, Redis client, settings
 ├── tests/
@@ -319,6 +345,14 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
 Code lives under a `src/verion/` layout rather than flat at the repo root. This is a deliberate deviation from a naive reading of this section: `platform/` is also the name of a Python **standard library module**, and a flat, importable top-level `platform/` package would shadow it the moment the repo root lands on `sys.path` (e.g. running pytest or uvicorn from the repo root) — breaking any third-party library that does `import platform` internally (uvicorn and FastAPI both do). Wrapping everything under `src/verion/` means the real import path is `verion.platform`, never bare `platform`, which avoids the collision entirely without renaming the module itself. Established as of M0.1.
 
 Each module's `domain/` folder has **zero imports** from `adapters/` or any third-party framework — this is enforced with an import-linter rule in CI (see Section 10).
+
+**What `shared_kernel/` takes, stated as a criterion rather than a list** (ADR-0018, extending the widening ADR-016 decision 4 recorded when it added `ScannerTool`):
+
+> `shared_kernel/` takes **closed vocabularies** — enumerations — that two or more modules must **compare or order**, not merely **transport**. Entities and structures stay with the module that owns them and travel by indirect import.
+
+The scope clause is load-bearing. An enum's *members* are the shared knowledge: to write `severity >= Severity.HIGH` you must import the type by name, and `risk_engine` may not import `normalization`'s domain (rule 3). A structure's *fields* are reachable by attribute without importing the type — `scanning` reads `connected_repo.url` today without `ConnectedRepo` living here. Without the clause the criterion would pull in `Location`, then `Finding`, and hollow out `normalization/domain/`.
+
+Applied so far: `ClockPort`/`IdGeneratorPort` (cross-cutting Protocols, M0.3), `ScannerTool` (ADR-016), `Severity` (ADR-0018). Declined under the same criterion: `Confidence` and `Location` (both ADR-0018).
 
 ---
 
@@ -452,6 +486,8 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
 - **ADR-015 — `mypy --strict` as the CI type-checking gate, scoped to `src/`.** Makes §10's "adapters type-checked against them" true rather than aspirational. `--strict` cost only five errors more than default mode because `src/` was already annotated to that standard. Conformance is verified only where an adapter meets a port-annotated site — a `di.py` factory's return type or an explicit annotation at construction — which is why `platform/worker.py` annotates its adapters: arq's `ctx` is `dict[str, Any]` and anything stored in it is invisible to the checker.
 - **ADR-016 — Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration.** M3.7's four decisions. One arq job per `Scan` with scanners concurrent against a single checkout, decided on snapshot coherence rather than job bookkeeping — fan-out would let different tools see different commits and make M5's cross-tool correlation unsound. Per-tool outcome lives on `ScanResult` (a failed tool still gets a row), `Scan.status` is derived and gains `PARTIAL`, and **M4 reads `get_succeeded_by_scan_id`, never `Scan.status`**. Scanner configuration is a `ScannerConfig` entity in `projects`, read by `scanning` through a port. `ScannerPort` gains `tool` and `target_kind` so dispatch routes on data rather than on a `tool == "zap"` branch.
 - **ADR-0017 — Normalization trigger, and where pipeline progress lives.** M4.0. `ScanStatus` stays scanner-scoped and gains no pipeline stages; progress lives in a `NormalizationRun` record owned by `normalization` and written by `RunScanUseCase` through a primitives-only port, in the same transaction as the `ScanResult` rows — so the row *is* the outbox and the Redis enqueue degrades to a latency optimization. Normalization runs on `PARTIAL` and on an all-tools-failed scan, on the invariant that a row exists iff `ScanResult` rows were persisted. Redraws §8, which described a synchronous pipeline that was never built.
+
+- **ADR-0018 — Normalized severity, unsourced fields, and what `shared_kernel/` takes.** M4.1. Three incompatible tool scales collapse into one six-member `Severity` (`UNKNOWN` included rather than folded into `LOW`, which would invent a Risk Engine input), with `native_severity` keeping what the collapse discards so it is lossy for ordering but not for provenance. `Severity` lives in `shared_kernel/` under the criterion §7 now records. A field with no source is `None`, never `""` and never a guess; `cwe` is a single canonical `CWE-<n>` because the measured maximum across all three real fixtures is 1; `cvss` is CVSS v3 only, since mixing v2 and v3 in one float would have M6 comparing incomparable numbers. `confidence` and `dedup_hash` are deliberately absent, deferred to M6.1 and M4.2. Written against captured scanner output rather than documentation — which is what caught that ZAP's report has no severity field at all.
 
 `0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created.
 

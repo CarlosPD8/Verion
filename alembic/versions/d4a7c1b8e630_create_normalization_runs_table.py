@@ -51,7 +51,7 @@ def upgrade() -> None:
     # about this table*.
     #
     # No index on (status, requested_at) either. The sweep that would use one
-    # ships with M4.1; indexing ahead of it would be a guess at its shape.
+    # ships with M4.4; indexing ahead of it would be a guess at its shape.
 
 
 def downgrade() -> None:

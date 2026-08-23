@@ -23,7 +23,7 @@ def test_requested_is_pending_with_no_timestamps_and_no_reason():
 # The invariant, from both directions. Enforced here and again by
 # ck_normalization_runs_failure_reason_shape, the same two-place idiom ADR-016
 # decision 2 established for ScanResult — a failure_reason must mean "this
-# stage failed", and a failed row must say why, or M4.1 has to guess.
+# stage failed", and a failed row must say why, or the reader has to guess.
 
 
 def test_failed_without_a_reason_is_rejected():
@@ -79,7 +79,7 @@ def test_failed_with_a_reason_is_accepted():
 
 def test_timestamps_are_deliberately_unconstrained():
     """Not an oversight — recorded as a test so a future reader does not "fix"
-    it. started_at/finished_at belong to transitions M4.1 writes; constraining
+    it. started_at/finished_at belong to transitions M4.4 writes; constraining
     them here would pin a state machine M4.0 does not implement (ADR-0017
     decision 1).
     """

@@ -29,7 +29,7 @@ class NormalizationRun:
     a CHECK constraint on the table — the same defensive-constraint idiom
     `ScanResult` and `ck_scan_results_outcome_shape` already use. The timestamps
     deliberately are not, in either place: `started_at`/`finished_at` belong to
-    transitions M4.1 writes, and pinning them now would constrain a state
+    transitions M4.4 writes, and pinning them now would constrain a state
     machine this issue does not implement.
 
     See ADR-0017 decision 1 for why this record exists and who owns it.

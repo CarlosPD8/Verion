@@ -1,0 +1,49 @@
+{
+  "version": "1.173.0",
+  "results": [
+    {
+      "check_id": "rules.with-metadata",
+      "path": "app/views.py",
+      "start": { "line": 10, "col": 1, "offset": 100 },
+      "end": { "line": 12, "col": 20, "offset": 160 },
+      "extra": {
+        "message": "A rule that declares metadata, unlike this project's pinned ruleset.",
+        "metadata": {
+          "cwe": ["CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"],
+          "owasp": ["A03:2021 - Injection"]
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "rules.informational",
+      "path": "app/settings.py",
+      "start": { "line": 3, "col": 1, "offset": 20 },
+      "end": { "line": 3, "col": 40, "offset": 60 },
+      "extra": {
+        "message": "An INFO-level rule, absent from the real capture.",
+        "metadata": { "cwe": "CWE-16", "owasp": "A05:2021 - Security Misconfiguration" },
+        "severity": "INFO",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "rules.severity-semgrep-does-not-have-today",
+      "path": "app/legacy.py",
+      "start": { "line": 1, "col": 1, "offset": 0 },
+      "end": { "line": 1, "col": 5, "offset": 4 },
+      "extra": {
+        "message": "A level a future Semgrep release could add. Must degrade, not crash.",
+        "metadata": {},
+        "severity": "CATASTROPHIC",
+        "engine_kind": "OSS"
+      }
+    }
+  ],
+  "errors": [],
+  "paths": { "scanned": ["app/views.py", "app/settings.py", "app/legacy.py"] },
+  "skipped_rules": []
+}

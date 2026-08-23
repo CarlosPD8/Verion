@@ -1,0 +1,77 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "/repo",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "poetry.lock",
+      "Class": "lang-pkgs",
+      "Type": "poetry",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-9000-0001",
+          "PkgName": "criticalpkg",
+          "InstalledVersion": "1.0.0",
+          "FixedVersion": "1.0.1",
+          "Title": "A CRITICAL, which the real fixture does not contain",
+          "Severity": "CRITICAL",
+          "CweIDs": ["CWE-78"],
+          "CVSS": { "nvd": { "V3Score": 9.8, "V2Score": 10.0 } }
+        },
+        {
+          "VulnerabilityID": "CVE-9000-0002",
+          "PkgName": "lowpkg",
+          "InstalledVersion": "2.0.0",
+          "Severity": "LOW",
+          "CweIDs": [],
+          "CVSS": {}
+        },
+        {
+          "VulnerabilityID": "CVE-9000-0003",
+          "PkgName": "unknownpkg",
+          "InstalledVersion": "3.0.0",
+          "Title": "Severity UNKNOWN is carried through, never guessed at",
+          "Severity": "UNKNOWN",
+          "CVSS": { "redhat": { "V3Score": 5.5 } }
+        },
+        {
+          "VulnerabilityID": "CVE-9000-0004",
+          "PkgName": "v2onlypkg",
+          "InstalledVersion": "4.0.0",
+          "Title": "Only a CVSS v2 score exists, so cvss must be None, not 6.8",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-200"],
+          "CVSS": { "nvd": { "V2Score": 6.8, "V2Vector": "AV:N/AC:M/Au:N/C:P/I:P/A:P" } }
+        },
+        {
+          "VulnerabilityID": "CVE-9000-0005",
+          "PkgName": "novendorpref",
+          "InstalledVersion": "5.0.0",
+          "Title": "No preferred vendor present; falls back to the remaining one",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-400"],
+          "CVSS": { "zzzvendor": { "V3Score": 7.1 } }
+        },
+        {
+          "VulnerabilityID": "CVE-9000-0006",
+          "PkgName": "multicwepkg",
+          "InstalledVersion": "6.0.0",
+          "Title": "Two CweIDs. No ecosystem in the real fixture produces this, but other ecosystems do — this pins what the mapper does about it",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-287", "CWE-863"],
+          "CVSS": { "nvd": { "V3Score": 8.8 } }
+        }
+      ]
+    },
+    {
+      "Target": "requirements-dev.txt",
+      "Class": "lang-pkgs",
+      "Type": "pip",
+      "Vulnerabilities": null
+    },
+    {
+      "Target": "Dockerfile",
+      "Class": "config"
+    }
+  ]
+}
