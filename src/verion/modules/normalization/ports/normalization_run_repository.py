@@ -5,8 +5,17 @@ from verion.modules.normalization.domain.normalization_run import NormalizationR
 
 
 class NormalizationRunRepositoryPort(Protocol):
-    async def request(self, *, id: str, scan_id: str, requested_at: datetime) -> None:
+    async def request(
+        self, *, id: str, scan_id: str, project_id: str, requested_at: datetime
+    ) -> None:
         """Records that normalization is owed for this scan, idempotently.
+
+        `project_id` is the dedup scope this module cannot reach any other way —
+        `get_succeeded_by_scan_id` returns `ScanResult` rows that carry none, and
+        the sweep's `WHERE` clause rules out a read port back into `scanning`
+        (ADR-0019 decision 7). `RunScanUseCase` already holds `scan.project_id`,
+        so passing it costs the caller nothing and keeps the method primitives-
+        only, leaving decision 1's boundary exactly where it was.
 
         **Takes primitives, not a `NormalizationRun`, deliberately.** The caller
         is `scanning`'s `RunScanUseCase`, which may not import this module's

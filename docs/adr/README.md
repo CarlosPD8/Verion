@@ -21,6 +21,7 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0014](0014-github-webhook-verification.md) | GitHub webhook signature verification and delivery handling | Accepted |
 | [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted |
 | [0016](0016-multi-scanner-dispatch.md) | Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration | Accepted |
-| [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1) |
+| [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1, M4.3) |
 | [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2) |
-| [0019](0019-finding-identity-and-deduplication.md) | `Finding` identity, deduplication, and what the hash is over | Accepted |
+| [0019](0019-finding-identity-and-deduplication.md) | `Finding` identity, deduplication, and what the hash is over | Accepted (amended M4.3) |
+| [0020](0020-finding-upsert-semantics.md) | How the `Finding` upsert stays equal to `merge_observation` | Accepted |

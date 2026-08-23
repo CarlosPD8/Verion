@@ -24,6 +24,10 @@ from verion.modules.identity.ports.github_oauth_client import GitHubOAuthClientP
 from verion.modules.identity.ports.oauth_state_signer import OAuthStateSignerPort
 from verion.modules.identity.ports.password_hasher import PasswordHasherPort
 from verion.modules.identity.ports.user_repository import UserRepositoryPort
+from verion.modules.normalization.adapters.outbound.db.repository import (
+    PostgresFindingRepository,
+)
+from verion.modules.normalization.ports.finding_repository import FindingRepositoryPort
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresProjectMembershipRepository,
@@ -492,3 +496,19 @@ def get_handle_github_webhook_use_case(
 HandleGitHubWebhookUseCaseDep = Annotated[
     HandleGitHubWebhookUseCase, Depends(get_handle_github_webhook_use_case)
 ]
+
+
+# No route depends on this yet — the writer is M4.4 and the read API is M4.5 —
+# and it is here anyway, for a reason worth stating rather than leaving as an
+# apparent oversight. A factory's PORT-annotated return type is the only place
+# `mypy --strict` ever verifies that an adapter satisfies its Protocol
+# (CLAUDE.md's Tier 1 table). PostgresNormalizationRunRepository gets away with
+# having no factory only because worker.py hands it to RunScanUseCase, whose
+# __init__ annotates that parameter as the port; PostgresFindingRepository has no
+# such meeting point until M4.4, so without this its conformance would be
+# checked by nothing at all.
+def get_finding_repository(session: DbSessionDep) -> FindingRepositoryPort:
+    return PostgresFindingRepository(session)
+
+
+FindingRepositoryDep = Annotated[FindingRepositoryPort, Depends(get_finding_repository)]

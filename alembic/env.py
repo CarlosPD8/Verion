@@ -11,6 +11,9 @@ from verion.modules.identity.adapters.outbound.db.models import (  # noqa: F401
     UserModel,
 )
 from verion.modules.normalization.adapters.outbound.db.models import (  # noqa: F401
+    EvidenceModel,
+    FindingModel,
+    FindingSightingModel,
     NormalizationRunModel,
 )
 from verion.modules.projects.adapters.outbound.db.models import (  # noqa: F401

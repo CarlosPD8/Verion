@@ -289,16 +289,21 @@ class InMemoryNormalizationRunRepository:
         self._runs: dict[str, NormalizationRun] = {}
         # Records every call, including the no-op ones, so a test can assert the
         # request was *made* on a retry and still did not overwrite the row.
-        self.request_calls: list[str] = []
+        # (scan_id, project_id) rather than scan_id alone, so a caller that
+        # dropped the dedup scope — which no CHECK constraint or type could
+        # catch, both being str — fails a unit test rather than reaching M4.4.
+        self.request_calls: list[tuple[str, str]] = []
 
-    async def request(self, *, id: str, scan_id: str, requested_at: datetime) -> None:
-        self.request_calls.append(scan_id)
+    async def request(
+        self, *, id: str, scan_id: str, project_id: str, requested_at: datetime
+    ) -> None:
+        self.request_calls.append((scan_id, project_id))
         # DO NOTHING, never DO UPDATE: overwriting would reset a running or
         # completed row back to pending (ADR-0017 decision 2).
         if scan_id in self._runs:
             return
         self._runs[scan_id] = NormalizationRun.requested(
-            id=id, scan_id=scan_id, requested_at=requested_at
+            id=id, scan_id=scan_id, project_id=project_id, requested_at=requested_at
         )
 
     async def get_by_scan_id(self, scan_id: str) -> NormalizationRun | None:

@@ -1092,6 +1092,13 @@ async def test_a_completed_scan_records_that_normalization_is_owed(
     assert run is not None
     assert run.status is NormalizationRunStatus.PENDING
     assert run.requested_at == clock.now()
+    # The dedup scope reaches `normalization` on this row and nowhere else:
+    # get_succeeded_by_scan_id returns ScanResult rows that carry no project, and
+    # the sweep's WHERE clause rules out a read port back into `scanning`
+    # (ADR-0019 decision 7). Asserted here rather than left to M4.3's integration
+    # test because both ids are `str` — a call site that passed the wrong one, or
+    # dropped it, is invisible to mypy and to every CHECK constraint.
+    assert run.project_id == _PROJECT_ID
     # Scan.status stays scanner-scoped: COMPLETED means every enabled scanner
     # finished, not that the pipeline did. Nothing downstream reads it.
     updated = await scan_repository.get_by_id(_SCAN_ID)
@@ -1280,7 +1287,10 @@ async def test_a_retry_re_requests_normalization_without_overwriting_the_row(
     )
     # The row the first attempt already wrote, which the retry must leave alone.
     await normalization_run_repository.request(
-        id="pre-existing-run", scan_id=_SCAN_ID, requested_at=datetime(2026, 1, 1, tzinfo=UTC)
+        id="pre-existing-run",
+        scan_id=_SCAN_ID,
+        project_id=_PROJECT_ID,
+        requested_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     use_case = _use_case(
         scan_repository,
@@ -1300,7 +1310,10 @@ async def test_a_retry_re_requests_normalization_without_overwriting_the_row(
     assert len(scanner.run_calls) == 1
     # The request *was* made again: the conflict is resolved at the write, not
     # by the caller reading first, which would be racy across two workers.
-    assert normalization_run_repository.request_calls == [_SCAN_ID, _SCAN_ID]
+    assert normalization_run_repository.request_calls == [
+        (_SCAN_ID, _PROJECT_ID),
+        (_SCAN_ID, _PROJECT_ID),
+    ]
     run = await normalization_run_repository.get_by_scan_id(_SCAN_ID)
     assert run.id == "pre-existing-run"
     assert run.status is NormalizationRunStatus.PENDING

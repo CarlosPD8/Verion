@@ -148,13 +148,11 @@ ScanResult   # M3.7 — one row per tool that was attempted, including one that 
 
 NormalizationRun   # M4.0 — normalization; pipeline progress, one row per Scan
  ├── id, scan_id   # UNIQUE — the idempotency key; the row IS the scan→normalize outbox
- ├── project_id    # DECIDED in M4.2 (ADR-0019 decision 7), NOT YET BUILT — arrives in M4.3
- │                 # with its migration, the port signature and the RunScanUseCase call
- │                 # site. The only field in §4 that does not yet exist in code, marked so
- │                 # rather than left for an implementer to discover. It is the dedup scope,
- │                 # which normalization can reach no other way: the sweep selects on this
- │                 # table alone (ADR-0017 decision 2), so a read port back into scanning
- │                 # could not supply it. No FK, like scan_id.
+ ├── project_id    # M4.3 — the dedup scope, which normalization can reach no other way:
+ │                 # the sweep selects on this table alone (ADR-0017 decision 2), so a read
+ │                 # port back into scanning could not supply it. No FK, like scan_id.
+ │                 # Written by RunScanUseCase through the primitives-only port, which
+ │                 # gained the parameter here (ADR-0019 decision 7, ADR-0017 Amendments).
  ├── status (pending|running|completed|failed)
  ├── requested_at, started_at, finished_at
  └── failure_reason   # nullable; non-null iff failed. Never Scan.failure_reason.
@@ -303,7 +301,7 @@ erDiagram
 | `ScanRepositoryPort` | Persist/query scans | Postgres adapter |
 | `ScanResultRepositoryPort` | Persist per-tool raw output; `get_succeeded_by_scan_id` is **M4's entry point** (M3.7) | Postgres adapter |
 | `NormalizationRunRepositoryPort` | Record that normalization is owed for a scan, and read it back (M4.0). Its write method takes primitives so `scanning` can call it without importing `normalization`'s domain | Postgres adapter |
-| `FindingRepositoryPort` | Upsert findings on `(project_id, dedup_hash)` — keeping the stored `id` and refreshing the mutable attributes per `merge_observation` — record `FindingSighting` rows, and query by project (M4.3) | Postgres adapter |
+| `FindingRepositoryPort` | Upsert findings on `(project_id, dedup_hash)` — keeping the stored `id` and refreshing the mutable attributes per `merge_observation` — record `FindingSighting` rows, and query by project (M4.3). `upsert` **returns** the resolved `Finding`, because only it settles which surrogate `id` wins and M4.4 needs that to write a sighting; `record_sighting` takes a per-scan **total**, never an increment (ADR-0020) | Postgres adapter |
 | `RiskRepositoryPort` | Persist/query risks, history | Postgres adapter |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
 | `VcsProviderPort` | Read repo metadata, register webhooks | `GitHubAdapter` |
@@ -530,6 +528,8 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
 - **ADR-0018 — Normalized severity, unsourced fields, and what `shared_kernel/` takes.** M4.1. Three incompatible tool scales collapse into one six-member `Severity` (`UNKNOWN` included rather than folded into `LOW`, which would invent a Risk Engine input), with `native_severity` keeping what the collapse discards so it is lossy for ordering but not for provenance. `Severity` lives in `shared_kernel/` under the criterion §7 now records. A field with no source is `None`, never `""` and never a guess; `cwe` is a single canonical `CWE-<n>` because the measured maximum across all three real fixtures is 1; `cvss` is CVSS v3 only, since mixing v2 and v3 in one float would have M6 comparing incomparable numbers. `confidence` is deliberately absent, deferred to M6.1; `dedup_hash` was too, and ADR-0019 discharges that. Written against captured scanner output rather than documentation — which is what caught that ZAP's report has no severity field at all.
 
 - **ADR-0019 — `Finding` identity, deduplication, and what the hash is over.** M4.2, resolving G5. A `Finding` is durable and project-scoped, identified by a derived `dedup_hash`, with a `FindingSighting` per scan that observes it — so "not sighted in scan N" is the absence of a row and "scan N was never normalized" is `NormalizationRun`, which is the distinction M9.1 needs. One hash function over the common schema, not three per tool, made possible by `rule_id`: the tool's own identifier for what fired, which `title` had been melting together with advisory-mutable prose. The exclusions follow one principle — *where identity is uncertain, prefer the failure that under-counts over the failure that fabricates events* — which puts line numbers, `installed_version`, severity, CVSS, CWE and title outside the hash, and makes ZAP one `Finding` per (alert, instance) rather than per alert. `Evidence` stays 1:1 with the finding and is refreshed latest-wins. `"v1:<sha256>"`, version-prefixed because the input set is a contract whose only migration is re-normalizing from the retained `ScanResult.raw_output`.
+
+- **ADR-0020 — How the `Finding` upsert stays equal to `merge_observation`.** M4.3. ADR-0019 made that pure function the executable spec for the upsert without saying how a domain function and one SQL statement stay in agreement. They can, because the function's refresh set is **total except the two surrogate ids** — so `ON CONFLICT DO UPDATE` transcribes it rather than re-deciding it, and the `SET` clause is exactly `_RULE_LEVEL_ATTRIBUTES` plus the three `Location` fields the hash excludes. Read-modify-write is rejected on a concurrency window the obvious bound misses: `UNIQUE(scan_id)` bounds duplicate jobs for **one** scan, not two scans of the same project normalizing at once, so it would hit the `IntegrityError` ADR-014 and ADR-0017 both rejected. The equivalence **expires** the moment a field must not refresh — M6.1's `confidence` is the named candidate — and three test layers (column partition, refresh-set derivation from the domain's own declarations, and a whole-object comparison against `merge_observation`) are what hold it rather than a convention. `upsert` returns the resolved `Finding` because only it settles which `id` wins; `record_sighting` overwrites a per-scan **total** because retries are guaranteed and only overwriting is idempotent.
 
 `0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created.
 

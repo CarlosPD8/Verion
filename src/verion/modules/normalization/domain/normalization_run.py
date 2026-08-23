@@ -32,11 +32,20 @@ class NormalizationRun:
     transitions M4.4 writes, and pinning them now would constrain a state
     machine this issue does not implement.
 
+    `project_id` is the **dedup scope**, not decoration. Findings dedup within a
+    project (`UNIQUE(project_id, dedup_hash)`), and `normalization` can reach a
+    project through none of its other inputs: `get_succeeded_by_scan_id` returns
+    `ScanResult` rows, which carry none. A read port back into `scanning` cannot
+    serve it either, because decision 2 fixes the reconciliation sweep as
+    selecting on this table alone and a read port cannot serve a `WHERE` clause.
+    So the handoff row carries it. See ADR-0019 decision 7.
+
     See ADR-0017 decision 1 for why this record exists and who owns it.
     """
 
     id: str
     scan_id: str
+    project_id: str
     status: NormalizationRunStatus
     requested_at: datetime
     started_at: datetime | None
@@ -57,7 +66,9 @@ class NormalizationRun:
             )
 
     @classmethod
-    def requested(cls, *, id: str, scan_id: str, requested_at: datetime) -> "NormalizationRun":
+    def requested(
+        cls, *, id: str, scan_id: str, project_id: str, requested_at: datetime
+    ) -> "NormalizationRun":
         """The only state the scan → normalize handoff produces.
 
         Called by this module's own adapter, never by `scanning`: the port
@@ -69,6 +80,7 @@ class NormalizationRun:
         return cls(
             id=id,
             scan_id=scan_id,
+            project_id=project_id,
             status=NormalizationRunStatus.PENDING,
             requested_at=requested_at,
             started_at=None,

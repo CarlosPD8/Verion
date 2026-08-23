@@ -157,6 +157,12 @@ async def test_a_partial_scan_leaves_a_pending_handoff_row_without_reading_scan_
     assert run is not None
     assert run.status is NormalizationRunStatus.PENDING
     assert run.scan_id == scan.id
+    # The dedup scope, carried on the handoff row because `normalization` can
+    # reach a project no other way (ADR-0019 decision 7). Asserted on the real
+    # write path, not only against the in-memory fake: `scan_id` and
+    # `project_id` are both `str`, so a call site that transposed them would be
+    # invisible to mypy and to every constraint on this table.
+    assert run.project_id == scan.project_id
     assert run.started_at is None
     assert run.finished_at is None
     assert run.failure_reason is None
@@ -188,13 +194,23 @@ async def test_requesting_the_same_scan_twice_is_a_no_op_not_an_integrity_error(
     scan = await _seed(db_session, run_id)
     repository = PostgresNormalizationRunRepository(db_session)
     requested_at = datetime.now(UTC)
-    await repository.request(id=f"n1-{run_id}", scan_id=scan.id, requested_at=requested_at)
+    await repository.request(
+        id=f"n1-{run_id}",
+        scan_id=scan.id,
+        project_id=scan.project_id,
+        requested_at=requested_at,
+    )
     await db_session.execute(
         text("UPDATE normalization_runs SET status = 'completed' WHERE scan_id = :scan_id"),
         {"scan_id": scan.id},
     )
 
-    await repository.request(id=f"n2-{run_id}", scan_id=scan.id, requested_at=datetime.now(UTC))
+    await repository.request(
+        id=f"n2-{run_id}",
+        scan_id=scan.id,
+        project_id=scan.project_id,
+        requested_at=datetime.now(UTC),
+    )
 
     run = await repository.get_by_scan_id(scan.id)
     assert run.id == f"n1-{run_id}"
@@ -222,10 +238,16 @@ async def test_every_domain_status_is_accepted_by_the_check_constraint(db_sessio
     await db_session.execute(
         text(
             "INSERT INTO normalization_runs"
-            " (id, scan_id, status, requested_at, started_at, finished_at, failure_reason)"
-            f" VALUES (:id, :scan_id, :status, now(), NULL, NULL, {failure_reason})"
+            " (id, scan_id, project_id, status, requested_at, started_at, finished_at,"
+            " failure_reason)"
+            f" VALUES (:id, :scan_id, :project_id, :status, now(), NULL, NULL, {failure_reason})"
         ),
-        {"id": f"n-{run_id}", "scan_id": f"scan-{run_id}", "status": str(status)},
+        {
+            "id": f"n-{run_id}",
+            "scan_id": f"scan-{run_id}",
+            "project_id": f"project-{run_id}",
+            "status": str(status),
+        },
     )
 
     stored = await db_session.execute(
@@ -248,10 +270,15 @@ async def test_the_database_rejects_an_unknown_status(db_session):
         await db_session.execute(
             text(
                 "INSERT INTO normalization_runs"
-                " (id, scan_id, status, requested_at, started_at, finished_at, failure_reason)"
-                " VALUES (:id, :scan_id, 'normalising', now(), NULL, NULL, NULL)"
+                " (id, scan_id, project_id, status, requested_at, started_at, finished_at,"
+                " failure_reason)"
+                " VALUES (:id, :scan_id, :project_id, 'normalising', now(), NULL, NULL, NULL)"
             ),
-            {"id": f"bad1-{run_id}", "scan_id": f"scan-{run_id}"},
+            {
+                "id": f"bad1-{run_id}",
+                "scan_id": f"scan-{run_id}",
+                "project_id": f"project-{run_id}",
+            },
         )
     await db_session.rollback()
 
@@ -263,9 +290,14 @@ async def test_the_database_rejects_a_non_failed_row_carrying_a_failure_reason(d
         await db_session.execute(
             text(
                 "INSERT INTO normalization_runs"
-                " (id, scan_id, status, requested_at, started_at, finished_at, failure_reason)"
-                " VALUES (:id, :scan_id, 'completed', now(), NULL, NULL, 'boom')"
+                " (id, scan_id, project_id, status, requested_at, started_at, finished_at,"
+                " failure_reason)"
+                " VALUES (:id, :scan_id, :project_id, 'completed', now(), NULL, NULL, 'boom')"
             ),
-            {"id": f"bad2-{run_id}", "scan_id": f"scan-{run_id}"},
+            {
+                "id": f"bad2-{run_id}",
+                "scan_id": f"scan-{run_id}",
+                "project_id": f"project-{run_id}",
+            },
         )
     await db_session.rollback()

@@ -11,9 +11,12 @@ _REQUESTED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def test_requested_is_pending_with_no_timestamps_and_no_reason():
-    run = NormalizationRun.requested(id="n1", scan_id="s1", requested_at=_REQUESTED_AT)
+    run = NormalizationRun.requested(
+        id="n1", scan_id="s1", project_id="p1", requested_at=_REQUESTED_AT
+    )
 
     assert run.status is NormalizationRunStatus.PENDING
+    assert run.project_id == "p1"
     assert run.requested_at == _REQUESTED_AT
     assert run.started_at is None
     assert run.finished_at is None
@@ -31,6 +34,7 @@ def test_failed_without_a_reason_is_rejected():
         NormalizationRun(
             id="n1",
             scan_id="s1",
+            project_id="p1",
             status=NormalizationRunStatus.FAILED,
             requested_at=_REQUESTED_AT,
             started_at=None,
@@ -55,6 +59,7 @@ def test_any_non_failed_status_carrying_a_reason_is_rejected(status):
         NormalizationRun(
             id="n1",
             scan_id="s1",
+            project_id="p1",
             status=status,
             requested_at=_REQUESTED_AT,
             started_at=None,
@@ -67,6 +72,7 @@ def test_failed_with_a_reason_is_accepted():
     run = NormalizationRun(
         id="n1",
         scan_id="s1",
+        project_id="p1",
         status=NormalizationRunStatus.FAILED,
         requested_at=_REQUESTED_AT,
         started_at=_REQUESTED_AT,
@@ -86,6 +92,7 @@ def test_timestamps_are_deliberately_unconstrained():
     run = NormalizationRun(
         id="n1",
         scan_id="s1",
+        project_id="p1",
         status=NormalizationRunStatus.PENDING,
         requested_at=_REQUESTED_AT,
         started_at=_REQUESTED_AT,

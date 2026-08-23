@@ -195,6 +195,11 @@ class RunScanUseCase:
             await self._normalization_runs.request(
                 id=self._id_generator.new_id(),
                 scan_id=scan.id,
+                # The dedup scope. `normalization` can reach a project through
+                # none of its own inputs, and this use case already holds one —
+                # so the handoff row carries it (ADR-0019 decision 7). Still
+                # primitives, so nothing here learns that module's domain.
+                project_id=scan.project_id,
                 requested_at=self._clock.now(),
             )
 
