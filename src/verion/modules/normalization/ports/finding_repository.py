@@ -28,8 +28,10 @@ class FindingRepositoryPort(Protocol):
 
         **Returns the resolved `Finding`, and the return type is load-bearing.**
         Identity is the hash and `id` is a surrogate, so only this upsert settles
-        which id wins (ADR-0019 decision 1). M4.4 cannot construct a
-        `FindingSighting` without it. That is why this returns a value where
+        which id wins (ADR-0019 decision 1). `NormalizeScanUseCase` cannot
+        construct a `FindingSighting` without it, and since M4.4 it does exactly
+        that: `finding_id=stored.id`, never the observation's own. That is why
+        this returns a value where
         `NormalizationRunRepositoryPort.request` returns `None`: there, both
         outcomes of the conflict mean the same thing to the caller and no caller
         branches; here the caller's next write depends on the answer.
@@ -55,7 +57,9 @@ class FindingRepositoryPort(Protocol):
 
         So a caller that computes the total in more than one pass over a scan
         must **aggregate before calling**, not call twice. `collapse_by_identity`
-        produces the total in one pass, which is what makes M4.4 satisfy this;
+        produces the total in one pass, which is what makes `NormalizeScanUseCase`
+        satisfy this — it maps every succeeded tool's output into ONE list and
+        collapses that, rather than batching per tool;
         per-tool batching is also safe by construction, since `source` is a
         `dedup_hash` input and no `(finding_id, scan_id)` can span two tools.
         Chunking *within* one tool's output is the case that would break it.

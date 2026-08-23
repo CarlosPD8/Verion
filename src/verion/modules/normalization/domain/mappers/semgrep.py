@@ -63,12 +63,22 @@ def map_semgrep_output(
     matches of one rule in one file stay distinct without putting line numbers
     into `dedup_hash` (G7, ADR-0019).
 
-    **`path` is a dedup_hash input and it is not repo-relative in production.**
-    `SemgrepAdapter` passes an absolute target and `GitRepoCheckout` builds one
-    with `tempfile.mkdtemp`, so every scan reports a different absolute prefix
-    and every Semgrep finding re-keys. The committed fixture has it redacted to a
-    relative path, so tests exercise the fixed shape. Registered as **G9**,
-    assigned to M4.4; the fix is in the adapter, not here.
+    **`path` and `check_id` are both `dedup_hash` inputs, and both were unstable
+    in production until M4.4 (G9, G10 — now closed).** Semgrep renders each of
+    them relative to the process's working directory, and `SemgrepAdapter` used to
+    pass an absolute `tempfile.mkdtemp` target from its own CWD — so `path`
+    carried a different prefix on every scan and `check_id` a different one on
+    every install. Both fixes are in the adapter and neither is here: it runs with
+    `cwd=<checkout>`, passes `.`, and adds `--no-rewrite-rule-ids`.
+
+    That division is the reason this mapper needed no change for either. `path`
+    and `check_id` are copied verbatim, exactly as `native_severity` is: what the
+    tool said is what gets recorded, and making an identity input *stable* is a
+    question about how the tool is invoked, never about how its output is read.
+    Normalizing `check_id` here was the obvious-looking alternative and is ruled
+    out in G10 on ADR-0019 decision 3's own principle — stripping to the last
+    dotted segment collapses registry namespaces, fabricating merges rather than
+    under-counting.
     """
     document = json.loads(raw_output)
     findings: list[Finding] = []
@@ -87,11 +97,14 @@ def map_semgrep_output(
                 id=finding_id,
                 project_id=project_id,
                 source=ScannerTool.SEMGREP,
-                # Semgrep's own stable identifier for what fired. Note it embeds
-                # the ruleset file's path for a local --config, so moving
-                # `rulesets/default.yml` re-keys every Semgrep finding — a real
-                # property of this identity input, recorded in ADR-0019 rather
-                # than discovered later.
+                # Semgrep's own stable identifier for what fired, copied
+                # verbatim. It is genuinely stable as of M4.4 — until then it
+                # embedded the `--config` path rendered relative to the worker's
+                # CWD, so moving `rulesets/default.yml`, redeploying to a
+                # different install path, or changing a container WORKDIR each
+                # re-keyed every Semgrep finding (G10). Closed in the adapter with
+                # `--no-rewrite-rule-ids`, not here — see this function's
+                # docstring for why the fix cannot be a mapper transform.
                 rule_id=check_id or "(unidentified)",
                 # An unrecognised level degrades to UNKNOWN rather than raising.
                 # A severity string is upstream data from a tool that can add a

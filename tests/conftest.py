@@ -11,8 +11,8 @@ def scanner_fixture() -> Callable[[str], str]:
     """Reads a captured scanner-output fixture by file name.
 
     Root-level rather than in `tests/unit/`, because both trees need it: M4.1's
-    mapper unit tests read these, and M4.4's normalization integration test will
-    feed the same files to in-process fake scanners as their `raw_output` (which
+    mapper unit tests read these, and M4.4's `test_normalize_scan_pipeline.py`
+    feeds the same files to in-process fake scanners as their `raw_output` (which
     is what keeps that test off the container-bound budget CLAUDE.md tracks).
     `tests/` is not a package, so a shared path constant has to arrive as a
     fixture — otherwise the second consumer duplicates it or the files get moved

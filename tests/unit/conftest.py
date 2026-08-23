@@ -4,7 +4,15 @@ import pytest
 
 from verion.modules.identity.domain.github_connection import GitHubConnection
 from verion.modules.identity.domain.user import User
-from verion.modules.normalization.domain.normalization_run import NormalizationRun
+from verion.modules.normalization.domain.finding import (
+    Finding,
+    FindingSighting,
+    merge_observation,
+)
+from verion.modules.normalization.domain.normalization_run import (
+    NormalizationRun,
+    NormalizationRunStatus,
+)
 from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
 from verion.modules.projects.domain.scanner_config import ScannerConfig
@@ -308,6 +316,115 @@ class InMemoryNormalizationRunRepository:
 
     async def get_by_scan_id(self, scan_id: str) -> NormalizationRun | None:
         return self._runs.get(scan_id)
+
+    async def claim(self, *, scan_id: str, now: datetime) -> NormalizationRun | None:
+        run = self._runs.get(scan_id)
+        if run is None or run.status is NormalizationRunStatus.COMPLETED:
+            return None
+        claimed = run.start(now)
+        self._runs[scan_id] = claimed
+        return claimed
+
+    async def update(self, run: NormalizationRun) -> None:
+        self._runs[run.scan_id] = run
+
+    async def get_stale(self, *, older_than: datetime, limit: int) -> list[NormalizationRun]:
+        # Mirrors the Postgres adapter's predicate, including RUNNING, so the
+        # sweep use case's behaviour is provable without a database. The
+        # INVARIANT that it never reads Scan.status is not provable here — this
+        # fake has no scans to read — which is exactly why that assertion lives
+        # in the integration test instead.
+        stale = [
+            run
+            for run in self._runs.values()
+            if run.status in (NormalizationRunStatus.PENDING, NormalizationRunStatus.RUNNING)
+            and run.requested_at < older_than
+        ]
+        return sorted(stale, key=lambda run: run.requested_at)[:limit]
+
+    def seed(self, run: NormalizationRun) -> None:
+        """Place a run in an arbitrary state, for tests about what happens next."""
+        self._runs[run.scan_id] = run
+
+
+class InMemoryFindingRepository:
+    """Models the one behaviour the real upsert has that a naive fake does not:
+    **it returns the STORED finding, not the one it was handed.**
+
+    Identity is the `dedup_hash` and `id` is a surrogate, so on every scan after
+    the first the observation arrives with a freshly generated id that LOSES to
+    the stored one (ADR-0019 decision 1, ADR-0020 decision 5). A fake that
+    returned its argument would make `record_sighting(finding_id=stored.id)` and
+    `record_sighting(finding_id=observation.id)` indistinguishable, and the test
+    that pins that contract would be vacuous.
+    """
+
+    def __init__(self) -> None:
+        self._findings: dict[tuple[str, str], Finding] = {}
+        self._sightings: dict[tuple[str, str], FindingSighting] = {}
+        # Every call, in order, including the ones that resolved to an existing
+        # row — so a test can assert on call COUNT, which is what ADR-0020
+        # decision 5's "once per (finding, scan), with the complete count"
+        # contract is actually about.
+        self.upsert_calls: list[Finding] = []
+        self.sighting_calls: list[FindingSighting] = []
+
+    async def upsert(self, finding: Finding) -> Finding:
+        self.upsert_calls.append(finding)
+        key = (finding.project_id, finding.dedup_hash)
+        existing = self._findings.get(key)
+        stored = merge_observation(existing, finding) if existing is not None else finding
+        self._findings[key] = stored
+        return stored
+
+    async def record_sighting(self, sighting: FindingSighting) -> None:
+        self.sighting_calls.append(sighting)
+        # Overwrite, never sum — match_count is a per-scan TOTAL, and summing
+        # would double-count on the guaranteed retry path (ADR-0020 decision 5).
+        self._sightings[(sighting.finding_id, sighting.scan_id)] = sighting
+
+    async def get_by_project_id(self, project_id: str) -> list[Finding]:
+        return sorted(
+            (f for f in self._findings.values() if f.project_id == project_id),
+            key=lambda f: f.dedup_hash,
+        )
+
+    async def get_sightings_by_finding_id(self, finding_id: str) -> list[FindingSighting]:
+        return sorted(
+            (s for s in self._sightings.values() if s.finding_id == finding_id),
+            key=lambda s: s.scan_id,
+        )
+
+
+class RecordingNormalizationQueue:
+    def __init__(self, fail: bool = False) -> None:
+        self.enqueued: list[str] = []
+        self._fail = fail
+
+    async def enqueue_normalization(self, scan_id: str) -> None:
+        if self._fail:
+            raise ConnectionError("simulated Redis outage")
+        self.enqueued.append(scan_id)
+
+
+@pytest.fixture
+def finding_repository() -> InMemoryFindingRepository:
+    return InMemoryFindingRepository()
+
+
+@pytest.fixture
+def normalization_queue() -> RecordingNormalizationQueue:
+    return RecordingNormalizationQueue()
+
+
+@pytest.fixture
+def clock_factory() -> type[FakeClock]:
+    """Lets a test pin a `now` other than the shared `clock` fixture's.
+
+    Same shape as `dns_resolver_factory`. The sweep's tests need a clock they can
+    position relative to a run's `requested_at`, which a fixed fixture cannot do.
+    """
+    return FakeClock
 
 
 class InMemoryScannerConfigRepository:

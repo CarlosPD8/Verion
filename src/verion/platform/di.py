@@ -498,15 +498,18 @@ HandleGitHubWebhookUseCaseDep = Annotated[
 ]
 
 
-# No route depends on this yet — the writer is M4.4 and the read API is M4.5 —
-# and it is here anyway, for a reason worth stating rather than leaving as an
-# apparent oversight. A factory's PORT-annotated return type is the only place
-# `mypy --strict` ever verifies that an adapter satisfies its Protocol
-# (CLAUDE.md's Tier 1 table). PostgresNormalizationRunRepository gets away with
-# having no factory only because worker.py hands it to RunScanUseCase, whose
-# __init__ annotates that parameter as the port; PostgresFindingRepository has no
-# such meeting point until M4.4, so without this its conformance would be
-# checked by nothing at all.
+# Still no route depends on this — the read API is M4.5 — and it is here anyway,
+# for a reason worth stating rather than leaving as an apparent oversight. A
+# factory's PORT-annotated return type is the only place `mypy --strict` ever
+# verifies that an adapter satisfies its Protocol (CLAUDE.md's Tier 1 table).
+#
+# Since M4.4 that is belt and braces rather than the only cover:
+# `NormalizeScanUseCase.__init__` annotates its parameter as FindingRepositoryPort
+# and worker.py's normalize_scan constructs the adapter into it, which is the same
+# meeting point PostgresNormalizationRunRepository has always had via
+# RunScanUseCase. Kept because M4.5 wires a route through here, and removing a
+# conformance check the moment a second one appears is how the second one becomes
+# the only one without anybody deciding that.
 def get_finding_repository(session: DbSessionDep) -> FindingRepositoryPort:
     return PostgresFindingRepository(session)
 

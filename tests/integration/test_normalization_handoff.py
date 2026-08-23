@@ -200,8 +200,16 @@ async def test_requesting_the_same_scan_twice_is_a_no_op_not_an_integrity_error(
         project_id=scan.project_id,
         requested_at=requested_at,
     )
+    # Timestamps supplied because M4.4's ck_normalization_runs_timestamp_shape
+    # requires them for a terminal status. This raw UPDATE stands in for the
+    # normalize_scan job having already run; it is not going around the state
+    # machine, it is reproducing where the state machine would have left the row.
     await db_session.execute(
-        text("UPDATE normalization_runs SET status = 'completed' WHERE scan_id = :scan_id"),
+        text(
+            "UPDATE normalization_runs"
+            " SET status = 'completed', started_at = now(), finished_at = now()"
+            " WHERE scan_id = :scan_id"
+        ),
         {"scan_id": scan.id},
     )
 
@@ -222,6 +230,23 @@ async def test_requesting_the_same_scan_twice_is_a_no_op_not_an_integrity_error(
     assert rows.scalar_one() == 1
 
 
+# The legal timestamp shape for each status, per M4.4's
+# ck_normalization_runs_timestamp_shape and NormalizationRun.__post_init__.
+#
+# Written out per member rather than derived, on purpose: this mapping is what
+# makes a FIFTH enum member impossible to add silently. The parametrisation below
+# is over `list(NormalizationRunStatus)`, so a new member produces a KeyError here
+# until somebody decides what its timestamps mean — which is the protection the
+# CHECK gives up by being written as implications rather than an exhaustive
+# disjunction. Same mechanism as ADR-0020 decision 4's partition test.
+_LEGAL_TIMESTAMPS: dict[NormalizationRunStatus, str] = {
+    NormalizationRunStatus.PENDING: "NULL, NULL",
+    NormalizationRunStatus.RUNNING: "now(), NULL",
+    NormalizationRunStatus.COMPLETED: "now(), now()",
+    NormalizationRunStatus.FAILED: "now(), now()",
+}
+
+
 @pytest.mark.parametrize("status", list(NormalizationRunStatus))
 async def test_every_domain_status_is_accepted_by_the_check_constraint(db_session, status):
     """Not a test of the CHECK — a test that the enum and the CHECK agree on the
@@ -231,16 +256,23 @@ async def test_every_domain_status_is_accepted_by_the_check_constraint(db_sessio
     `str(status)`, and a member added to the enum without being added to
     `ck_normalization_runs_status` would fail only at runtime, on the transition
     that first used it.
+
+    Since M4.4 it carries a second job: every status is inserted in its own legal
+    timestamp shape, so this also asserts that
+    ck_normalization_runs_timestamp_shape ACCEPTS all four — the direction a test
+    that only ever checks rejections never covers.
     """
     run_id = uuid4().hex[:12]
     failure_reason = "'boom'" if status is NormalizationRunStatus.FAILED else "NULL"
+    timestamps = _LEGAL_TIMESTAMPS[status]
 
     await db_session.execute(
         text(
             "INSERT INTO normalization_runs"
             " (id, scan_id, project_id, status, requested_at, started_at, finished_at,"
             " failure_reason)"
-            f" VALUES (:id, :scan_id, :project_id, :status, now(), NULL, NULL, {failure_reason})"
+            f" VALUES (:id, :scan_id, :project_id, :status, now(), {timestamps},"
+            f" {failure_reason})"
         ),
         {
             "id": f"n-{run_id}",
@@ -286,16 +318,69 @@ async def test_the_database_rejects_an_unknown_status(db_session):
 async def test_the_database_rejects_a_non_failed_row_carrying_a_failure_reason(db_session):
     run_id = uuid4().hex[:12]
 
+    # `started_at`/`finished_at` are supplied so this row violates the
+    # failure_reason constraint and NOTHING ELSE. With NULLs it also violated
+    # M4.4's ck_normalization_runs_timestamp_shape, and the `match=` below would
+    # then have been asserting which of two constraints Postgres happens to
+    # evaluate first — a test passing for a reason its name does not claim.
     with pytest.raises(IntegrityError, match="ck_normalization_runs_failure_reason_shape"):
         await db_session.execute(
             text(
                 "INSERT INTO normalization_runs"
                 " (id, scan_id, project_id, status, requested_at, started_at, finished_at,"
                 " failure_reason)"
-                " VALUES (:id, :scan_id, :project_id, 'completed', now(), NULL, NULL, 'boom')"
+                " VALUES (:id, :scan_id, :project_id, 'completed', now(), now(), now(), 'boom')"
             ),
             {
                 "id": f"bad2-{run_id}",
+                "scan_id": f"scan-{run_id}",
+                "project_id": f"project-{run_id}",
+            },
+        )
+    await db_session.rollback()
+
+
+# The timestamp state machine, at the database level (M4.4). The domain rejects
+# these shapes too (test_normalization_run.py); these go around it with raw SQL
+# for the same reason the two tests above do — the CHECK is what makes the
+# invariant true for *any* writer, and a manual fix or a future data migration is
+# exactly the writer that will not construct the entity first.
+#
+# Every row below carries a RECOGNISED status, so each violates
+# ck_normalization_runs_timestamp_shape and nothing else.
+@pytest.mark.parametrize(
+    ("label", "status", "timestamps", "failure_reason"),
+    [
+        ("pending with a start time", "pending", "now(), NULL", "NULL"),
+        ("pending with an end time", "pending", "now(), now()", "NULL"),
+        ("running that never started", "running", "NULL, NULL", "NULL"),
+        ("running that already finished", "running", "now(), now()", "NULL"),
+        ("completed with no end time", "completed", "now(), NULL", "NULL"),
+        ("failed with no end time", "failed", "now(), NULL", "'boom'"),
+        (
+            "finished before it started",
+            "completed",
+            "now(), now() - interval '1 hour'",
+            "NULL",
+        ),
+    ],
+)
+async def test_the_database_rejects_an_illegal_timestamp_shape(
+    db_session, label, status, timestamps, failure_reason
+):
+    run_id = uuid4().hex[:12]
+
+    with pytest.raises(IntegrityError, match="ck_normalization_runs_timestamp_shape"):
+        await db_session.execute(
+            text(
+                "INSERT INTO normalization_runs"
+                " (id, scan_id, project_id, status, requested_at, started_at, finished_at,"
+                " failure_reason)"
+                f" VALUES (:id, :scan_id, :project_id, '{status}', now(), {timestamps},"
+                f" {failure_reason})"
+            ),
+            {
+                "id": f"bad-ts-{run_id}",
                 "scan_id": f"scan-{run_id}",
                 "project_id": f"project-{run_id}",
             },

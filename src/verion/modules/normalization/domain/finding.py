@@ -164,13 +164,15 @@ class Finding:
     rather than empty, and it does **not** remove the collision it looks like it
     prevents. Two findings whose tool named no rule, at the same location, hash
     identically — a shared constant merges exactly as `""` would. That merge is
-    the under-count side of ADR-0019's principle and is acceptable; what is not
-    yet decided is what the *use case* does when two such findings then disagree
-    on a rule-level attribute and `collapse_by_identity` raises. M4.4 owns that
-    as acceptance criteria, because it needs a caller to decide against. Latent
-    rather than live, and measured: all 30 elements across the six committed
-    fixtures carry their tool's identifier, so nothing captured reaches this
-    fallback at all.
+    the under-count side of ADR-0019's principle and is acceptable. **What the
+    *use case* does when two such findings then disagree on a rule-level attribute
+    — so `collapse_by_identity` raises — was decided in M4.4** (ADR-0021 decision
+    5): `NormalizeScanUseCase` calls that function once per identity group, so the
+    raise drops one group instead of aborting a whole scan's normalization, and
+    the run is marked `failed` carrying the count and the hashes so the drop is
+    recorded rather than silent. Latent rather than live, and measured: all 30
+    elements across the six committed fixtures carry their tool's identifier, so
+    nothing captured reaches this fallback at all.
 
     `confidence` is still absent and still M6.1's to add or decline: only ZAP
     supplies it, as an opaque numeric code whose vocabulary mixes degrees with

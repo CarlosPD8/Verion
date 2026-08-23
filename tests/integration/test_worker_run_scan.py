@@ -13,6 +13,7 @@ from verion.modules.identity.domain.github_connection import GitHubConnection
 from verion.modules.normalization.adapters.outbound.db.repository import (
     PostgresNormalizationRunRepository,
 )
+from verion.modules.normalization.domain.normalization_run import NormalizationRunStatus
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresProjectRepository,
@@ -29,11 +30,13 @@ from verion.modules.scanning.adapters.outbound.scanners.semgrep_adapter import S
 from verion.modules.scanning.adapters.outbound.vcs.git_repo_checkout import GitRepoCheckout
 from verion.modules.scanning.application.run_scan import RunScanUseCase
 from verion.modules.scanning.domain.exceptions import RepoCheckoutFailed
+from verion.modules.scanning.domain.raw_scan_result import RawScanResult
 from verion.modules.scanning.domain.scan import Scan, ScanStatus
+from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.platform.clock import SystemClock
 from verion.platform.id_generator import UuidIdGenerator
 from verion.platform.settings import get_settings
-from verion.platform.worker import WorkerSettings
+from verion.platform.worker import WorkerSettings, run_scan
 from verion.shared_kernel.scanner_tools import ScannerTool
 
 # A real, public repo — same one M3.2's walking skeleton test already uses.
@@ -107,7 +110,31 @@ async def test_worker_processes_a_real_enqueued_scan_job_end_to_end(db_session):
     try:
         await ArqJobQueue(pool).enqueue_scan(scan.id)
 
-        worker = create_worker(WorkerSettings, burst=True, redis_pool=pool)
+        # WorkerSettings minus cron_jobs. M4.4 added a 5-minute sweep to the
+        # real settings, and arq schedules cron inside the worker heartbeat — so
+        # a burst that happened to straddle a 5-minute boundary would run a REAL
+        # sweep against the shared test database and re-enqueue normalize_scan
+        # for whatever stale rows other tests left behind. Low probability, fully
+        # non-deterministic, and it would look like a flaky assertion in this
+        # test rather than like what it is. The sweep has its own coverage in
+        # test_normalization_sweep.py; what this test is about is the job round
+        # trip, so the cron is simply not part of its subject.
+        # Derived by COPYING WorkerSettings' attributes rather than subclassing
+        # it: arq reads settings off the class's own `__dict__`, so a subclass
+        # inherits nothing and `create_worker` fails with "at least one function
+        # or cron_job must be registered". Copying also means a future attribute
+        # on WorkerSettings is carried here automatically instead of silently
+        # diverging.
+        settings_without_cron = {
+            name: value for name, value in vars(WorkerSettings).items() if not name.startswith("__")
+        }
+        settings_without_cron["cron_jobs"] = []
+
+        worker = create_worker(
+            type("WorkerSettingsWithoutCron", (), settings_without_cron),
+            burst=True,
+            redis_pool=pool,
+        )
         try:
             await worker.run_check()
         finally:
@@ -125,6 +152,24 @@ async def test_worker_processes_a_real_enqueued_scan_job_end_to_end(db_session):
     assert len(results) == 1
     assert results[0].tool == "semgrep"
     assert isinstance(json.loads(results[0].raw_output), dict)
+
+    # M4.4: the pipeline now continues past this point, through the real arq
+    # round trip and inside this same burst — `run_scan` commits, enqueues
+    # `normalize_scan` after the commit, and the worker picks it up. This is the
+    # only place in the suite where that whole chain runs against a real Redis, a
+    # real clone and a real Semgrep, and it costs nothing extra because it rides
+    # on a test that was already paying for all three.
+    #
+    # `completed` rather than `pending` is the assertion: `pending` is what this
+    # row was left at for four issues while the consumer did not exist (ADR-0017
+    # decision 2's deferral), so it is exactly the value that would come back if
+    # the enqueue, the job registration or the claim were wired wrong.
+    run = await PostgresNormalizationRunRepository(db_session).get_by_scan_id(scan.id)
+    assert run is not None
+    assert run.status is NormalizationRunStatus.COMPLETED
+    assert run.started_at is not None
+    assert run.finished_at is not None
+    assert run.failure_reason is None
 
 
 # Rule 12: no credential may appear in an exception message, an API response,
@@ -209,3 +254,114 @@ async def test_no_access_token_leaks_into_the_persisted_failure_reason(db_sessio
     assert updated_scan.status is ScanStatus.FAILED
     assert updated_scan.failure_reason is not None
     assert secret_token not in updated_scan.failure_reason
+
+
+class _UnreachableRedis:
+    """Stands in for `ctx["redis"]` when Redis is down.
+
+    `ArqNormalizationQueue` calls `enqueue_job` on whatever it is handed, so
+    raising there reproduces an outage at exactly the point the real adapter
+    would hit one.
+    """
+
+    async def enqueue_job(self, *args, **kwargs):
+        raise ConnectionError("simulated Redis outage")
+
+
+# A lost enqueue must not be an error path (ADR-0017 decision 2, ADR-0021). The
+# normalization_runs row committed alongside the ScanResult rows IS the durable
+# record of owed work; the enqueue is a latency optimization on top of it, and
+# the sweep recovers anything dropped. Raising here would make Redis a
+# correctness dependency of a scan that has already committed, and would hand
+# arq a retry that re-runs every enabled scanner (ADR-016 decision 1) to fix a
+# message that was never the record.
+#
+# This is the test the `except Exception: return` in worker.py points at. Without
+# it that catch is one "let's not swallow exceptions" refactor away from turning
+# a Redis blip into a failed scan — which is the G8 failure shape with a person
+# in the tool's place, and the reason the comment there says the fix is a metric
+# and NOT a raise.
+async def test_a_lost_enqueue_leaves_the_scan_committed_and_the_handoff_row_pending(db_session):
+    run_id = uuid4().hex[:12]
+    scan = await _seed_scan_for_fake_run(db_session, run_id)
+
+    ctx = {
+        "scanners": {ScannerTool.SEMGREP: _AlwaysSucceedsScanner()},
+        "repo_checkout": _NoopCheckout(),
+        "redis": _UnreachableRedis(),
+    }
+    # Returns normally. No pytest.raises — that IS the first assertion.
+    await run_scan(ctx, scan.id)
+
+    updated = await PostgresScanRepository(db_session).get_by_id(scan.id)
+    assert updated.status is ScanStatus.COMPLETED
+    results = await PostgresScanResultRepository(db_session).get_by_scan_id(scan.id)
+    assert [result.tool for result in results] == ["semgrep"]
+    # Still owed, and still recoverable — this is what the sweep will collect.
+    run = await PostgresNormalizationRunRepository(db_session).get_by_scan_id(scan.id)
+    assert run is not None
+    assert run.status is NormalizationRunStatus.PENDING
+
+
+class _AlwaysSucceedsScanner:
+    tool = ScannerTool.SEMGREP
+    target_kind = ScannerTargetKind.REPO_PATH
+
+    async def run(self, target: str) -> RawScanResult:
+        return RawScanResult(tool=self.tool, raw_output='{"results": []}')
+
+
+class _NoopCheckout:
+    async def checkout(self, repo_url: str, access_token: str | None) -> str:
+        return "/tmp/verion-enqueue-fixture"
+
+    async def cleanup(self, local_path: str) -> None:
+        return None
+
+
+async def _seed_scan_for_fake_run(db_session, run_id: str) -> Scan:
+    project = Project(
+        id=f"project-enq-{run_id}",
+        owner_id=f"owner-enq-{run_id}",
+        name="Widgets",
+        created_at=datetime.now(UTC),
+    )
+    await PostgresProjectRepository(db_session).add(project)
+    await PostgresConnectedRepoRepository(db_session).add(
+        ConnectedRepo(
+            id=f"repo-enq-{run_id}",
+            project_id=project.id,
+            provider="github",
+            url=_REPO_URL,
+            default_branch="master",
+        )
+    )
+    await PostgresGitHubConnectionRepository(db_session).add(
+        GitHubConnection(
+            user_id=project.owner_id,
+            access_token="",
+            github_username="octocat",
+            connected_at=datetime.now(UTC),
+        )
+    )
+    await PostgresScannerConfigRepository(db_session).upsert(
+        ScannerConfig(
+            id=f"config-enq-{run_id}",
+            project_id=project.id,
+            enabled_tools=(ScannerTool.SEMGREP,),
+            zap_target_url=None,
+            updated_at=datetime.now(UTC),
+        )
+    )
+    scan = Scan(
+        id=f"scan-enq-{run_id}",
+        project_id=project.id,
+        status=ScanStatus.PENDING,
+        triggered_by=project.owner_id,
+        started_at=None,
+        finished_at=None,
+        failure_reason=None,
+    )
+    await PostgresScanRepository(db_session).add(scan)
+    await db_session.commit()
+    return scan

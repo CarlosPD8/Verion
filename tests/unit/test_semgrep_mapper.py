@@ -29,7 +29,7 @@ def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
     assert finding.source is ScannerTool.SEMGREP
     assert finding.severity is Severity.HIGH
     assert finding.native_severity == "ERROR"
-    assert finding.title.endswith("dangerous-eval")
+    assert finding.title == "dangerous-eval"
     assert finding.location.file_path == "vulnerable.py"
     assert finding.location.start_line == 2
     assert finding.location.end_line == 2
@@ -93,10 +93,17 @@ def test_rule_id_is_the_check_id_and_not_the_title(scanner_fixture, id_generator
     """`rule_id` exists because the common schema had nowhere to put "what
     fired". For Semgrep the two happen to coincide, which is why this asserts the
     field rather than the string — Trivy's title is `"<CVE>: <prose>"`, and it is
-    the prose half that makes hashing `title` unsafe."""
+    the prose half that makes hashing `title` unsafe.
+
+    Equality, not `endswith` (M4.4). `rule_id` is a `dedup_hash` input, and the
+    suffix form passed for all three of the CWD-dependent dotted `check_id` values
+    G10 measured — so it could not distinguish the value production writes from two
+    it never will. The fixture now carries the post-fix `dangerous-eval`; what pins
+    the *adapter* producing it is `test_semgrep_adapter.py`, since no committed
+    capture can observe a CWD-dependent value."""
     finding = _map(scanner_fixture(_REAL), id_generator, clock)[0]
 
-    assert finding.rule_id.endswith("dangerous-eval")
+    assert finding.rule_id == "dangerous-eval"
 
 
 def test_the_same_output_dedups_to_the_same_hash_across_scans(scanner_fixture, id_generator, clock):

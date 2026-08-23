@@ -69,6 +69,7 @@ rather than inherited.
 | file | rewritten | from → to |
 |---|---|---|
 | `semgrep_scan.json` | `results[].path`, `paths.scanned[]` | absolute capture-machine temp path, which included the OS username → `vulnerable.py` |
+| `semgrep_scan.json` | `results[].check_id` | `src.verion.modules.scanning.adapters.outbound.scanners.rulesets.dangerous-eval` → `dangerous-eval`. **M4.4: a correction, not a redaction** — see below. |
 | `trivy_scan.json` | `ArtifactName` | `/target` (the container mount) → `/repo`. `Results[].Target` was already the relative `requirements.txt` and is untouched. |
 | `zap_scan.json` | `site[].@name`/`@host`/`@port`, `alerts[].instances[].uri`/`nodeName`, `insights[].site` | `host.docker.internal:<ephemeral port>` → `target.example:8080` |
 
@@ -91,6 +92,34 @@ One fidelity note, recorded rather than smoothed over: production runs `trivy fs
 a checkout directory, so a production `ArtifactName` would be an absolute path. The
 capture ran in a container where it was `/target`. `/repo` is therefore both the redaction
 and the more representative value.
+
+### `check_id`: why M4.4 rewrote a field the capture got right
+
+The `check_id` rewrite above is a different kind of edit from every other row in that
+table, and conflating the two would hide what happened. The others remove information the
+tool really emitted. This one **corrects a value that was accurate at capture time and
+stopped being accurate when the adapter changed** — the fixture now records what production
+emits, which it previously did not.
+
+This file was, until M4.4, **half pre-fix and half post-fix in the same document**:
+`results[].path` was redacted to the relative `vulnerable.py`, which is the shape
+`SemgrepAdapter` produces only *after* G9's fix, while `check_id` carried the CWD-dependent
+dotted form G10 names. So one `dedup_hash` input was asserted in its fixed shape and the
+other in its broken shape, and no test could tell. That is the disconnected-verification
+shape G8 and G9 both record, and it is exactly why the fix's own proof does **not** live in
+this file: see `test_semgrep_adapter.py`'s CWD-invariance case, which invokes the real
+adapter from two process CWDs, because a committed capture can only ever record one.
+
+Both halves are now the production shape: `SemgrepAdapter` runs with `cwd=<checkout>`,
+passes `.`, and adds `--no-rewrite-rule-ids`, so `path` is repo-relative and `check_id` is
+the rule's own `id` from `rulesets/default.yml`. Re-capturing rather than hand-editing was
+considered and is unnecessary: the two values were verified by running the fixed adapter,
+and nothing else in the document depends on either.
+
+`semgrep_synthetic_edges.json` is deliberately **not** touched. Its `check_id`s
+(`rules.with-metadata`, …) are hand-authored severity/metadata edge cases that never came
+from a real invocation, and their dots are part of what they exercise — a `rule_id`
+containing separators must still round-trip through `compute_dedup_hash` unchanged.
 
 ## What these fixtures do and do not cover
 

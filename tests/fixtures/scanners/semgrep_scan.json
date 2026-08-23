@@ -2,7 +2,7 @@
   "version": "1.173.0",
   "results": [
     {
-      "check_id": "src.verion.modules.scanning.adapters.outbound.scanners.rulesets.dangerous-eval",
+      "check_id": "dangerous-eval",
       "path": "vulnerable.py",
       "start": {
         "line": 2,

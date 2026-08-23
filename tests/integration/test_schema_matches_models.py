@@ -19,10 +19,21 @@ but **not CHECK constraints**, which is precisely the failure being guarded
 against — M4.3 alone adds six of them. It would report confident agreement on
 everything except the part that matters most.
 
+**Indexes are compared too, since M4.4.** They were out of scope while the project
+had no secondary index — every write path was served by a constraint index, which
+the constraint comparison already covers. `ix_normalization_runs_sweep` is the
+first that exists on its own, and an `Index` is not in `table.constraints`, so
+without this it would have been asserted by nothing in either direction. The same
+failure the CHECK comparison exists for, one object type over, and ADR-0020
+already names the next one (`ix_finding_sightings_scan_id`, M4.5).
+
 Deliberately out of scope, so the limits are stated rather than assumed: column
-types, nullability, and indexes. Primary and foreign keys are compared only when
-explicitly named, because Postgres auto-names the rest (`<table>_pkey`,
-`<table>_<col>_fkey`) and those names appear in no model.
+types, nullability, and an index's columns/predicate — names only, for the reason
+above. A partial index whose migration `WHERE` drifted from its model's would pass
+this file; what catches that is Postgres declining to use it, which is a
+performance symptom rather than a correctness one. Primary and foreign keys are
+compared only when explicitly named, because Postgres auto-names the rest
+(`<table>_pkey`, `<table>_<col>_fkey`) and those names appear in no model.
 """
 
 from sqlalchemy import inspect
@@ -32,21 +43,33 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from verion.platform.db import Base
 
 
-def _reflect(connection: Connection) -> dict[str, tuple[set[str], set[str]]]:
+def _reflect(connection: Connection) -> dict[str, tuple[set[str], set[str], set[str]]]:
     inspector = inspect(connection)
-    reflected: dict[str, tuple[set[str], set[str]]] = {}
+    reflected: dict[str, tuple[set[str], set[str], set[str]]] = {}
     for table_name in inspector.get_table_names():
         columns = {column["name"] for column in inspector.get_columns(table_name)}
-        constraints = {
-            constraint["name"]
-            for constraint in inspector.get_check_constraints(table_name)
-            if constraint["name"] is not None
-        } | {
+        unique_constraints = {
             constraint["name"]
             for constraint in inspector.get_unique_constraints(table_name)
             if constraint["name"] is not None
         }
-        reflected[table_name] = (columns, constraints)
+        constraints = {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints(table_name)
+            if constraint["name"] is not None
+        } | unique_constraints
+        # Postgres backs every UNIQUE constraint with an index of the same name,
+        # and get_indexes() reports it. Subtracting them keeps this set to indexes
+        # that exist in their own right — the ones a model declares as `Index(...)`
+        # rather than as a constraint — so the two comparisons stay disjoint
+        # instead of the unique constraints failing here for being absent from
+        # `table.indexes`.
+        indexes = {
+            index["name"]
+            for index in inspector.get_indexes(table_name)
+            if index["name"] is not None
+        } - unique_constraints
+        reflected[table_name] = (columns, constraints, indexes)
     return reflected
 
 
@@ -78,7 +101,7 @@ async def test_every_declared_table_column_and_named_constraint_exists_in_the_mi
     )
 
     for name, table in sorted(Base.metadata.tables.items()):
-        reflected_columns, reflected_constraints = reflected[name]
+        reflected_columns, reflected_constraints, reflected_indexes = reflected[name]
 
         declared_columns = {column.name for column in table.columns}
         assert declared_columns == reflected_columns, (
@@ -101,4 +124,14 @@ async def test_every_declared_table_column_and_named_constraint_exists_in_the_mi
             f"these would pass every test that builds rows through the domain and fail in "
             f"production. Only in the migration: "
             f"{sorted(reflected_constraints - declared_constraints)}."
+        )
+
+        declared_indexes = {index.name for index in table.indexes if isinstance(index.name, str)}
+        assert declared_indexes == reflected_indexes, (
+            f"Table '{name}': the model and the migration disagree on indexes. "
+            f"Only in the model: {sorted(declared_indexes - reflected_indexes)} — declared in "
+            f"Base.metadata but never created, so every query written against it silently "
+            f"seq-scans in production. Only in the migration: "
+            f"{sorted(reflected_indexes - declared_indexes)} — an index nothing declares, "
+            f"which a future `create_all` or autogenerate would propose dropping."
         )

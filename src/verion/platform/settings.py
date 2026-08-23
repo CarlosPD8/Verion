@@ -79,6 +79,23 @@ class Settings(BaseSettings):
     # production default and the scanning integration tests.
     semgrep_ruleset: str = _DEFAULT_SEMGREP_RULESET
 
+    # How long a normalization_runs row may sit pending or running before the
+    # reconciliation sweep re-enqueues it (ADR-0021).
+    #
+    # **900 is derived from WorkerSettings.job_timeout (600), not picked**, and
+    # the relationship is a CONSTRAINT rather than slack: a job arq has already
+    # killed cannot still be running, so every row over this threshold either has
+    # no live job — which is what the sweep is for — or was claimed late behind a
+    # queue, which is bounded by concurrent job count rather than by backlog
+    # depth. Raise job_timeout past this and the sweep starts continuously
+    # re-enqueuing live work instead. `test_sweep_settings.py` asserts the
+    # ordering so that bump cannot be made silently.
+    normalization_sweep_stale_after_seconds: int = 900
+    # Bounds one tick's enqueue burst; the next tick takes the rest. Large enough
+    # that a real backlog drains in a few ticks, small enough that a pathological
+    # table cannot turn one cron firing into an unbounded Redis write storm.
+    normalization_sweep_batch_size: int = 200
+
     @model_validator(mode="after")
     def _reject_dev_secrets_outside_local(self) -> "Settings":
         if self.app_env != "local":

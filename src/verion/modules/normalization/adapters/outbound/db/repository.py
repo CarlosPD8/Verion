@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy import update as sqlalchemy_update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,6 +87,93 @@ class PostgresNormalizationRunRepository:
         )
         model = result.scalars().one_or_none()
         return _to_domain(model) if model is not None else None
+
+    async def claim(self, *, scan_id: str, now: datetime) -> NormalizationRun | None:
+        # SELECT ... FOR UPDATE, then the domain transition, then the write —
+        # NOT a single conditional UPDATE with the transition transcribed into a
+        # SET clause. The transcription is what the finding upsert has to live
+        # with (ADR-0020 decision 1) and it is a real cost: a second copy of the
+        # policy, kept honest only by a test.
+        #
+        # It is avoidable here and not there, for one specific reason. ADR-0020
+        # decision 2 rejected read-modify-write because the finding row may not
+        # exist yet, so two concurrent workers both SELECT nothing, both INSERT,
+        # and one takes an IntegrityError — the failed-transaction state this
+        # project has now rejected three times. This row ALWAYS already exists:
+        # ADR-0017 decision 3's invariant is that a normalization_runs row exists
+        # iff ScanResult rows were persisted, and the handoff wrote it in that
+        # same transaction. There is no insert, so there is nothing to collide,
+        # and a row lock closes the window the read-modify-write would open.
+        #
+        # The lock is held only until this method's transaction commits, which is
+        # the claim alone — the mapping work runs in a second session.
+        result = await self._session.execute(
+            select(NormalizationRunModel)
+            .where(NormalizationRunModel.scan_id == scan_id)
+            .with_for_update()
+        )
+        model = result.scalars().one_or_none()
+        if model is None:
+            return None
+        run = _to_domain(model)
+        if run.status is NormalizationRunStatus.COMPLETED:
+            # Redelivered after success. The only terminal state, and the only
+            # one that short-circuits — see NormalizationRun's docstring for why
+            # FAILED deliberately does not.
+            return None
+        claimed = run.start(now)
+        await self._write(claimed)
+        return claimed
+
+    async def update(self, run: NormalizationRun) -> None:
+        await self._write(run)
+
+    async def _write(self, run: NormalizationRun) -> None:
+        await self._session.execute(
+            sqlalchemy_update(NormalizationRunModel)
+            .where(NormalizationRunModel.id == run.id)
+            .values(
+                status=str(run.status),
+                started_at=run.started_at,
+                finished_at=run.finished_at,
+                failure_reason=run.failure_reason,
+            )
+        )
+        # Surfaces a CHECK violation here rather than inside worker.py's
+        # commit-in-`finally`, the same reason `request` flushes.
+        await self._session.flush()
+
+    async def get_stale(self, *, older_than: datetime, limit: int) -> list[NormalizationRun]:
+        # `normalization_runs` and nothing else. No join to `scans`, no subquery
+        # against it, no filter on `Scan.status` — ADR-0017 decision 2 states that
+        # as an invariant, and `test_normalization_sweep.py` proves it
+        # behaviourally rather than by asserting on this statement's text: it
+        # sweeps a row whose scan_id names no scans row at all, which every
+        # implementation that reads `scans` returns nothing for.
+        #
+        # RUNNING is included alongside PENDING, which is a deliberate deviation
+        # from ADR-0017's anticipated `WHERE status = 'pending'`. A job killed by
+        # job_timeout, or a worker killed after the claim commits, leaves a
+        # RUNNING row that a pending-only sweep can never recover — permanent
+        # silent loss. Including it risks re-enqueuing a live job instead, which
+        # is harmless: arq's job-id dedup makes that a no-op and the work is
+        # idempotent by construction. Prefer the harmless failure to the silent
+        # one. See ADR-0021.
+        result = await self._session.execute(
+            select(NormalizationRunModel)
+            .where(
+                NormalizationRunModel.status.in_(
+                    (
+                        str(NormalizationRunStatus.PENDING),
+                        str(NormalizationRunStatus.RUNNING),
+                    )
+                ),
+                NormalizationRunModel.requested_at < older_than,
+            )
+            .order_by(NormalizationRunModel.requested_at)
+            .limit(limit)
+        )
+        return [_to_domain(model) for model in result.scalars()]
 
 
 # The columns ON CONFLICT DO UPDATE refreshes, which is the SQL half of

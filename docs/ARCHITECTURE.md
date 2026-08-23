@@ -279,6 +279,8 @@ erDiagram
 | `BuildSecurityContextUseCase` | Extract/refresh Security Context for a project |
 | `TriggerScanUseCase` | Create a `Scan` and enqueue it — it does **not** orchestrate the pipeline |
 | `RunScanUseCase` | The worker's entry point: run every enabled scanner, persist `ScanResult` rows, hand off to normalization |
+| `NormalizeScanUseCase` | The normalization job's entry point: map a scan's *succeeded* raw output into `Finding` rows, collapse by identity, record one `FindingSighting` per identity, and transition the `NormalizationRun` (M4.4) |
+| `SweepPendingNormalizationsUseCase` | The reconciliation backstop: re-enqueue normalization for runs that are owed and not progressing. Selects on `normalization_runs` alone, never `Scan.status` (M4.4) |
 | `CorrelateFindingsUseCase` | Run correlation over a scan's findings |
 | `ComputeRiskUseCase` | Score and prioritize correlated Risks |
 | `GenerateSecurityBriefUseCase` | Produce the developer-facing explanation |
@@ -300,13 +302,14 @@ erDiagram
 | `ScannerConfigRepositoryPort` | Persist/query which scanners a project runs; read by `scanning` (M3.7) | Postgres adapter |
 | `ScanRepositoryPort` | Persist/query scans | Postgres adapter |
 | `ScanResultRepositoryPort` | Persist per-tool raw output; `get_succeeded_by_scan_id` is **M4's entry point** (M3.7) | Postgres adapter |
-| `NormalizationRunRepositoryPort` | Record that normalization is owed for a scan, and read it back (M4.0). Its write method takes primitives so `scanning` can call it without importing `normalization`'s domain | Postgres adapter |
+| `NormalizationRunRepositoryPort` | Record that normalization is owed for a scan, and read it back (M4.0); since M4.4 also `claim` (a row-locked `pending`/`running`/`failed` → `running` transition — `completed` is the only terminal state), `update`, and `get_stale` for the sweep. Its `request` method takes primitives so `scanning` can call it without importing `normalization`'s domain; the M4.4 methods take the entity, because only `normalization` calls them | Postgres adapter |
 | `FindingRepositoryPort` | Upsert findings on `(project_id, dedup_hash)` — keeping the stored `id` and refreshing the mutable attributes per `merge_observation` — record `FindingSighting` rows, and query by project (M4.3). `upsert` **returns** the resolved `Finding`, because only it settles which surrogate `id` wins and M4.4 needs that to write a sighting; `record_sighting` takes a per-scan **total**, never an increment (ADR-0020) | Postgres adapter |
 | `RiskRepositoryPort` | Persist/query risks, history | Postgres adapter |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
 | `VcsProviderPort` | Read repo metadata, register webhooks | `GitHubAdapter` |
 | `ExplanationProviderPort` | Generate natural-language brief text from structured Risk data | LLM adapter (provider-agnostic) |
-| `JobQueuePort` | Enqueue/dequeue background work | Redis adapter |
+| `JobQueuePort` | Enqueue a scan job (`scanning`) | Redis/arq adapter |
+| `NormalizationQueuePort` | Enqueue a normalization job (`normalization`, M4.4). A separate port rather than a method on `JobQueuePort`, because the job belongs to this module. **Losing a message here is not an error**: the `normalization_runs` row is the durable record and the sweep recovers it (ADR-0017 decision 2) | Redis/arq adapter |
 | `DnsResolverPort` | Resolve a hostname to its IP addresses, for `ZapAdapter`'s DNS-rebinding SSRF check | `SystemDnsResolver` |
 | `ClockPort` / `IdGeneratorPort` | Testability (deterministic time/IDs in tests) | Trivial adapters |
 
@@ -406,6 +409,7 @@ sequenceDiagram
     participant Run as RunScanUseCase (worker)
     participant Sc as ScannerPort (Semgrep/Trivy/ZAP)
     participant Norm as Normalization (worker)
+    participant Sweep as Sweep cron (worker)
     participant Corr as CorrelateFindingsUseCase
     participant Risk as ComputeRiskUseCase
     participant Brief as GenerateSecurityBriefUseCase
@@ -429,10 +433,15 @@ sequenceDiagram
     Run->>Q: enqueue normalize_scan(scan_id) — a latency optimization; the row is the record
 
     Q->>Norm: normalize_scan(scan_id)
+    Norm->>DB: claim NormalizationRun (pending|running|failed -> running) — own transaction
     Norm->>DB: read get_succeeded_by_scan_id(scan_id) — never Scan.status
     Norm->>DB: upsert Findings on (project_id, dedup_hash) + refresh Evidence
     Norm->>DB: record a FindingSighting per finding (finding_id, scan_id)
-    Norm->>DB: NormalizationRun (status=completed)
+    Norm->>DB: NormalizationRun (status=completed|failed)
+
+    Note over Sweep,Q: every 5 min, independent of any scan
+    Sweep->>DB: stale NormalizationRuns (pending|running, requested_at < now-15m)
+    Sweep->>Q: enqueue normalize_scan(scan_id) — recovers a lost enqueue
 
     Corr->>DB: read Findings
     Corr->>DB: persist candidate Risks (grouped Findings)
@@ -449,6 +458,9 @@ Three properties this diagram is drawn to make visible, each load-bearing:
 - **`Scan.status` is scanner-scoped and terminal at `RunScanUseCase`.** `completed` means every enabled scanner finished, *not* that the pipeline finished. It is a derived, human-facing summary; no stage downstream reads it (ADR-016 decision 2, ADR-0017 decision 1).
 - **The `NormalizationRun` row is written before the `Scan` status update, in the same transaction as the `ScanResult` rows.** That ordering is a constraint, not a detail: reversed, a failure writing it would still commit `completed`, and the retry would short-circuit at `RunScanUseCase`'s `== COMPLETED` guard, losing normalization silently and permanently (ADR-0017 decision 2).
 - **Priority and reasoning are fully computed before the LLM is ever called.** The Explanation Layer narrates a decision already made deterministically — it cannot silently override the Risk Engine. This is the structural guarantee behind the "explainable, not black-box" principle from the product spec.
+
+- **Normalization's own progress is a state machine, and `completed` is its only terminal state.** The job claims the row in a transaction of its own before doing any work, so a worker killed mid-flight leaves an observable `running` row rather than being indistinguishable from one that never started — which is what the sweep needs in order to recover it. `failed` is deliberately re-claimable: the job writes it and re-raises for a transient failure, and a terminal `failed` would make arq's retry silently do nothing (ADR-0021 decision 3).
+- **The sweep is a backstop, not the trigger, and it selects on `normalization_runs` alone.** The enqueue above is what makes normalization prompt; the sweep only bounds how late a *lost* message is noticed. It must never read `Scan.status` — ADR-0017 decision 2 states that as an invariant, because a sweep filtering on a derived, human-facing summary would put the decision of whether to run the stage downstream of exactly what ADR-016 decision 2 forbids the stage itself to read.
 
 Stages after normalization are drawn as designed, not as built: `correlation`, `risk_engine` and `brief` are M5-M7, and how each is triggered is that milestone's decision. M5 inherits the handoff pattern above as a precedent, not as a constraint (ADR-0017).
 

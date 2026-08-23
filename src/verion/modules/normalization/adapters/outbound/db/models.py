@@ -7,9 +7,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -70,6 +72,39 @@ class NormalizationRunModel(Base):
             " OR (status <> 'failed' AND failure_reason IS NULL)",
             name="ck_normalization_runs_failure_reason_shape",
         ),
+        # NormalizationRun.__post_init__'s timestamp invariant, enforced again in
+        # SQL (M4.4). One clause per status, each an implication, so that a row
+        # with an UNRECOGNISED status violates ck_normalization_runs_status alone
+        # rather than both — see the migration for why that matters and what the
+        # stricter-looking disjunction would have cost. The ordering comparison
+        # rides in the terminal clause because it is only expressible where both
+        # timestamps are non-null.
+        CheckConstraint(
+            "(status <> 'pending' OR (started_at IS NULL AND finished_at IS NULL))"
+            " AND (status <> 'running' OR (started_at IS NOT NULL AND finished_at IS NULL))"
+            " AND (status NOT IN ('completed', 'failed') OR (started_at IS NOT NULL"
+            " AND finished_at IS NOT NULL AND finished_at >= started_at))",
+            name="ck_normalization_runs_timestamp_shape",
+        ),
+        # The reconciliation sweep's index (M4.4), shipped in the migration that
+        # carries the query it serves — ADR-0017's "an index without its query is
+        # a guess at that query's shape", satisfied now that the query exists.
+        #
+        # Partial, and that is the point: this table grows one row per scan
+        # forever while pending/running rows become a shrinking fraction of it
+        # once the sweep closes them, so the index stays proportional to the
+        # backlog rather than to history. The predicate matches
+        # `get_stale`'s WHERE exactly; `requested_at` is the ordering key.
+        #
+        # Note this index is NOT covered by test_schema_matches_models.py's
+        # constraint comparison — an Index is not in `table.constraints`. It is
+        # covered by that file's separate index comparison, added in the same
+        # issue for this reason.
+        Index(
+            "ix_normalization_runs_sweep",
+            "requested_at",
+            postgresql_where=text("status IN ('pending', 'running')"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -84,7 +119,10 @@ class NormalizationRunModel(Base):
     project_id: Mapped[str] = mapped_column(String(36), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Unconstrained on purpose: these belong to transitions M4.4 writes.
+    # Nullable in the column definition, but NOT unconstrained: which of the four
+    # combinations is legal depends on `status`, and that is expressed by
+    # ck_normalization_runs_timestamp_shape above rather than here, because no
+    # per-column NULL/NOT NULL can say "required only when running" (M4.4).
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String, nullable=True)
