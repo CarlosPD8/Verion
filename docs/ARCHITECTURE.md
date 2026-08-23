@@ -148,6 +148,13 @@ ScanResult   # M3.7 — one row per tool that was attempted, including one that 
 
 NormalizationRun   # M4.0 — normalization; pipeline progress, one row per Scan
  ├── id, scan_id   # UNIQUE — the idempotency key; the row IS the scan→normalize outbox
+ ├── project_id    # DECIDED in M4.2 (ADR-0019 decision 7), NOT YET BUILT — arrives in M4.3
+ │                 # with its migration, the port signature and the RunScanUseCase call
+ │                 # site. The only field in §4 that does not yet exist in code, marked so
+ │                 # rather than left for an implementer to discover. It is the dedup scope,
+ │                 # which normalization can reach no other way: the sweep selects on this
+ │                 # table alone (ADR-0017 decision 2), so a read port back into scanning
+ │                 # could not supply it. No FK, like scan_id.
  ├── status (pending|running|completed|failed)
  ├── requested_at, started_at, finished_at
  └── failure_reason   # nullable; non-null iff failed. Never Scan.failure_reason.
@@ -155,21 +162,46 @@ NormalizationRun   # M4.0 — normalization; pipeline progress, one row per Scan
  # Exists iff ScanResult rows were persisted. See ADR-0017.
 
 Finding   # M4.1 — normalization; produced by the per-scanner mappers
- ├── id, scan_id, source: ScannerTool   # shared_kernel/scanner_tools.py — not a literal set
+ ├── id, project_id                     # DURABLE and project-scoped, NOT scan-scoped
+ ├── dedup_hash                         # derived property, never assigned: "v1:<sha256>"
+ ├── source: ScannerTool                # shared_kernel/scanner_tools.py — not a literal set
+ ├── rule_id                            # the tool's own identifier for WHAT fired:
+ │                                      # check_id / VulnerabilityID / alertRef
  ├── severity: Severity                 # shared_kernel/severity.py — the normalized scale
  ├── native_severity                    # what the tool literally said ("ERROR", "CRITICAL", "Low")
  ├── title
  ├── cwe, owasp_category, cvss          # nullable; None means the tool supplied nothing
  ├── location: Location, evidence: Evidence
+ # A Finding OUTLIVES the scan that produced it (ADR-0019, resolving G5): FR-5 requires
+ # dedup across repeated scans, and one scan_id could only ever mean "first" or "latest".
+ # Per-scan observation is FindingSighting below. Deliberately NO last_seen_at /
+ # last_seen_scan_id: both are max() over sightings, and a denormalized copy would put a
+ # summary that can silently go stale into M9.1's path (ADR-016 decision 2's objection).
+ # dedup_hash is over source + rule_id + file_path + package + url + http_method +
+ # parameter, and NOT over lines, installed_version, severity, cvss, cwe or title — those
+ # change without the finding changing, and re-keying on them fabricates resolution events.
  # severity collapses three incompatible tool scales into one, so it is lossy for
  # ORDERING; native_severity is what keeps it lossless for PROVENANCE (FR-9).
  # A field with no source is None — never "" and never a guess, or a mapper would
  # be inventing a Risk Engine input (rule 5). See ADR-0018.
- # NOT here yet, each deferred to the issue that can decide it properly:
+ # NOT here yet:
  #   confidence  — M6.1. Only ZAP supplies it, as an opaque numeric code whose
  #                 vocabulary mixes degrees with states (Confirmed/False Positive),
  #                 and RiskReasoning's five signals do not include it.
- #   dedup_hash  — M4.2, with the Finding identity question (G5).
+
+FindingSighting   # M4.2 — normalization; one scan's observation of one Finding
+ ├── finding_id, scan_id   # composite natural key, no surrogate id (ProjectMembership's shape)
+ ├── observed_at
+ └── match_count           # source elements that collapsed into this identity in this scan
+ # ABSENCE is the point: "not sighted in scan N" is the absence of a row, and "scan N was
+ # never normalized" is NormalizationRun — which exists iff ScanResult rows were persisted.
+ # The two compose into the distinction M9.1 needs, with no third state.
+ # M9.1 CONSTRAINT: "not sighted in the latest scan" only means resolved for the tools that
+ # SUCCEEDED in that scan. A failed Trivy makes a scan PARTIAL and contributes no SCA
+ # findings; a naive absence check would silently resolve every dependency finding.
+ # get_succeeded_by_scan_id already draws that line. See ADR-0019's Consequences.
+ # Written by the normalization use case (M4.4), never by a mapper: identity is the hash
+ # and id is a surrogate, so only the upsert on (project_id, dedup_hash) settles which wins.
 
 Location   # M4.1 — an EMBEDDED value object on Finding, not an entity: no id, no
            # table of its own, and deliberately absent from the §4.2 ERD. One flat
@@ -183,11 +215,16 @@ Location   # M4.1 — an EMBEDDED value object on Finding, not an entity: no id,
  # is the leak the common schema exists to prevent.
 
 Evidence
- ├── id, finding_id, raw_payload, source_tool: ScannerTool, captured_at
+ ├── id, finding_id, scan_id, raw_payload, source_tool: ScannerTool, captured_at
  # raw_payload is a verbatim COPY of the one source element (a Semgrep result, a
- # Trivy vulnerability, a ZAP alert), not a reference into ScanResult.raw_output:
- # that blob is replaceable by a retry's upsert, so a reference would dangle
- # silently. ADR-0018 decision 6.
+ # Trivy vulnerability, a ZAP alert narrowed to one instance), not a reference into
+ # ScanResult.raw_output: that blob is replaceable by a retry's upsert, so a
+ # reference would dangle silently. ADR-0018 decision 6, clarified by ADR-0019.
+ # ONE row per Finding, holding the LATEST observation's payload — refreshed on every
+ # sighting, unconditionally. FR-9 asks for the output that produced THIS assessment,
+ # and deciding an older payload was "richer" would need per-tool comparison. scan_id
+ # records which scan the retained payload came from; ScanResult.raw_output is the
+ # floor for anything older. Per-sighting retention is M9.2's trigger.
 
 Risk
  ├── id, project_id
@@ -222,7 +259,9 @@ erDiagram
     PROJECT ||--o{ SCAN : triggers
     SCAN ||--o{ SCAN_RESULT : produces
     SCAN ||--o| NORMALIZATION_RUN : normalized_by
-    SCAN_RESULT ||--o{ FINDING : normalized_into
+    PROJECT ||--o{ FINDING : accumulates
+    FINDING ||--o{ FINDING_SIGHTING : sighted_in
+    SCAN ||--o{ FINDING_SIGHTING : observes
     FINDING ||--|| EVIDENCE : backed_by
     FINDING }o--o{ RISK : correlated_into
     RISK ||--|| SECURITY_BRIEF : explained_by
@@ -264,7 +303,7 @@ erDiagram
 | `ScanRepositoryPort` | Persist/query scans | Postgres adapter |
 | `ScanResultRepositoryPort` | Persist per-tool raw output; `get_succeeded_by_scan_id` is **M4's entry point** (M3.7) | Postgres adapter |
 | `NormalizationRunRepositoryPort` | Record that normalization is owed for a scan, and read it back (M4.0). Its write method takes primitives so `scanning` can call it without importing `normalization`'s domain | Postgres adapter |
-| `FindingRepositoryPort` | Persist/query findings, dedup lookups | Postgres adapter |
+| `FindingRepositoryPort` | Upsert findings on `(project_id, dedup_hash)` — keeping the stored `id` and refreshing the mutable attributes per `merge_observation` — record `FindingSighting` rows, and query by project (M4.3) | Postgres adapter |
 | `RiskRepositoryPort` | Persist/query risks, history | Postgres adapter |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
 | `VcsProviderPort` | Read repo metadata, register webhooks | `GitHubAdapter` |
@@ -393,7 +432,8 @@ sequenceDiagram
 
     Q->>Norm: normalize_scan(scan_id)
     Norm->>DB: read get_succeeded_by_scan_id(scan_id) — never Scan.status
-    Norm->>DB: persist Findings + Evidence (deduplicated)
+    Norm->>DB: upsert Findings on (project_id, dedup_hash) + refresh Evidence
+    Norm->>DB: record a FindingSighting per finding (finding_id, scan_id)
     Norm->>DB: NormalizationRun (status=completed)
 
     Corr->>DB: read Findings
@@ -420,7 +460,7 @@ Stages after normalization are drawn as designed, not as built: `correlation`, `
 
 - **Transactions:** each use case owns a single unit of work; repository adapters expose a `UnitOfWork` pattern so a use case's writes (e.g., persisting a Risk and its RiskEvent) commit atomically. **One deliberate exception, for pipeline-stage handoffs only:** a use case's unit of work may span two modules' tables when the second write *is* the handoff to the next stage — `RunScanUseCase` writes `scanning`'s `ScanResult` rows and `normalization`'s `NormalizationRun` row in one transaction, which is what removes the Postgres-commit-plus-Redis-enqueue dual write (ADR-0017 decision 1). The boundary that remains enforceable is kept: the port's write method takes primitives, so no other module's domain type crosses. This licenses stage handoffs, not cross-module writes generally.
 - **Error handling:** domain-level errors are typed exceptions (e.g., `InvalidSecurityContext`, `ScannerUnavailable`) defined in the domain/application layers; inbound adapters translate them to HTTP status codes — the domain never returns HTTP concepts.
-- **Idempotency:** every stage is safe to re-run against the same scan, because each one's write is keyed rather than appended. `RunScanUseCase` upserts `ScanResult` on `(scan_id, tool)` and requests normalization with `ON CONFLICT DO NOTHING` on `scan_id`; the webhook receiver dedups on `X-GitHub-Delivery`; normalization and correlation add dedup hashes on Findings and upsert semantics on Risks. So a worker crash-and-retry cannot corrupt state. Note the one thing a retry does *not* preserve: re-running a scan re-runs **every** enabled scanner, which can turn a succeeded `ScanResult` into a failed one — the reason a scanner failure no longer re-raises (ADR-016).
+- **Idempotency:** every stage is safe to re-run against the same scan, because each one's write is keyed rather than appended. `RunScanUseCase` upserts `ScanResult` on `(scan_id, tool)` and requests normalization with `ON CONFLICT DO NOTHING` on `scan_id`; the webhook receiver dedups on `X-GitHub-Delivery`; normalization upserts `Finding` on `(project_id, dedup_hash)` and records a `FindingSighting` keyed `(finding_id, scan_id)`, so re-normalizing a scan refreshes rows rather than adding them (ADR-0019), and correlation adds upsert semantics on Risks. So a worker crash-and-retry cannot corrupt state. Note the one thing a retry does *not* preserve: re-running a scan re-runs **every** enabled scanner, which can turn a succeeded `ScanResult` into a failed one — the reason a scanner failure no longer re-raises (ADR-016).
 - **SSRF protection:** the `ZapAdapter` validates and allow-lists target URLs before invoking a scan (see `PRODUCT_SPEC.md` §11) — enforced at the adapter boundary, not left to the tool itself. Validation covers both the target URL's syntax (scheme, literal-IP/localhost hostnames) and the DNS-rebinding case: the hostname's *resolved* IP is checked immediately before use, not just the hostname string (see ADR-0013).
 - **Testing strategy per layer:**
   - Domain + Application: unit tests with in-memory fakes for every port — no DB, no network, fast.
@@ -487,7 +527,9 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
 - **ADR-016 — Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration.** M3.7's four decisions. One arq job per `Scan` with scanners concurrent against a single checkout, decided on snapshot coherence rather than job bookkeeping — fan-out would let different tools see different commits and make M5's cross-tool correlation unsound. Per-tool outcome lives on `ScanResult` (a failed tool still gets a row), `Scan.status` is derived and gains `PARTIAL`, and **M4 reads `get_succeeded_by_scan_id`, never `Scan.status`**. Scanner configuration is a `ScannerConfig` entity in `projects`, read by `scanning` through a port. `ScannerPort` gains `tool` and `target_kind` so dispatch routes on data rather than on a `tool == "zap"` branch.
 - **ADR-0017 — Normalization trigger, and where pipeline progress lives.** M4.0. `ScanStatus` stays scanner-scoped and gains no pipeline stages; progress lives in a `NormalizationRun` record owned by `normalization` and written by `RunScanUseCase` through a primitives-only port, in the same transaction as the `ScanResult` rows — so the row *is* the outbox and the Redis enqueue degrades to a latency optimization. Normalization runs on `PARTIAL` and on an all-tools-failed scan, on the invariant that a row exists iff `ScanResult` rows were persisted. Redraws §8, which described a synchronous pipeline that was never built.
 
-- **ADR-0018 — Normalized severity, unsourced fields, and what `shared_kernel/` takes.** M4.1. Three incompatible tool scales collapse into one six-member `Severity` (`UNKNOWN` included rather than folded into `LOW`, which would invent a Risk Engine input), with `native_severity` keeping what the collapse discards so it is lossy for ordering but not for provenance. `Severity` lives in `shared_kernel/` under the criterion §7 now records. A field with no source is `None`, never `""` and never a guess; `cwe` is a single canonical `CWE-<n>` because the measured maximum across all three real fixtures is 1; `cvss` is CVSS v3 only, since mixing v2 and v3 in one float would have M6 comparing incomparable numbers. `confidence` and `dedup_hash` are deliberately absent, deferred to M6.1 and M4.2. Written against captured scanner output rather than documentation — which is what caught that ZAP's report has no severity field at all.
+- **ADR-0018 — Normalized severity, unsourced fields, and what `shared_kernel/` takes.** M4.1. Three incompatible tool scales collapse into one six-member `Severity` (`UNKNOWN` included rather than folded into `LOW`, which would invent a Risk Engine input), with `native_severity` keeping what the collapse discards so it is lossy for ordering but not for provenance. `Severity` lives in `shared_kernel/` under the criterion §7 now records. A field with no source is `None`, never `""` and never a guess; `cwe` is a single canonical `CWE-<n>` because the measured maximum across all three real fixtures is 1; `cvss` is CVSS v3 only, since mixing v2 and v3 in one float would have M6 comparing incomparable numbers. `confidence` is deliberately absent, deferred to M6.1; `dedup_hash` was too, and ADR-0019 discharges that. Written against captured scanner output rather than documentation — which is what caught that ZAP's report has no severity field at all.
+
+- **ADR-0019 — `Finding` identity, deduplication, and what the hash is over.** M4.2, resolving G5. A `Finding` is durable and project-scoped, identified by a derived `dedup_hash`, with a `FindingSighting` per scan that observes it — so "not sighted in scan N" is the absence of a row and "scan N was never normalized" is `NormalizationRun`, which is the distinction M9.1 needs. One hash function over the common schema, not three per tool, made possible by `rule_id`: the tool's own identifier for what fired, which `title` had been melting together with advisory-mutable prose. The exclusions follow one principle — *where identity is uncertain, prefer the failure that under-counts over the failure that fabricates events* — which puts line numbers, `installed_version`, severity, CVSS, CWE and title outside the hash, and makes ZAP one `Finding` per (alert, instance) rather than per alert. `Evidence` stays 1:1 with the finding and is refreshed latest-wins. `"v1:<sha256>"`, version-prefixed because the input set is a contract whose only migration is re-normalizing from the retained `ScanResult.raw_output`.
 
 `0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created.
 

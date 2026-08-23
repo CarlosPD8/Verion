@@ -106,7 +106,7 @@ There is deliberately no `native_confidence` either. `native_severity` exists as
 
 **`dedup_hash` — deferred to M4.2.** Computing one here would mean inventing the identity rule that issue exists to decide (**G5**), and M4.2 lands before M4.3 persists anything, so nothing is at risk from the wait.
 
-Both absences are pinned by a test, so re-adding either is a deliberate act rather than a drive-by.
+Both absences are pinned by a test, so re-adding either is a deliberate act rather than a drive-by. *(Amended — `dedup_hash` shipped in M4.2 and that test now pins `confidence` alone; see Amendments. The `confidence` half stands.)*
 
 ### 6. `Evidence.raw_payload` is a copy of the per-finding slice
 
@@ -127,6 +127,14 @@ M5 gets a canonical CWE it can compare across tools, and a `Location` whose fiel
 **G6 is opened**: the pinned Semgrep ruleset declares no metadata, so SAST contributes no CWE and no OWASP category in production. It fails silently — Trivy and ZAP both supply CWEs, so the gap is invisible unless someone groups by `source`.
 
 `ARCHITECTURE.md` §4 changes shape: `Finding` gains `native_severity` and `title`, loses `confidence` and `dedup_hash` for now, and references `shared_kernel`'s `Severity`. §7 gains the criterion.
+
+## Amendments
+
+- **2026-08-23 (M4.2):** Two deferrals in this document are discharged by **ADR-0019**, and one decision is clarified. Nothing here is reversed, and no decision text is rewritten.
+  - **Decision 5's `dedup_hash` deferral is discharged.** `Finding` now carries a derived `dedup_hash` property, and the identity rule it was waiting on is ADR-0019's. The `confidence` half of decision 5 is untouched and remains M6.1's. The test that pinned both absences now pins only `confidence`.
+  - **The Alternatives entry "One `Finding` per ZAP *instance* rather than per alert" is decided in the affirmative.** It was deferred here specifically so M4.2 could revisit it with the full data, and the data settled it: the captured fixture's instance ids arrive in crawl order (`6, 7, 5` within one alert), so an alert-level finding's `instances[0]` location is not stable across scans. See ADR-0019 decision 4.
+  - **Decision 6's "copy of the per-finding slice" is clarified for ZAP, not amended.** The principle — a verbatim copy of the source element, never a reference into a blob a retry can replace — holds exactly as written. What changes is what counts as *the source element*: for a per-instance finding it is the alert-plus-instance pair, so `raw_payload` is the alert with `instances` narrowed to that one instance. Nothing is invented, only projected, and the instances are partitioned across the sibling findings rather than dropped. Decision 6's storage note is also now quantified: the split takes ZAP's evidence from 0.76× to 1.63× of the scan's raw output (8,523 → 18,148 bytes on the real fixture), which raises a one-time constant and leaves the per-scan recurring term untouched — the amortization argument itself is unchanged.
+  - Decisions 1, 2, 3 and 4 are unaffected. Decision 2's `shared_kernel/` criterion was applied a third time in the negative — `dedup_hash` stays in `normalization/domain/` — which is recorded in ADR-0019 decision 6.
 
 ## Alternatives considered
 

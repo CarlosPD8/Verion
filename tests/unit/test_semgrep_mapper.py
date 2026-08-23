@@ -8,9 +8,13 @@ _REAL = "semgrep_scan.json"
 _EDGES = "semgrep_synthetic_edges.json"
 
 
-def _map(raw, id_generator, clock):
+def _map(raw, id_generator, clock, scan_id="scan-1"):
     return map_semgrep_output(
-        scan_id="scan-1", raw_output=raw, id_generator=id_generator, clock=clock
+        project_id="proj-1",
+        scan_id=scan_id,
+        raw_output=raw,
+        id_generator=id_generator,
+        clock=clock,
     )
 
 
@@ -20,7 +24,8 @@ def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
 
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.scan_id == "scan-1"
+    assert finding.project_id == "proj-1"
+    assert finding.evidence.scan_id == "scan-1"
     assert finding.source is ScannerTool.SEMGREP
     assert finding.severity is Severity.HIGH
     assert finding.native_severity == "ERROR"
@@ -82,6 +87,56 @@ def test_an_unrecognised_severity_degrades_instead_of_raising(scanner_fixture, i
 
     assert degraded.severity is Severity.UNKNOWN
     assert degraded.native_severity == "CATASTROPHIC"
+
+
+def test_rule_id_is_the_check_id_and_not_the_title(scanner_fixture, id_generator, clock):
+    """`rule_id` exists because the common schema had nowhere to put "what
+    fired". For Semgrep the two happen to coincide, which is why this asserts the
+    field rather than the string — Trivy's title is `"<CVE>: <prose>"`, and it is
+    the prose half that makes hashing `title` unsafe."""
+    finding = _map(scanner_fixture(_REAL), id_generator, clock)[0]
+
+    assert finding.rule_id.endswith("dangerous-eval")
+
+
+def test_the_same_output_dedups_to_the_same_hash_across_scans(scanner_fixture, id_generator, clock):
+    """M4.2's acceptance criterion, asserted at the domain layer because that is
+    the only one M4.2 shipped — persistence is M4.3's: re-running a scan must not
+    duplicate an identical finding.
+
+    The two mappings get **different** surrogate ids and the **same**
+    `dedup_hash`, which is what proves identity comes from the content rather
+    than from the id — the property M4.3's upsert on `(project_id, dedup_hash)`
+    is built on.
+    """
+    raw = scanner_fixture(_REAL)
+
+    first = _map(raw, id_generator, clock, scan_id="scan-1")[0]
+    second = _map(raw, id_generator, clock, scan_id="scan-2")[0]
+
+    assert first.id != second.id
+    assert first.evidence.scan_id != second.evidence.scan_id
+    assert first.dedup_hash == second.dedup_hash
+
+
+def test_a_line_shift_does_not_change_identity(scanner_fixture, id_generator, clock):
+    """An edit *above* a finding moves its line range without changing the
+    finding, so `start_line`/`end_line` are excluded from `dedup_hash`.
+
+    The captured fixture cannot show this — that would need two scans of a
+    mutated target — so the shift is applied to a copy of the real document here,
+    and the docstring says so rather than implying the capture proved it.
+    """
+    document = json.loads(scanner_fixture(_REAL))
+    shifted = json.loads(scanner_fixture(_REAL))
+    shifted["results"][0]["start"]["line"] += 40
+    shifted["results"][0]["end"]["line"] += 40
+
+    original = _map(json.dumps(document), id_generator, clock)[0]
+    moved = _map(json.dumps(shifted), id_generator, clock)[0]
+
+    assert moved.location.start_line == original.location.start_line + 40
+    assert moved.dedup_hash == original.dedup_hash
 
 
 def test_an_empty_result_set_produces_no_findings(id_generator, clock):

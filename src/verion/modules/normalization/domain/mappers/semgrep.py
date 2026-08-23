@@ -35,6 +35,7 @@ def _first(value: Any) -> Any:
 
 def map_semgrep_output(
     *,
+    project_id: str,
     scan_id: str,
     raw_output: str,
     id_generator: IdGeneratorPort,
@@ -46,12 +47,28 @@ def map_semgrep_output(
     `get_succeeded_by_scan_id` returns carries non-null output — guaranteed by
     `ck_scan_results_outcome_shape`, not by convention (ADR-016 decision 2).
 
+    `project_id` is the dedup scope: findings dedupe within a project and never
+    across one (`ARCHITECTURE.md` §4, ADR-0019). `scan_id` no longer lands on the
+    `Finding` — it survives only as `Evidence.scan_id`, the provenance of the
+    retained payload, because a `Finding` now outlives the scan that produced it.
+    Neither this function nor its callers create `FindingSighting` rows: a mapper
+    cannot know a finding's resolved `id`, so that is M4.4's job.
+
     **Two fields this deployment can never populate from Semgrep**, verified
     against real captured output rather than assumed: `extra.fingerprint` and
     `extra.lines` are both the literal string `"requires login"` for anonymous
     Semgrep OSS, and this project sets no `SEMGREP_APP_TOKEN` anywhere. So
     `lines` carries no source code, and `fingerprint` is unusable as an identity
-    input. See `tests/fixtures/scanners/README.md`.
+    input — which also removes the only discriminator that would have let two
+    matches of one rule in one file stay distinct without putting line numbers
+    into `dedup_hash` (G7, ADR-0019).
+
+    **`path` is a dedup_hash input and it is not repo-relative in production.**
+    `SemgrepAdapter` passes an absolute target and `GitRepoCheckout` builds one
+    with `tempfile.mkdtemp`, so every scan reports a different absolute prefix
+    and every Semgrep finding re-keys. The committed fixture has it redacted to a
+    relative path, so tests exercise the fixed shape. Registered as **G9**,
+    assigned to M4.4; the fix is in the adapter, not here.
     """
     document = json.loads(raw_output)
     findings: list[Finding] = []
@@ -64,11 +81,18 @@ def map_semgrep_output(
 
         finding_id = id_generator.new_id()
         payload = json.dumps(result, sort_keys=True)
+        check_id = str(result.get("check_id") or "")
         findings.append(
             Finding(
                 id=finding_id,
-                scan_id=scan_id,
+                project_id=project_id,
                 source=ScannerTool.SEMGREP,
+                # Semgrep's own stable identifier for what fired. Note it embeds
+                # the ruleset file's path for a local --config, so moving
+                # `rulesets/default.yml` re-keys every Semgrep finding — a real
+                # property of this identity input, recorded in ADR-0019 rather
+                # than discovered later.
+                rule_id=check_id or "(unidentified)",
                 # An unrecognised level degrades to UNKNOWN rather than raising.
                 # A severity string is upstream data from a tool that can add a
                 # level in any release; an unknown *tool name* raises and fails
@@ -76,7 +100,7 @@ def map_semgrep_output(
                 # configuration this project controls. See ADR-0018.
                 severity=_SEVERITY.get(native_severity.upper(), Severity.UNKNOWN),
                 native_severity=native_severity or "(absent)",
-                title=str(result.get("check_id") or "(unnamed semgrep rule)"),
+                title=check_id or "(unnamed semgrep rule)",
                 location=Location(
                     file_path=str(result.get("path")) if result.get("path") else None,
                     start_line=start.get("line"),
@@ -85,6 +109,7 @@ def map_semgrep_output(
                 evidence=Evidence(
                     id=id_generator.new_id(),
                     finding_id=finding_id,
+                    scan_id=scan_id,
                     raw_payload=payload[:MAX_RAW_PAYLOAD_CHARS],
                     source_tool=ScannerTool.SEMGREP,
                     captured_at=clock.now(),

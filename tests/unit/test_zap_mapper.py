@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 
 from verion.modules.normalization.domain.mappers.zap import map_zap_output
 from verion.shared_kernel.scanner_tools import ScannerTool
@@ -8,22 +9,33 @@ _REAL = "zap_scan.json"
 _EDGES = "zap_synthetic_edges.json"
 
 
-def _map(raw, id_generator, clock):
-    return map_zap_output(scan_id="scan-1", raw_output=raw, id_generator=id_generator, clock=clock)
+def _map(raw, id_generator, clock, scan_id="scan-1"):
+    return map_zap_output(
+        project_id="proj-1",
+        scan_id=scan_id,
+        raw_output=raw,
+        id_generator=id_generator,
+        clock=clock,
+    )
 
 
 def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
     """Against a genuine ZAP 2.17.0 traditional-json report."""
     findings = _map(scanner_fixture(_REAL), id_generator, clock)
 
-    assert len(findings) == 4
+    assert len(findings) == 11
     assert {f.source for f in findings} == {ScannerTool.ZAP}
 
-    xcto = next(f for f in findings if f.title == "X-Content-Type-Options Header Missing")
+    xcto = next(
+        f
+        for f in findings
+        if f.title == "X-Content-Type-Options Header Missing"
+        and f.location.url == "http://target.example:8080/robots.txt"
+    )
     assert xcto.severity is Severity.LOW
     assert xcto.native_severity == "Low"
     assert xcto.cwe == "CWE-693"
-    assert xcto.location.url == "http://target.example:8080/"
+    assert xcto.rule_id == "10021"
     assert xcto.location.http_method == "GET"
     assert xcto.location.parameter == "x-content-type-options"
 
@@ -35,9 +47,11 @@ def test_severity_comes_from_riskcode_not_from_a_severity_field(
     `riskdesc` as "Risk (Confidence)"; `riskcode` is the enumerated value, so it
     is the source. Getting this wrong would make every ZAP finding UNKNOWN."""
     findings = _map(scanner_fixture(_REAL), id_generator, clock)
-    by_severity = sorted(f.severity for f in findings)
+    counted = Counter(f.severity for f in findings)
 
-    assert by_severity == [Severity.LOW, Severity.LOW, Severity.MEDIUM, Severity.MEDIUM]
+    # riskcode 2 on two alerts covering 3 and 2 instances; riskcode 1 on two
+    # alerts covering 3 each.
+    assert counted == Counter({Severity.LOW: 6, Severity.MEDIUM: 5})
     assert {f.native_severity for f in findings} == {"Low", "Medium"}
 
 
@@ -52,28 +66,63 @@ def test_cvss_and_owasp_are_none_because_the_report_carries_neither(
     assert all(f.owasp_category is None for f in findings)
 
 
-def test_one_finding_per_alert_not_per_instance(scanner_fixture, id_generator, clock):
-    """Deliberate, and recorded because M4.2 may revisit it: an alert is what ZAP
-    considers a finding (one riskcode, one cweid, one solution), while instances
-    are *occurrences* — the sighting concept G5 says the model is missing.
-    Splitting per instance here would pre-empt that decision. Nothing is lost:
-    every instance stays verbatim in the evidence.
+def test_one_finding_per_alert_instance(scanner_fixture, id_generator, clock):
+    """M4.1 mapped one Finding per *alert* and deferred the choice; ADR-0019
+    decides per *instance*.
+
+    An alert-level finding would have to take its location from `instances[0]`,
+    and that is not deterministic — the three instances of the alert below carry
+    ids 6, 7 and 5, so they arrive in crawl order rather than sorted. Identity
+    would have had to fall back to the site while `Location` displayed a URI that
+    was not part of it. Per-instance also makes resolution granular: fixing the
+    header on one URL and not another becomes one resolved and one still present.
+
+    Every instance is accounted for exactly once — they are partitioned across
+    the findings rather than duplicated or dropped.
     """
     raw = scanner_fixture(_REAL)
     findings = _map(raw, id_generator, clock)
     alerts = [a for s in json.loads(raw)["site"] for a in s["alerts"]]
-    total_instances = sum(len(a.get("instances") or []) for a in alerts)
+    instances = [i for a in alerts for i in (a.get("instances") or [])]
 
-    assert len(findings) == len(alerts) == 4
-    assert total_instances == 11
-    recovered = sum(len(json.loads(f.evidence.raw_payload)["instances"]) for f in findings)
-    assert recovered == total_instances
+    assert len(alerts) == 4
+    assert len(findings) == len(instances) == 11
+    assert len({f.dedup_hash for f in findings}) == 11
+    recovered = [i for f in findings for i in json.loads(f.evidence.raw_payload)["instances"]]
+    assert sorted(json.dumps(i, sort_keys=True) for i in recovered) == sorted(
+        json.dumps(i, sort_keys=True) for i in instances
+    )
 
 
-def test_evidence_round_trips_to_the_exact_source_alert(scanner_fixture, id_generator, clock):
+def test_instance_ordering_does_not_affect_identity(scanner_fixture, id_generator, clock):
+    """The measured hazard, pinned: ZAP returns an alert's instances in crawl
+    order, so a re-scan can reorder them. Under per-instance findings that must
+    change nothing about identity — only which finding is emitted first."""
+    document = json.loads(scanner_fixture(_REAL))
+    reordered = json.loads(scanner_fixture(_REAL))
+    for site in reordered["site"]:
+        for alert in site["alerts"]:
+            alert["instances"] = list(reversed(alert.get("instances") or []))
+
+    before = _map(json.dumps(document), id_generator, clock)
+    after = _map(json.dumps(reordered), id_generator, clock)
+
+    assert {f.dedup_hash for f in after} == {f.dedup_hash for f in before}
+
+
+def test_evidence_is_the_alert_narrowed_to_this_finding_s_instance(
+    scanner_fixture, id_generator, clock
+):
+    """ADR-0018 decision 6 clarified, not amended: still a verbatim copy of the
+    source element, where the source element for a per-instance finding is the
+    alert-plus-instance pair. Every alert-level field survives untouched; only
+    the sibling instances are absent, and they are in the sibling findings."""
     raw = scanner_fixture(_REAL)
     finding = next(
-        f for f in _map(raw, id_generator, clock) if f.title == "Missing Anti-clickjacking Header"
+        f
+        for f in _map(raw, id_generator, clock)
+        if f.title == "Missing Anti-clickjacking Header"
+        and f.location.url == "http://target.example:8080/robots.txt"
     )
     source = next(
         a
@@ -81,8 +130,14 @@ def test_evidence_round_trips_to_the_exact_source_alert(scanner_fixture, id_gene
         for a in s["alerts"]
         if a["name"] == "Missing Anti-clickjacking Header"
     )
+    payload = json.loads(finding.evidence.raw_payload)
 
-    assert json.loads(finding.evidence.raw_payload) == source
+    assert payload["instances"] == [
+        i for i in source["instances"] if i["uri"] == "http://target.example:8080/robots.txt"
+    ]
+    assert {k: v for k, v in payload.items() if k != "instances"} == {
+        k: v for k, v in source.items() if k != "instances"
+    }
     assert finding.evidence.source_tool is ScannerTool.ZAP
 
 

@@ -54,6 +54,7 @@ def _v3_score(cvss: dict[str, Any] | None) -> float | None:
 
 def map_trivy_output(
     *,
+    project_id: str,
     scan_id: str,
     raw_output: str,
     id_generator: IdGeneratorPort,
@@ -64,6 +65,19 @@ def map_trivy_output(
     Note `Vulnerabilities` is genuinely absent *or* explicitly `null` on a result
     with no findings — `test_trivy_adapter.py` already works around the same
     thing with `r.get("Vulnerabilities") or []`, and this mapper does likewise.
+
+    Identity is `VulnerabilityID` + `Target` + `PkgName`, and **not**
+    `InstalledVersion` (ADR-0019): bumping a package from one vulnerable version
+    to another is not a new finding, and when a bump actually remediates, Trivy
+    stops reporting the CVE and the finding stops being sighted — which is the
+    correct signal. The version stays on `Location` and refreshes each sighting.
+
+    **Trivy 0.74 also emits a per-vulnerability `Fingerprint`, which is
+    deliberately not used.** It is per-tool by construction (Semgrep's equivalent
+    is the constant "requires login" and ZAP has none), so it could never be the
+    single function over the common schema this project needs; and its input set
+    is opaque — 5,467 candidate concatenations of the obvious fields reproduce
+    none of the captured values — so whether it survives a DB refresh is unknown.
     """
     document = json.loads(raw_output)
     findings: list[Finding] = []
@@ -80,8 +94,9 @@ def map_trivy_output(
             findings.append(
                 Finding(
                     id=finding_id,
-                    scan_id=scan_id,
+                    project_id=project_id,
                     source=ScannerTool.TRIVY,
+                    rule_id=str(vulnerability_id),
                     severity=_SEVERITY.get(native_severity.upper(), Severity.UNKNOWN),
                     native_severity=native_severity or "(absent)",
                     # The CVE id leads: it is what a developer searches for, and
@@ -103,6 +118,7 @@ def map_trivy_output(
                     evidence=Evidence(
                         id=id_generator.new_id(),
                         finding_id=finding_id,
+                        scan_id=scan_id,
                         raw_payload=payload[:MAX_RAW_PAYLOAD_CHARS],
                         source_tool=ScannerTool.TRIVY,
                         captured_at=clock.now(),

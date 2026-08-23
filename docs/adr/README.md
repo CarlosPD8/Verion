@@ -22,4 +22,5 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted |
 | [0016](0016-multi-scanner-dispatch.md) | Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration | Accepted |
 | [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1) |
-| [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted |
+| [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2) |
+| [0019](0019-finding-identity-and-deduplication.md) | `Finding` identity, deduplication, and what the hash is over | Accepted |

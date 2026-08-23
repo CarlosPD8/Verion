@@ -8,9 +8,13 @@ _REAL = "trivy_scan.json"
 _EDGES = "trivy_synthetic_edges.json"
 
 
-def _map(raw, id_generator, clock):
+def _map(raw, id_generator, clock, scan_id="scan-1"):
     return map_trivy_output(
-        scan_id="scan-1", raw_output=raw, id_generator=id_generator, clock=clock
+        project_id="proj-1",
+        scan_id=scan_id,
+        raw_output=raw,
+        id_generator=id_generator,
+        clock=clock,
     )
 
 
@@ -30,6 +34,39 @@ def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
     assert known.location.file_path == "requirements.txt"
     assert known.location.package == "urllib3"
     assert known.location.installed_version == "1.24.1"
+
+
+def test_each_vulnerability_gets_its_own_identity(scanner_fixture, id_generator, clock):
+    """Identity is `VulnerabilityID` + `Target` + `PkgName`. Twelve CVEs against
+    one package in one manifest must be twelve findings, not one."""
+    findings = _map(scanner_fixture(_REAL), id_generator, clock)
+
+    assert len({f.dedup_hash for f in findings}) == 12
+    assert {f.rule_id for f in findings} == {
+        json.loads(scanner_fixture(_REAL))["Results"][0]["Vulnerabilities"][i]["VulnerabilityID"]
+        for i in range(12)
+    }
+
+
+def test_a_version_bump_is_not_a_new_finding(scanner_fixture, id_generator, clock):
+    """`InstalledVersion` is excluded from `dedup_hash` deliberately.
+
+    Bumping a package from one vulnerable version to another vulnerable version
+    does not fix anything, so re-keying the finding would report a resolution
+    that never happened. When a bump *does* remediate, Trivy stops reporting the
+    CVE and the finding stops being sighted — which is the correct signal, and
+    needs no help from the hash.
+    """
+    document = json.loads(scanner_fixture(_REAL))
+    bumped = json.loads(scanner_fixture(_REAL))
+    for vulnerability in bumped["Results"][0]["Vulnerabilities"]:
+        vulnerability["InstalledVersion"] = "1.25.0"
+
+    before = _map(json.dumps(document), id_generator, clock)[0]
+    after = _map(json.dumps(bumped), id_generator, clock)[0]
+
+    assert after.location.installed_version == "1.25.0"
+    assert after.dedup_hash == before.dedup_hash
 
 
 def test_every_real_vulnerability_carries_exactly_one_cwe(scanner_fixture, id_generator, clock):
@@ -71,8 +108,9 @@ def test_multiple_cwes_keep_the_first_and_lose_none(scanner_fixture, id_generato
 
     The contract asserted here is the one ADR-0018 claims: the first CWE as the
     tool ordered it becomes the correlation key, and **nothing is discarded** —
-    the full list survives in `raw_payload`, so M4.2 or M5 can widen to set
-    intersection later without a re-scan.
+    the full list survives in `raw_payload`, so M5 can widen to set intersection
+    later without a re-scan. (M4.2 has since been decided and did not widen it:
+    `cwe` is advisory-mutable, so ADR-0019 keeps it out of `dedup_hash` entirely.)
     """
     by_id = {f.title.split(":")[0]: f for f in _map(scanner_fixture(_EDGES), id_generator, clock)}
     multi = by_id["CVE-9000-0006"]
