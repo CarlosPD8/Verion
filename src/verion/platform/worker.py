@@ -5,6 +5,9 @@ from arq.connections import RedisSettings
 from verion.modules.identity.adapters.outbound.db.repository import (
     PostgresGitHubConnectionRepository,
 )
+from verion.modules.normalization.adapters.outbound.db.repository import (
+    PostgresNormalizationRunRepository,
+)
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresScannerConfigRepository,
@@ -80,6 +83,13 @@ async def run_scan(ctx: dict[str, Any], scan_id: str) -> None:
             connected_repos=PostgresConnectedRepoRepository(session),
             github_connections=PostgresGitHubConnectionRepository(session),
             scanner_configs=PostgresScannerConfigRepository(session),
+            # Same session as every repository above, which is the whole point:
+            # the ScanResult rows and the normalization handoff row commit
+            # together or not at all (ADR-0017 decision 2). Conformance to
+            # NormalizationRunRepositoryPort is checked here because
+            # RunScanUseCase.__init__ annotates the parameter as that port —
+            # unlike ctx["scanners"], which arrives as Any.
+            normalization_runs=PostgresNormalizationRunRepository(session),
             id_generator=UuidIdGenerator(),
             clock=SystemClock(),
         )

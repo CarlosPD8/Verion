@@ -1,0 +1,160 @@
+# ADR-0017: Normalization trigger, and where pipeline progress lives
+
+## Status
+
+Accepted
+
+## Context
+
+M4.1 builds the `Finding` and `Evidence` entities and the per-scanner mapping functions. It cannot start without three answers this ADR gives: where those mappers are invoked from, what they run on after a partial scan, and what records that the work is done.
+
+**The drift being closed.** `ARCHITECTURE.md` §8 shows `TriggerScanUseCase` orchestrating scan → normalize → correlate → score → brief synchronously, setting `status=complete` only once a `SecurityBrief` persists. That pipeline was never built. `TriggerScanUseCase` creates a `Scan` and enqueues; `RunScanUseCase` ends at persisting `ScanResult` rows and sets the derived status there. So `COMPLETED` means "every enabled scanner finished", not "the pipeline finished" — and §8 is the document M4.1 is told to build from. §9 compounds it by asserting that `IngestScanResultUseCase` is idempotent; no such use case exists anywhere in `src/`.
+
+**What the code actually does**, verified against `src/` rather than quoted from the roadmap, because three of these decisions rest on it:
+
+- The retry guard is literally `if scan.status == ScanStatus.COMPLETED: return` (`run_scan.py`). Only `COMPLETED` short-circuits, exactly as ADR-016 decision 1 states.
+- `self._scans.update(scan)` runs **after** the `ScanResult` upsert loop, and both are flushes into one session.
+- `platform/worker.py` commits **once**, in `finally`, deliberately without a rollback on the exception path, so a flushed `FAILED` survives for debugging.
+- Beyond "returns" and the six re-raised pre-tool exceptions, there is a third exit: any *other* exception propagates with the scan still flushed as `RUNNING`, and arq retries — which proceeds, because `RUNNING` does not short-circuit. Note the `finally` commits `RUNNING` only when the session is still usable; a database error aborts the transaction, so that commit raises and the flush rolls back instead. Decision 2 depends on this distinction and states it.
+
+**One inventory, because a decision below turns on it.** ADR-016's Consequences says of `PARTIAL` that "every downstream consumer of `Scan.status` must handle" it, and that "today that is the scanning API surface". There is no such consumer. `scanning`'s inbound API has exactly one endpoint, `POST /webhooks/github`, whose `WebhookAckResponse.status` is the literal string `"accepted"`/`"ignored"` and is unrelated to `ScanStatus`. `TriggerScanUseCaseDep` is consumed only by the webhook use case; there is no manual-trigger route and no scan-read route. Across all of `src/`, `Scan.status` has **one behavioural reader — the retry guard** — plus the repository's own hydration mapping. ADR-016's other statement, that M8's dashboard will be the first real consumer, is the accurate one. Recorded here rather than by amending ADR-016: an accepted ADR is the record of a decision at a point in time, and ADR-011's amendments were for newly discovered *decision points*, not for factual corrections to its own prose.
+
+**Decision numbering.** The four decisions below are numbered by the order they are presented here, which is **not** `ROADMAP.md` M4.0's order. M4.0 presents the trigger question first and treats the `ScanStatus` question as its consequence; the dependency runs the other way, because both surviving trigger options need a durable, queryable answer to "has this scan been normalized?" before the trigger can be chosen at all. The mapping, so a citation of either document is unambiguous:
+
+| This ADR | `ROADMAP.md` M4.0 |
+|---|---|
+| decision 1 — what `ScanStatus` means, and where pipeline progress lives | its third decision |
+| decision 2 — what triggers normalization | its first |
+| decision 3 — how `PARTIAL` interacts | its second |
+| decision 4 — what `ARCHITECTURE.md` now says | its reconciliation list |
+
+## Decision
+
+### 1. `ScanStatus` stays scanner-scoped; pipeline progress is a separate record, owned by `normalization`
+
+`ScanStatus` is unchanged — `PENDING`, `RUNNING`, `COMPLETED`, `PARTIAL`, `FAILED` — and gains no pipeline stages. It keeps exactly the meaning ADR-016 decision 2 gave it: a derived, human-facing summary of per-tool scanner outcomes, which M4 does not read. `scans` needs no migration.
+
+Growing the enum was the tempting option and is the one ADR-016 forecloses. It conflates two orthogonal axes — per-tool outcome × pipeline progress — which multiply out again as M5, M6 and M7 each add a stage, and it would make a pipeline downstream of a display field, which is the specific thing `get_succeeded_by_scan_id` exists to prevent.
+
+The inventory above is what makes keeping it scanner-scoped nearly free rather than merely principled: the blast radius of that choice is a single `if`. No response schema, no dashboard, and no migration is affected.
+
+Progress lives in a new record:
+
+```
+normalization_runs
+  id             String(36)  PK
+  scan_id        String(36)  NOT NULL, UNIQUE      -- the idempotency key
+  status         String      NOT NULL              -- pending|running|completed|failed
+  requested_at   DateTime(timezone=True) NOT NULL
+  started_at     DateTime(timezone=True) NULL
+  finished_at    DateTime(timezone=True) NULL
+  failure_reason String      NULL
+```
+
+`scan_id` carries **no foreign key**, matching the established rule that FKs are used within a module and cross-module references go unconstrained (`ScanModel.project_id` → `projects.id`, `ProjectModel.owner_id` → identity's `users`).
+
+**A normalization-specific record, not a generic `(scan_id, stage)` table.** The generic shape looks like the obvious generalization and is not: M5's correlation is scan-scoped, but M6's scoring and M7's brief are **Risk-scoped**. A scan-keyed stage table generalizes to exactly one of the three future stages and would have to be worked around by the other two. The pattern that does generalize is one record per stage, owned by the module that runs that stage, with the upstream stage writing the downstream one's `pending` row inside its own transaction.
+
+**`normalization` owns the record, and `scanning` writes it through a published port whose method takes primitives only.** `RunScanUseCase` cannot construct a `normalization.domain` entity — that is a direct cross-module domain import, and import-linter's `cross-module-scanning` contract rejects it. So the port's write method takes `(id, scan_id, requested_at)` and the entity is constructed inside `normalization`'s own adapter. `scanning` learns exactly one fact — that normalization is owed for this scan — rather than acquiring a downstream module's state machine. Stated precisely, because the port is not primitives-only as a whole: its *read* method returns a `NormalizationRun`, which is the same shape every existing cross-module port already has (`ConnectedRepoRepositoryPort` returns `projects`' domain type to `scanning` today) and is contract-legal because the import stays indirect. `scanning` does not call the read method, and should not start: the write method is where the boundary is deliberately narrower than the contract requires, and that is the part worth keeping.
+
+The alternative, `scanning` owning the table, raises no boundary question and was rejected anyway: it puts a downstream stage's states inside the upstream module, and M5/M6/M7 would each want to add theirs to it, which is the same conflation decision 1 rejects for `ScanStatus` arriving one table over.
+
+The cost is real and is not hidden: **one use case's unit of work now spans two modules' tables**, which `ARCHITECTURE.md` §9's "each use case owns a single unit of work" does not anticipate. §9 is amended in this same change to say so explicitly rather than leaving it to hold implicitly.
+
+**`Scan.failure_reason` is not overloaded.** It keeps the disjoint meaning ADR-016 decision 2 gave it — a failure *before any tool ran*. A normalization failure is neither a scanner outcome nor a pre-tool failure, so it belongs on `normalization_runs.failure_reason` and nowhere else.
+
+**The status/`failure_reason` invariant is enforced twice** — a `__post_init__` on the frozen domain dataclass and a database `CHECK` — following the defensive-constraint idiom ADR-016 decision 2 established for `ScanResult` and `ck_scan_results_outcome_shape`. A second `CHECK` pins the four valid `status` values, which `scan_results` does not do for its own status column. That is deliberately *more* defence than the precedent, for a specific reason: this column is what a reconciliation sweep selects on, so an unrecognised value would make a row **invisible to the sweep** rather than merely odd — it would be a scan that silently never gets normalized, which is the exact failure this whole record exists to prevent.
+
+The timestamps are deliberately **not** constrained, in either place. `started_at`/`finished_at` belong to transitions M4.1 writes; pinning them now would be constraining a state machine this issue does not implement.
+
+### 2. Normalization is triggered by a separate enqueued job, and the progress row is the outbox
+
+Normalization runs as its own job, not inside `run_scan`. The dual write that would normally cost is removed rather than compensated for: **the `normalization_runs` row is written in the same Postgres transaction as the `ScanResult` rows.** That is one transaction, not one write — there are still two Postgres writes, but they commit or roll back together, and the write that used to cross into a second system does not exist. The Redis enqueue degrades to a latency optimization: if it is lost, the row is still there, and a reconciliation sweep over stale `pending` rows recovers it. Idempotency falls out of `UNIQUE(scan_id)`.
+
+Note this was never the fan-in problem ADR-016 decision 1 avoided. That was N jobs racing to decide one `Scan`'s status. This is a linear one-to-one handoff.
+
+**The write is idempotent, via `INSERT ... ON CONFLICT DO NOTHING`** on `uq_normalization_runs_scan_id` — ADR-014's `WebhookDeliveryRepository` idiom, adopted here for the same reason it was chosen there and one more. ADR-014 chose it over `INSERT` plus catching `IntegrityError` because the latter leaves the session in a failed-transaction state needing its own rollback; that is worse here than it was there, because `worker.py` commits in `finally` with no rollback on the exception path. Without it there is a concrete loop: attempt 1 persists the results and the row, then `_scans.update` fails; both flushes commit; the scan is left `RUNNING`; arq retries; the retry passes the guard, re-runs every scanner, and hits a unique-constraint violation on a row it wrote itself — landing on the third exit path again, re-running all three scanners every time until `max_tries` is exhausted.
+
+**What the conflict means, stated so no caller has to infer it: a row already existing is the normal, correct outcome of a retry, not an error.** The insert affects zero rows and that is success. Specifically it must **not** be `ON CONFLICT DO UPDATE`: overwriting would reset a `running` or `completed` row back to `pending` and re-normalize a scan that was already normalized. The port's write method therefore returns `None` and does not surface the row count. This differs from ADR-014's `record_if_new`, which returns a bool because its caller must branch on it to detect a redelivery; here no caller branches, because both outcomes mean the same thing — normalization is recorded as owed. The idiom being followed is the conflict handling, not the return type.
+
+**An ordering constraint, stated as a constraint because a later reordering needs something to fail against: the row write goes after the `ScanResult` upsert loop and before `self._scans.update(scan)`.** Reversed, a failure writing the row would still commit `COMPLETED` — the worker commits in `finally` — and the retry would return immediately at the `== COMPLETED` guard, so normalization would be lost silently and permanently, with no error state. This is the same trap that disqualifies the same-job option in Alternatives, arriving in miniature.
+
+**The property the correct order buys is that the scan is never left `COMPLETED`, and it is worth being precise about how, because the two failure modes differ.** A *database* error — the likelier one for this write — aborts the Postgres transaction, so the worker's `finally` commit raises `PendingRollbackError` rather than committing, and the `RUNNING` flush rolls back with it along with the `ScanResult` upserts; the scan stays at its last committed status, `PENDING` on a first attempt. Any *other* exception leaves the session usable, so the `finally` commits `RUNNING` — the third exit path described in Context. Neither `PENDING` nor `RUNNING` nor `PARTIAL` short-circuits the guard, so arq's retry proceeds in both cases. The database case also strengthens decision 3's invariant rather than straining it: the progress row and the `ScanResult` rows disappear together, so "a row exists iff `ScanResult` rows were persisted" still holds exactly. One secondary effect is worth knowing when debugging: in that case the exception arq sees is `PendingRollbackError`, and the original database error survives only as its `__context__`.
+
+**Neither landing is free, but only one of them risks losing output, and conflating the two would overstate what this write puts at stake.** In the *database* case nothing this attempt persisted survives — the `ScanResult` upserts roll back together with the progress row — so there is no `SUCCEEDED` row from this attempt for a retry to overwrite, and the cost is repeated work alone. The degradation window belongs to the *non-database* case: the session stays usable, the `finally` commits this attempt's `SUCCEEDED` rows, and the retry re-runs *every* enabled scanner and can overwrite a good row with a `FAILED` one — the degradation ADR-016 calls corruption and the reason a scanner failure no longer re-raises. Three things make that acceptable, and all three are properties of this design rather than assertions about it: that exit path **already exists** for any unanticipated exception and this change does not introduce it; the new surface it applies to is a single call into an idempotent insert, against the same-job option putting all of normalization's parsing logic in that position on every single run; and the idempotent insert removes the one case that would otherwise have made it recur deterministically. What remains is a genuine window, not a closed one.
+
+Separately, and true whichever way this write fails: a retry of an already-`PARTIAL` scan can overwrite `SUCCEEDED` rows committed by an *earlier* attempt. That is ADR-016 decision 1's retry property, unchanged by this ADR and not introduced by the handoff.
+
+**Sweep invariant, recorded as an invariant and not only as a query, so a later "simplification" has something to fail against: the reconciliation sweep selects on `normalization_runs` alone and must never read `Scan.status`.** A sweep querying `WHERE scan.status IN (COMPLETED, PARTIAL)` would violate ADR-016 decision 2 by the back door — the normalization job would be reading `get_succeeded_by_scan_id` correctly while the thing deciding *whether to run the job at all* sat downstream of a human-facing summary. It does not need to join `ScanResult` either: by decision 3's invariant the row exists **iff** `ScanResult` rows were persisted, so the row's existence already carries what such a join would have established.
+
+**What ships in M4.0 and what does not.** This issue ships the record, its port — both the primitives-only write method and the `get_by_scan_id` read — its Postgres adapter, the migration, and the write inside `RunScanUseCase`. It does **not** ship the arq enqueue, a `normalize_scan` job function, or the sweep query. With no `Finding` entity yet, a job would have nothing to do and a sweep would have nothing to hand work to — dead-by-construction code, which ADR-016 decision 3 refused. Note this is the *inverse* of that case: there the write path could not be deferred because deferring it left code unable to execute at all; here the **consumer** is deferred, which the project's own precedent covers (persistence in M2.1, `di.py` wiring ahead of a route) and which M4.1 closes immediately. **Trigger: M4.1.** The consequence a reader has to be told about on purpose is that between M4.0 and M4.1 the system writes a `pending` row on every scan that nothing ever moves.
+
+`get_by_scan_id` ships while the sweep query does not, and the line between them is policy: a read by the record's unique key encodes nothing M4.1 might decide differently, whereas a sweep query encodes a staleness threshold and an ordering that are M4.1's to choose. Without the read, the write path could not be verified at all except by asserting on the adapter's own ORM model, which is testing the adapter with the adapter.
+
+**Why these four deferrals are recorded in M4.1's issue rather than the Deferred gaps register**, since `CLAUDE.md`'s working-style rule points ADR deferrals at the register and this is a deliberate exception rather than an oversight. The register's own preamble scopes it to "known gaps that are **not yet anybody's issue**", and its escalation machinery exists to force a decision on a gap nobody has taken. These four are already taken: their trigger is not a condition somebody has to notice, it is the next issue, written into M4.1's acceptance criteria. An assignment is strictly stronger than a `Blocks-if-unresolved:` line, and registering work that is already scheduled would dilute exactly the signal G1-G4 give. The rule still binds for anything whose trigger is a *condition* — which is why the `Finding.scan_id` tension this issue surfaced went to the register as **G5** rather than into a milestone bullet.
+
+### 3. Normalization runs on `PARTIAL`, and on the all-tools-failed case
+
+Normalization **must** run on `PARTIAL`. `get_succeeded_by_scan_id` already draws the line between rows worth normalizing and rows that are not. Skipping a partial scan would discard a succeeding scanner's output one layer up — the corruption `PRODUCT_SPEC.md` §12 forbids and ADR-016 decision 2 exists to prevent.
+
+**A `PARTIAL` scan cannot later become `COMPLETED`. This is structurally impossible, not merely avoided.** `Scan.status` is written in exactly three places, all inside `scanning`: `TriggerScanUseCase` writes `PENDING` at creation, and `RunScanUseCase` writes `RUNNING`, the derived status, and `FAILED`. No normalization code touches it, and `normalization` cannot reach `scanning`'s domain or its repository under the `cross-module-normalization` contract even if a future author tried. The record that a tool failed cannot be erased by a later stage.
+
+**The degenerate cases resolve on one invariant, chosen so there is no second code path: a `normalization_runs` row exists if and only if `ScanResult` rows were persisted for that scan.**
+
+- **Every enabled tool failed** (`Scan.status` is `FAILED` by ADR-016's table). `ScanResult` rows *do* exist, so the row is written, the stage runs, `get_succeeded_by_scan_id` returns nothing, and it produces zero findings. Uniform: one path, and nothing the sweep relies on has a hole in it.
+- **A failure before any tool ran** — no connected repo, no GitHub connection, an unsupported provider, a failed checkout, no scanners enabled, an unknown scanner. These raise before the persist point, so no `ScanResult` rows and no progress row. Nothing is lost, because there is nothing to normalize. `Scan.failure_reason` carries the reason, exactly as it did before M4.
+
+Skipping the all-failed case would have created a second code path and a hole in the invariant the sweep is built on: a scan with no progress row that the sweep can never distinguish from one whose row was lost.
+
+### 4. What `ARCHITECTURE.md` now says
+
+Reconciled in this same change, per `CLAUDE.md`'s rule that a document is fixed in the change that changed the reality:
+
+- **§8** redrawn to the pipeline that exists: trigger → enqueue → `RunScanUseCase` → persist `ScanResult` rows and the `pending` progress row in one transaction → commit → a separate normalization job. No synchronous scan-to-brief chain, and no `status=complete` after `SecurityBrief`.
+- **§4** — `Scan` gains `failure_reason` (M3.3, two milestones stale); `ScanResult` gains the field breakdown it never had (`status`, nullable `raw_output`, `failure_reason`); `ScannerConfig` (M3.7) is added to both §4.1 and the §4.2 ERD; `NormalizationRun` is added; `Finding.source` references `shared_kernel/scanner_tools.py`'s `ScannerTool` instead of re-establishing a literal `(semgrep|trivy|zap)` set, which is the duplication ADR-016 decision 4 centralised that enum to prevent.
+- **§4.2's ERD** had `SCAN ||--o{ FINDING : produces`, skipping `ScanResult` entirely and contradicting §8's own diagram. M4.1 reading §4.2 would have modelled a chain that does not exist. Corrected to route through `SCAN_RESULT`.
+- **§5** — the phantom `IngestScanResultUseCase` is removed from §5.1 and `RunScanUseCase` added; §5.2 gains `ScanResultRepositoryPort` and `ScannerConfigRepositoryPort` (both M3.7) and `NormalizationRunRepositoryPort`.
+- **§9** — the idempotency bullet is rewritten against what exists; the transactions bullet is amended for decision 1's cross-module unit of work.
+- **§12** — ADR-0017 added, along with ADR-015 and ADR-016, which were missing while `docs/adr/README.md` already listed both. §2.1's and §12's conflicting citations for the scanner-extensibility requirement (`PRODUCT_SPEC.md` "Section 9" and "Section 6", which disagree with each other and with ADR-002 itself) are both corrected to **§7**, Non-Functional Requirements → Extensibility.
+
+## Consequences
+
+M4.1 gets an unambiguous starting point: it implements the normalization use case behind an entry point that already has a durable record and a defined idempotency key, reads `get_succeeded_by_scan_id`, and transitions a row that `scanning` has already written. It also inherits three obligations named above rather than left implicit — the sweep must not read `Scan.status`, the enqueue and sweep query are its to add, and the timestamps' state machine is its to define.
+
+**A fourth, recorded so the migration is not assumed complete: `normalization_runs` is indexed only on `scan_id`, via the unique constraint.** That serves `get_by_scan_id` and nothing else. The sweep filters on `status` and `requested_at`, neither of which is indexed, and the table grows one row per scan indefinitely while `pending` rows become a shrinking fraction of it as M4.1 closes them — the textbook case for a partial index on `WHERE status = 'pending'`. It is deliberately **not** added here: an index without its query is a guess at that query's shape, and the query does not exist yet. M4.1 adds it in the migration that ships the sweep.
+
+Between M4.0 and M4.1 the system writes a `pending` progress row on every scan that nothing ever advances. That is intended, and it is the visible cost of shipping the durable half of the handoff before its consumer exists.
+
+The retry window described in decision 2 is narrowed but not closed, and it is narrower than it first looks: it belongs to the *non-database* failure path only. A database error between the progress-row write and the `Scan` status update rolls this attempt's `ScanResult` rows back along with the progress row, leaving nothing persisted for the retry to degrade — it costs repeated scanner work and no output. A non-database exception in that same position does commit those rows, and the retry then re-runs every enabled scanner and can turn a `SUCCEEDED` `ScanResult` into a `FAILED` one. That is pre-existing behaviour for any unanticipated exception rather than something this change introduces, and the idempotent insert removes the case that would otherwise have made it repeat deterministically — but "rarer" is what is being claimed here, not "eliminated".
+
+`RunScanUseCase`'s unit of work now spans `scanning`'s and `normalization`'s tables. §9 records this as permitted for a stage handoff specifically. It is a genuine widening of a rule that previously held without exception, and it is the reason the port takes primitives — the boundary that remains is the one import-linter can still enforce.
+
+M5 inherits a precedent, not a constraint. If it follows the same shape, correlation owns its own progress record and normalization writes correlation's `pending` row in the transaction that persists `Finding` rows — but M5's transaction boundaries are M5's decision, and this ADR has no standing to make it. Whether the shape stays right at M6 and M7 is genuinely open, since both are Risk-scoped rather than scan-scoped; that is the reason decision 1 rejected a generic stage table, not a reason to revisit it.
+
+`ARCHITECTURE.md` §8 becomes a description of the system instead of a design nobody built. That is the largest single correction in this issue and the one M4.1 depends on most directly.
+
+## Alternatives considered
+
+**Normalization inside the same `run_scan` arq job.** Rejected as **incompatible with ADR-016**, not merely expensive. ADR-016's Consequences records that a scanner failure no longer re-raises and arq no longer retries it, because a retry re-runs every enabled scanner and "could turn a succeeded result into a failed one, discarding output that was already good — the corruption §12 forbids". Putting normalization inside the job reopens exactly that, on two possible placements with three failure paths between them — `COMPLETED` and `PARTIAL` diverge within the same placement, because only `COMPLETED` short-circuits:
+
+- *After `_scans.update(scan)`, scan is `COMPLETED`.* A normalization exception still commits `COMPLETED`, propagates to arq, and the retry returns immediately at the guard. Normalization never runs again — silently, permanently, with no error state.
+- *After `_scans.update(scan)`, scan is `PARTIAL`.* ADR-016 decision 1 is explicit that only `COMPLETED` short-circuits. The retry proceeds, re-runs every enabled scanner, and upserts on `(scan_id, tool)` — a good `SUCCEEDED` row can be overwritten by a `FAILED` one.
+- *Before `_scans.update(scan)`.* The cost is not the ~64s of repeated container work it looks like; by the same upsert path, re-running does not merely repeat work, it can degrade results. Same corruption, arrived at through a JSON-parsing bug.
+
+Adjusting the retry guard to escape this is not an escape — it means introducing pipeline progress into `ScanStatus`, which decision 1 rejects on its own grounds. Note also that the snapshot-coherence argument that decided ADR-016 decision 1 **does not extend to this question at all**: normalization consumes persisted `ScanResult` rows, not the checkout, which `RunScanUseCase`'s `finally` deletes anyway. Citing it here would have biased the choice toward the same job for a reason that does not apply.
+
+**Normalizing lazily on read.** Rejected: M4.2's dedup ("re-running a scan doesn't duplicate identical findings") needs findings that persist across scans, and §8 has M5 reading `Finding` rows from the database, not from a request-scoped computation. It would also make normalization latency user-visible at `GET /projects/{id}/findings` (M4.3).
+
+**Growing `ScanStatus` with pipeline stages** (`NORMALIZED`, `CORRELATED`, …). Rejected: it contradicts ADR-016 decision 2 by making a derived, human-facing summary into a pipeline's input, and it multiplies two orthogonal axes together — per-tool outcome × pipeline progress — once for every stage M5, M6 and M7 add.
+
+**A generic `(scan_id, stage)` pipeline-progress table.** Rejected, and worth stating because it is the obvious-looking generalization: M5's correlation is scan-scoped, but M6's scoring and M7's brief are **Risk-scoped**, so a scan-keyed stage table serves exactly one of the three stages it claims to generalize over, and the other two would work around it.
+
+**`scanning` owning the progress record.** Rejected: no boundary question arises, but it puts a downstream stage's state machine inside the upstream module, and M5/M6/M7 would each add their stage to `scanning`'s table — decision 1's conflation objection arriving one table over. The chosen shape costs a cross-module unit of work, recorded in §9, and keeps the enforceable part of the boundary (no domain type crosses) intact.
+
+**A classic transactional outbox — a separate `outbox` table plus a relay process.** Rejected as machinery for a problem this design does not have. The progress row already *is* the outbox: it is written in the same transaction, it is the thing the sweep reads, and it is the thing normalization transitions. A second table would duplicate its lifecycle and need its own reconciliation.
+
+**`ON CONFLICT DO UPDATE` on the progress-row insert**, or catching `IntegrityError`. Both rejected — see decision 2. `DO UPDATE` would reset a `running`/`completed` row to `pending` and re-normalize an already-normalized scan; catching `IntegrityError` leaves the session in a failed-transaction state that fights `worker.py`'s commit-in-`finally` lifecycle, which is precisely why ADR-014 rejected it for `WebhookDeliveryRepository`.
+
+**Shipping the arq enqueue and a `normalize_scan` stub in M4.0.** Rejected: with no `Finding` entity the job would have nothing to do. Deferring the consumer (M4.1) leaves a coherent system with a piece missing, which this project has accepted before; deferring the *write* would have left code unable to execute, which ADR-016 decision 3 refused.
+
+**Skipping normalization when every tool failed.** Rejected: it creates a second code path and a hole in the invariant the sweep is built on — a scan with no progress row, indistinguishable from one whose row was lost.

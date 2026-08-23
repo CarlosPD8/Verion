@@ -4,6 +4,7 @@ import pytest
 
 from verion.modules.identity.domain.github_connection import GitHubConnection
 from verion.modules.identity.domain.user import User
+from verion.modules.normalization.domain.normalization_run import NormalizationRun
 from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
 from verion.modules.projects.domain.scanner_config import ScannerConfig
@@ -280,6 +281,30 @@ class InMemoryScanResultRepository:
         ]
 
 
+class InMemoryNormalizationRunRepository:
+    def __init__(self) -> None:
+        # Keyed by scan_id — mirrors the Postgres adapter's UNIQUE(scan_id), so
+        # "a retry re-requesting an existing run is a no-op" is provable in unit
+        # tests too, not only against real Postgres.
+        self._runs: dict[str, NormalizationRun] = {}
+        # Records every call, including the no-op ones, so a test can assert the
+        # request was *made* on a retry and still did not overwrite the row.
+        self.request_calls: list[str] = []
+
+    async def request(self, *, id: str, scan_id: str, requested_at: datetime) -> None:
+        self.request_calls.append(scan_id)
+        # DO NOTHING, never DO UPDATE: overwriting would reset a running or
+        # completed row back to pending (ADR-0017 decision 2).
+        if scan_id in self._runs:
+            return
+        self._runs[scan_id] = NormalizationRun.requested(
+            id=id, scan_id=scan_id, requested_at=requested_at
+        )
+
+    async def get_by_scan_id(self, scan_id: str) -> NormalizationRun | None:
+        return self._runs.get(scan_id)
+
+
 class InMemoryScannerConfigRepository:
     def __init__(self) -> None:
         self._configs: dict[str, ScannerConfig] = {}
@@ -356,6 +381,11 @@ def scan_result_repository() -> InMemoryScanResultRepository:
 @pytest.fixture
 def scanner_config_repository() -> InMemoryScannerConfigRepository:
     return InMemoryScannerConfigRepository()
+
+
+@pytest.fixture
+def normalization_run_repository() -> InMemoryNormalizationRunRepository:
+    return InMemoryNormalizationRunRepository()
 
 
 @pytest.fixture

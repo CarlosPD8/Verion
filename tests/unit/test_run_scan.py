@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from verion.modules.identity.domain.github_connection import GitHubConnection
+from verion.modules.normalization.domain.normalization_run import NormalizationRunStatus
 from verion.modules.projects.domain.project import ConnectedRepo
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.scanning.application.run_scan import RunScanUseCase
@@ -36,6 +37,7 @@ def _use_case(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_runs,
     id_generator,
     clock,
 ) -> RunScanUseCase:
@@ -47,6 +49,7 @@ def _use_case(
         connected_repos=connected_repo_repository,
         github_connections=github_connection_repository,
         scanner_configs=scanner_config_repository,
+        normalization_runs=normalization_runs,
         id_generator=id_generator,
         clock=clock,
     )
@@ -123,6 +126,7 @@ async def test_successful_scan_completes_and_persists_a_scan_result(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -142,6 +146,7 @@ async def test_successful_scan_completes_and_persists_a_scan_result(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -169,6 +174,7 @@ async def test_every_enabled_scanner_runs_against_the_same_single_checkout(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -196,6 +202,7 @@ async def test_every_enabled_scanner_runs_against_the_same_single_checkout(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -220,6 +227,7 @@ async def test_a_failing_scanner_does_not_discard_a_succeeding_scanners_output(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -246,6 +254,7 @@ async def test_a_failing_scanner_does_not_discard_a_succeeding_scanners_output(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -276,6 +285,7 @@ async def test_after_a_partial_failure_m4_can_tell_trustworthy_results_from_fail
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -304,6 +314,7 @@ async def test_after_a_partial_failure_m4_can_tell_trustworthy_results_from_fail
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -333,6 +344,7 @@ async def test_all_scanners_failing_marks_the_scan_failed_without_raising(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -355,6 +367,7 @@ async def test_all_scanners_failing_marks_the_scan_failed_without_raising(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -378,6 +391,7 @@ async def test_an_unanticipated_scanner_exception_is_isolated_like_a_declared_on
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -406,6 +420,7 @@ async def test_an_unanticipated_scanner_exception_is_isolated_like_a_declared_on
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -431,6 +446,7 @@ async def test_a_url_kind_scanner_receives_the_configured_target_not_the_checkou
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -454,6 +470,7 @@ async def test_a_url_kind_scanner_receives_the_configured_target_not_the_checkou
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -474,6 +491,7 @@ async def test_no_checkout_happens_when_no_enabled_scanner_needs_a_repo(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -496,6 +514,7 @@ async def test_no_checkout_happens_when_no_enabled_scanner_needs_a_repo(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -515,6 +534,7 @@ async def test_a_url_scanner_without_a_target_fails_only_that_tool(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -539,6 +559,7 @@ async def test_a_url_scanner_without_a_target_fails_only_that_tool(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -563,6 +584,7 @@ async def test_an_unconfigured_project_runs_the_default_scanners(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -583,6 +605,7 @@ async def test_an_unconfigured_project_runs_the_default_scanners(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -604,6 +627,7 @@ async def test_explicitly_enabling_nothing_fails_the_scan_and_is_not_the_default
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -627,6 +651,7 @@ async def test_explicitly_enabling_nothing_fails_the_scan_and_is_not_the_default
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -648,6 +673,7 @@ async def test_a_configured_tool_with_no_registered_adapter_fails_the_whole_scan
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -671,6 +697,7 @@ async def test_a_configured_tool_with_no_registered_adapter_fails_the_whole_scan
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -692,6 +719,7 @@ async def test_checkout_failure_marks_the_scan_failed(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -712,6 +740,7 @@ async def test_checkout_failure_marks_the_scan_failed(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -735,6 +764,7 @@ async def test_missing_connected_repo_marks_the_scan_failed(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -750,6 +780,7 @@ async def test_missing_connected_repo_marks_the_scan_failed(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -770,6 +801,7 @@ async def test_missing_github_connection_marks_the_scan_failed(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -786,6 +818,7 @@ async def test_missing_github_connection_marks_the_scan_failed(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -806,6 +839,7 @@ async def test_unsupported_provider_marks_the_scan_failed(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -822,6 +856,7 @@ async def test_unsupported_provider_marks_the_scan_failed(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -843,6 +878,7 @@ async def test_redelivered_after_completed_is_a_no_op(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -862,6 +898,7 @@ async def test_redelivered_after_completed_is_a_no_op(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -883,6 +920,7 @@ async def test_retry_after_a_partial_scan_reruns_every_enabled_scanner(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -926,6 +964,7 @@ async def test_retry_after_a_partial_scan_reruns_every_enabled_scanner(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -947,6 +986,7 @@ async def test_retry_after_crash_between_upsert_and_completed_redoes_real_work(
     connected_repo_repository,
     github_connection_repository,
     scanner_config_repository,
+    normalization_run_repository,
     id_generator,
     clock,
 ):
@@ -986,6 +1026,7 @@ async def test_retry_after_crash_between_upsert_and_completed_redoes_real_work(
         connected_repo_repository,
         github_connection_repository,
         scanner_config_repository,
+        normalization_run_repository,
         id_generator,
         clock,
     )
@@ -1005,3 +1046,347 @@ async def test_retry_after_crash_between_upsert_and_completed_redoes_real_work(
     # Upsert, not insert: still exactly one row for (scan_id, "semgrep").
     results = await scan_result_repository.get_by_scan_id(_SCAN_ID)
     assert len(results) == 1
+
+
+# ADR-0017 — the scan → normalize handoff. The invariant these pin down is
+# "a NormalizationRun exists iff ScanResult rows were persisted", chosen so
+# there is exactly one code path and no hole in what a future sweep relies on.
+
+
+async def test_a_completed_scan_records_that_normalization_is_owed(
+    scan_repository,
+    scan_result_repository,
+    scanners,
+    repo_checkout,
+    connected_repo_repository,
+    github_connection_repository,
+    scanner_config_repository,
+    normalization_run_repository,
+    id_generator,
+    clock,
+):
+    scan = _pending_scan()
+    await _seed(
+        scan_repository,
+        connected_repo_repository,
+        github_connection_repository,
+        scan,
+        scanner_config_repository,
+    )
+    use_case = _use_case(
+        scan_repository,
+        scan_result_repository,
+        scanners,
+        repo_checkout,
+        connected_repo_repository,
+        github_connection_repository,
+        scanner_config_repository,
+        normalization_run_repository,
+        id_generator,
+        clock,
+    )
+
+    await use_case.execute(_SCAN_ID)
+
+    run = await normalization_run_repository.get_by_scan_id(_SCAN_ID)
+    assert run is not None
+    assert run.status is NormalizationRunStatus.PENDING
+    assert run.requested_at == clock.now()
+    # Scan.status stays scanner-scoped: COMPLETED means every enabled scanner
+    # finished, not that the pipeline did. Nothing downstream reads it.
+    updated = await scan_repository.get_by_id(_SCAN_ID)
+    assert updated.status is ScanStatus.COMPLETED
+
+
+async def test_a_partial_scan_records_that_normalization_is_owed(
+    scan_repository,
+    scan_result_repository,
+    scanner_factory,
+    repo_checkout,
+    connected_repo_repository,
+    github_connection_repository,
+    scanner_config_repository,
+    normalization_run_repository,
+    id_generator,
+    clock,
+):
+    """Skipping a PARTIAL scan would discard a succeeding scanner's output one
+    layer up — the corruption PRODUCT_SPEC.md §12 forbids, arriving one layer
+    above where ADR-016 decision 2 prevented it."""
+    semgrep = scanner_factory(tool=ScannerTool.SEMGREP)
+    trivy = scanner_factory(tool=ScannerTool.TRIVY, fail=True)
+    scan = _pending_scan()
+    await _seed(
+        scan_repository,
+        connected_repo_repository,
+        github_connection_repository,
+        scan,
+        scanner_config_repository,
+        _config(enabled_tools=(ScannerTool.SEMGREP, ScannerTool.TRIVY)),
+    )
+    use_case = _use_case(
+        scan_repository,
+        scan_result_repository,
+        {ScannerTool.SEMGREP: semgrep, ScannerTool.TRIVY: trivy},
+        repo_checkout,
+        connected_repo_repository,
+        github_connection_repository,
+        scanner_config_repository,
+        normalization_run_repository,
+        id_generator,
+        clock,
+    )
+
+    await use_case.execute(_SCAN_ID)
+
+    updated = await scan_repository.get_by_id(_SCAN_ID)
+    assert updated.status is ScanStatus.PARTIAL
+    run = await normalization_run_repository.get_by_scan_id(_SCAN_ID)
+    assert run is not None
+    assert run.status is NormalizationRunStatus.PENDING
+
+
+async def test_a_scan_where_every_tool_failed_still_records_normalization_as_owed(
+    scan_repository,
+    scan_result_repository,
+    scanner_factory,
+    repo_checkout,
+    connected_repo_repository,
+    github_connection_repository,
+    scanner_config_repository,
+    normalization_run_repository,
+    id_generator,
+    clock,
+):
+    """The degenerate case, resolved to keep the invariant uniform.
+
+    Normalizing an all-failed scan produces zero findings, which is harmless.
+    Skipping it would create a second code path and a scan with no progress row
+    — indistinguishable, to a sweep, from one whose row was lost.
+    """
+    semgrep = scanner_factory(tool=ScannerTool.SEMGREP, fail=True)
+    trivy = scanner_factory(tool=ScannerTool.TRIVY, fail=True)
+    scan = _pending_scan()
+    await _seed(
+        scan_repository,
+        connected_repo_repository,
+        github_connection_repository,
+        scan,
+        scanner_config_repository,
+        _config(enabled_tools=(ScannerTool.SEMGREP, ScannerTool.TRIVY)),
+    )
+    use_case = _use_case(
+        scan_repository,
+        scan_result_repository,
+        {ScannerTool.SEMGREP: semgrep, ScannerTool.TRIVY: trivy},
+        repo_checkout,
+        connected_repo_repository,
+        github_connection_repository,
+        scanner_config_repository,
+        normalization_run_repository,
+        id_generator,
+        clock,
+    )
+
+    await use_case.execute(_SCAN_ID)
+
+    updated = await scan_repository.get_by_id(_SCAN_ID)
+    assert updated.status is ScanStatus.FAILED
+    # ScanResult rows exist, so the row exists — the "iff" holds in this
+    # direction even though there will be nothing to normalize.
+    assert len(await scan_result_repository.get_by_scan_id(_SCAN_ID)) == 2
+    assert await normalization_run_repository.get_by_scan_id(_SCAN_ID) is not None
+
+
+async def test_a_failure_before_any_tool_runs_records_no_normalization_run(
+    scan_repository,
+    scan_result_repository,
+    scanners,
+    repo_checkout_factory,
+    connected_repo_repository,
+    github_connection_repository,
+    scanner_config_repository,
+    normalization_run_repository,
+    id_generator,
+    clock,
+):
+    """The other direction of the same "iff": no ScanResult rows were
+    persisted, so nothing is owed and no row is written. The Scan-level
+    failure_reason carries this one, exactly as it did before M4."""
+    scan = _pending_scan()
+    await _seed(
+        scan_repository,
+        connected_repo_repository,
+        github_connection_repository,
+        scan,
+        scanner_config_repository,
+    )
+    use_case = _use_case(
+        scan_repository,
+        scan_result_repository,
+        scanners,
+        repo_checkout_factory(fail=True),
+        connected_repo_repository,
+        github_connection_repository,
+        scanner_config_repository,
+        normalization_run_repository,
+        id_generator,
+        clock,
+    )
+
+    with pytest.raises(RepoCheckoutFailed):
+        await use_case.execute(_SCAN_ID)
+
+    assert await scan_result_repository.get_by_scan_id(_SCAN_ID) == []
+    assert await normalization_run_repository.get_by_scan_id(_SCAN_ID) is None
+    assert normalization_run_repository.request_calls == []
+
+
+async def test_a_retry_re_requests_normalization_without_overwriting_the_row(
+    scan_repository,
+    scan_result_repository,
+    scanner,
+    scanners,
+    repo_checkout,
+    connected_repo_repository,
+    github_connection_repository,
+    scanner_config_repository,
+    normalization_run_repository,
+    id_generator,
+    clock,
+):
+    """The idempotent insert, from the caller's side.
+
+    A retry of a PARTIAL scan re-requests a run that already exists. That must
+    be a no-op — not an IntegrityError, and not an overwrite: DO UPDATE would
+    reset a running or completed row back to pending and re-normalize a scan
+    that was already normalized (ADR-0017 decision 2).
+    """
+    scan = Scan(
+        id=_SCAN_ID,
+        project_id=_PROJECT_ID,
+        status=ScanStatus.PARTIAL,
+        triggered_by=_OWNER_ID,
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
+        finished_at=None,
+        failure_reason=None,
+    )
+    await _seed(
+        scan_repository,
+        connected_repo_repository,
+        github_connection_repository,
+        scan,
+        scanner_config_repository,
+    )
+    # The row the first attempt already wrote, which the retry must leave alone.
+    await normalization_run_repository.request(
+        id="pre-existing-run", scan_id=_SCAN_ID, requested_at=datetime(2026, 1, 1, tzinfo=UTC)
+    )
+    use_case = _use_case(
+        scan_repository,
+        scan_result_repository,
+        scanners,
+        repo_checkout,
+        connected_repo_repository,
+        github_connection_repository,
+        scanner_config_repository,
+        normalization_run_repository,
+        id_generator,
+        clock,
+    )
+
+    await use_case.execute(_SCAN_ID)
+
+    assert len(scanner.run_calls) == 1
+    # The request *was* made again: the conflict is resolved at the write, not
+    # by the caller reading first, which would be racy across two workers.
+    assert normalization_run_repository.request_calls == [_SCAN_ID, _SCAN_ID]
+    run = await normalization_run_repository.get_by_scan_id(_SCAN_ID)
+    assert run.id == "pre-existing-run"
+    assert run.status is NormalizationRunStatus.PENDING
+
+
+class _ScanRepositoryFailingOnTheTerminalUpdate:
+    """Delegates to the in-memory repository but fails the *second* update —
+    the terminal one that writes the derived status.
+
+    That is precisely the window ADR-0017 decision 2's ordering constraint
+    exists for, and the only way to observe the ordering from outside.
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self.update_calls = 0
+
+    async def add(self, scan):
+        await self._inner.add(scan)
+
+    async def get_by_id(self, scan_id):
+        return await self._inner.get_by_id(scan_id)
+
+    async def update(self, scan):
+        self.update_calls += 1
+        if self.update_calls >= 2:
+            raise RuntimeError("simulated database failure")
+        await self._inner.update(scan)
+
+
+async def test_the_handoff_row_is_written_before_the_scan_status_update(
+    scan_repository,
+    scan_result_repository,
+    scanners,
+    repo_checkout,
+    connected_repo_repository,
+    github_connection_repository,
+    scanner_config_repository,
+    normalization_run_repository,
+    id_generator,
+    clock,
+):
+    """The ordering constraint, asserted rather than left to a comment.
+
+    Reversed, a failure writing the handoff row would still commit COMPLETED
+    (worker.py commits in `finally`) and the retry would return immediately at
+    the `== COMPLETED` guard — normalization lost silently and permanently.
+    Pinned with a test because swapping these two lines looks harmless and is
+    not; the mutation was run, and reordering fails this test and only this one.
+
+    Scope, so the assertion is not read as more than it is: this covers the
+    *non-database* failure, where the session stays usable and the RUNNING flush
+    commits. A real database error would abort the transaction instead, so the
+    worker's commit would raise and the scan would roll back to PENDING — which
+    is why the property ADR-0017 decision 2 states is "never left COMPLETED"
+    rather than "left RUNNING". Both land on a status that does not
+    short-circuit; only this one is reachable with in-memory fakes.
+    """
+    scan = _pending_scan()
+    await _seed(
+        scan_repository,
+        connected_repo_repository,
+        github_connection_repository,
+        scan,
+        scanner_config_repository,
+    )
+    failing_scans = _ScanRepositoryFailingOnTheTerminalUpdate(scan_repository)
+    use_case = _use_case(
+        failing_scans,
+        scan_result_repository,
+        scanners,
+        repo_checkout,
+        connected_repo_repository,
+        github_connection_repository,
+        scanner_config_repository,
+        normalization_run_repository,
+        id_generator,
+        clock,
+    )
+
+    # Not one of the six pre-tool exceptions, so it is neither caught nor
+    # converted — it propagates with the scan still RUNNING. That third exit
+    # path is what makes this ordering the safe one.
+    with pytest.raises(RuntimeError, match="simulated database failure"):
+        await use_case.execute(_SCAN_ID)
+
+    assert await normalization_run_repository.get_by_scan_id(_SCAN_ID) is not None
+    updated = await scan_repository.get_by_id(_SCAN_ID)
+    assert updated.status is ScanStatus.RUNNING

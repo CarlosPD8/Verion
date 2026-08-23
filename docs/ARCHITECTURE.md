@@ -22,7 +22,7 @@ Verion uses **Hexagonal Architecture (Ports & Adapters)** at the module level, d
 
 This isn't architecture for architecture's sake — it maps directly onto Verion's core requirement from the product spec: **every scanner is a replaceable, normalized input; every recommendation must be explainable and traceable.**
 
-- Section 9 of `PRODUCT_SPEC.md` requires that adding a new scanner "should only require a new adapter, not changes to correlation/risk logic." That is, by definition, a **Port** (the contract: `ScannerPort`) with multiple **Adapters** (`SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter`, future ones).
+- Section 7 of `PRODUCT_SPEC.md` (Non-Functional Requirements → Extensibility) requires that adding a new scanner "should only require a new adapter, not changes to correlation/risk logic." That is, by definition, a **Port** (the contract: `ScannerPort`) with multiple **Adapters** (`SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter`, future ones).
 - The Risk/Decision Engine must stay explainable and testable in isolation, with no dependency on FastAPI, PostgreSQL, or any specific scanner's output format. Hexagonal architecture enforces that isolation structurally, not just by convention.
 - The AI Explanation Layer (used to generate the Security Brief) is itself swappable — it sits behind a port (`ExplanationProviderPort`) so the LLM provider is an implementation detail, not baked into domain logic.
 
@@ -125,12 +125,37 @@ SecurityContext
  ├── deployment_target, ci_provider
  ├── exposure_tags: [public_facing, handles_pii, ...]  (user-confirmed)
 
+ScannerConfig   # M3.7 — projects; operational config, deliberately not on SecurityContext
+ ├── id, project_id   # UNIQUE — one row per project
+ ├── enabled_tools: [ScannerTool]   # absent row = never configured (default); [] = run nothing
+ ├── zap_target_url   # nullable; tool-specific, accepted as debt (ADR-016 decision 3, G2)
+ └── updated_at
+
 Scan
  ├── id, project_id, triggered_by, status, started_at, finished_at
+ ├── failure_reason   # M3.3; a failure BEFORE any tool ran — never a per-tool failure
  └── raw_results: [ScanResult]   # one per tool that ran
+ # status is a DERIVED, human-facing summary of the per-tool outcomes below
+ # (completed|partial|failed). No pipeline stage is ever added to it, and no
+ # pipeline reads it — M4 reads ScanResultRepositoryPort.get_succeeded_by_scan_id.
+ # See ADR-016 decision 2 and ADR-0017 decision 1.
+
+ScanResult   # M3.7 — one row per tool that was attempted, including one that failed
+ ├── id, scan_id, tool   # UNIQUE(scan_id, tool) — the upsert key that keeps retries idempotent
+ ├── status (succeeded|failed)
+ ├── raw_output      # nullable; non-null iff succeeded, enforced by a CHECK constraint
+ └── failure_reason  # nullable; non-null iff failed
+
+NormalizationRun   # M4.0 — normalization; pipeline progress, one row per Scan
+ ├── id, scan_id   # UNIQUE — the idempotency key; the row IS the scan→normalize outbox
+ ├── status (pending|running|completed|failed)
+ ├── requested_at, started_at, finished_at
+ └── failure_reason   # nullable; non-null iff failed. Never Scan.failure_reason.
+ # Written by RunScanUseCase in the same transaction as the ScanResult rows.
+ # Exists iff ScanResult rows were persisted. See ADR-0017.
 
 Finding
- ├── id, scan_id, source (semgrep|trivy|zap), vulnerability_type
+ ├── id, scan_id, source: ScannerTool   # shared_kernel/scanner_tools.py — not a literal set
  ├── severity, confidence, cwe, owasp_category, cvss
  ├── location (file/line or endpoint), evidence: Evidence
  └── dedup_hash
@@ -167,8 +192,11 @@ erDiagram
     PROJECT ||--o{ CONNECTED_REPO : has
     PROJECT ||--o{ PROJECT_MEMBERSHIP : has
     PROJECT ||--|| SECURITY_CONTEXT : has
+    PROJECT ||--|| SCANNER_CONFIG : configures
     PROJECT ||--o{ SCAN : triggers
-    SCAN ||--o{ FINDING : produces
+    SCAN ||--o{ SCAN_RESULT : produces
+    SCAN ||--o| NORMALIZATION_RUN : normalized_by
+    SCAN_RESULT ||--o{ FINDING : normalized_into
     FINDING ||--|| EVIDENCE : backed_by
     FINDING }o--o{ RISK : correlated_into
     RISK ||--|| SECURITY_BRIEF : explained_by
@@ -186,8 +214,8 @@ erDiagram
 | `RegisterUserUseCase` / `AuthenticateUserUseCase` | Identity module |
 | `ConnectRepositoryUseCase` | Attach a GitHub repo to a project |
 | `BuildSecurityContextUseCase` | Extract/refresh Security Context for a project |
-| `TriggerScanUseCase` | Start a scan (manual or CI-triggered) |
-| `IngestScanResultUseCase` | Accept raw output from a scanner adapter |
+| `TriggerScanUseCase` | Create a `Scan` and enqueue it — it does **not** orchestrate the pipeline |
+| `RunScanUseCase` | The worker's entry point: run every enabled scanner, persist `ScanResult` rows, hand off to normalization |
 | `CorrelateFindingsUseCase` | Run correlation over a scan's findings |
 | `ComputeRiskUseCase` | Score and prioritize correlated Risks |
 | `GenerateSecurityBriefUseCase` | Produce the developer-facing explanation |
@@ -206,6 +234,10 @@ erDiagram
 | `ProjectMembershipRepositoryPort` | Persist/query project RBAC memberships | Postgres adapter |
 | `ConnectedRepoRepositoryPort` | Persist/query connected repositories | Postgres adapter |
 | `SecurityContextRepositoryPort` | Persist/query a project's Security Context | Postgres adapter (M2.3) |
+| `ScannerConfigRepositoryPort` | Persist/query which scanners a project runs; read by `scanning` (M3.7) | Postgres adapter |
+| `ScanRepositoryPort` | Persist/query scans | Postgres adapter |
+| `ScanResultRepositoryPort` | Persist per-tool raw output; `get_succeeded_by_scan_id` is **M4's entry point** (M3.7) | Postgres adapter |
+| `NormalizationRunRepositoryPort` | Record that normalization is owed for a scan, and read it back (M4.0). Its write method takes primitives so `scanning` can call it without importing `normalization`'s domain | Postgres adapter |
 | `FindingRepositoryPort` | Persist/query findings, dedup lookups | Postgres adapter |
 | `RiskRepositoryPort` | Persist/query risks, history | Postgres adapter |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
@@ -292,50 +324,69 @@ Each module's `domain/` folder has **zero imports** from `adapters/` or any thir
 
 ## 8. Sequence: Scan → Security Brief Pipeline
 
+**The pipeline is a chain of enqueued stages, not one synchronous call.** Each stage persists its output and records that the next stage is owed, in one transaction; the queue only makes the handoff prompt. The API returns as soon as the `Scan` is enqueued — nothing downstream is awaited on the request path.
+
 ```mermaid
 sequenceDiagram
     participant CI as GitHub Actions / User
     participant API as Inbound API Adapter
-    participant Scan as TriggerScanUseCase
+    participant Trig as TriggerScanUseCase
+    participant Q as JobQueuePort (Redis/arq)
+    participant Run as RunScanUseCase (worker)
     participant Sc as ScannerPort (Semgrep/Trivy/ZAP)
-    participant Norm as Normalization
-    participant Corr as CorrelationUseCase
+    participant Norm as Normalization (worker)
+    participant Corr as CorrelateFindingsUseCase
     participant Risk as ComputeRiskUseCase
-    participant Brief as GenerateBriefUseCase
+    participant Brief as GenerateSecurityBriefUseCase
     participant Exp as ExplanationProviderPort (LLM)
     participant DB as Repositories (Postgres)
 
-    CI->>API: trigger scan
-    API->>Scan: TriggerScanUseCase.execute(project_id)
-    Scan->>DB: create Scan record (status=running)
-    Scan->>Sc: run(project, context)
-    Sc-->>Scan: raw results (per tool)
-    Scan->>Norm: normalize(raw results)
+    CI->>API: trigger scan (push webhook)
+    API->>Trig: TriggerScanUseCase.execute(project_id)
+    Trig->>DB: create Scan (status=pending)
+    Trig->>Q: enqueue run_scan(scan_id)
+    API-->>CI: 202 Accepted — enqueued, nothing computed yet
+
+    Q->>Run: run_scan(scan_id)
+    Run->>DB: update Scan (status=running)
+    Run->>Sc: run(target) — every enabled tool, concurrently, one checkout
+    Sc-->>Run: raw output, per tool (a failing tool returns an outcome, not an error)
+    Note over Run,DB: one transaction, in this order
+    Run->>DB: upsert ScanResult rows (scan_id, tool)
+    Run->>DB: NormalizationRun (status=pending) — the handoff, written BEFORE the line below
+    Run->>DB: update Scan (status=completed|partial|failed — scanners only)
+    Run->>Q: enqueue normalize_scan(scan_id) — a latency optimization; the row is the record
+
+    Q->>Norm: normalize_scan(scan_id)
+    Norm->>DB: read get_succeeded_by_scan_id(scan_id) — never Scan.status
     Norm->>DB: persist Findings + Evidence (deduplicated)
-    Scan->>Corr: correlate(scan_id)
+    Norm->>DB: NormalizationRun (status=completed)
+
     Corr->>DB: read Findings
     Corr->>DB: persist candidate Risks (grouped Findings)
-    Scan->>Risk: computeRisk(risk_ids)
     Risk->>DB: read Risk + Security Context
     Risk->>Risk: score (severity, exposure, reachability, ...)
     Risk->>DB: persist priority + reasoning
-    Scan->>Brief: generateBrief(risk_ids)
     Brief->>Exp: explain(structured RiskReasoning)
     Exp-->>Brief: narrative text
     Brief->>DB: persist SecurityBrief
-    Scan->>DB: update Scan (status=complete)
-    API-->>CI: scan complete, briefs available
 ```
 
-Key property: **priority and reasoning are fully computed before the LLM is ever called.** The Explanation Layer narrates a decision that has already been made deterministically — it cannot silently override the Risk Engine's output. This is the structural guarantee behind the "explainable, not black-box" principle from the product spec.
+Three properties this diagram is drawn to make visible, each load-bearing:
+
+- **`Scan.status` is scanner-scoped and terminal at `RunScanUseCase`.** `completed` means every enabled scanner finished, *not* that the pipeline finished. It is a derived, human-facing summary; no stage downstream reads it (ADR-016 decision 2, ADR-0017 decision 1).
+- **The `NormalizationRun` row is written before the `Scan` status update, in the same transaction as the `ScanResult` rows.** That ordering is a constraint, not a detail: reversed, a failure writing it would still commit `completed`, and the retry would short-circuit at `RunScanUseCase`'s `== COMPLETED` guard, losing normalization silently and permanently (ADR-0017 decision 2).
+- **Priority and reasoning are fully computed before the LLM is ever called.** The Explanation Layer narrates a decision already made deterministically — it cannot silently override the Risk Engine. This is the structural guarantee behind the "explainable, not black-box" principle from the product spec.
+
+Stages after normalization are drawn as designed, not as built: `correlation`, `risk_engine` and `brief` are M5-M7, and how each is triggered is that milestone's decision. M5 inherits the handoff pattern above as a precedent, not as a constraint (ADR-0017).
 
 ---
 
 ## 9. Cross-Cutting Concerns
 
-- **Transactions:** each use case owns a single unit of work; repository adapters expose a `UnitOfWork` pattern so a use case's writes (e.g., persisting a Risk and its RiskEvent) commit atomically.
+- **Transactions:** each use case owns a single unit of work; repository adapters expose a `UnitOfWork` pattern so a use case's writes (e.g., persisting a Risk and its RiskEvent) commit atomically. **One deliberate exception, for pipeline-stage handoffs only:** a use case's unit of work may span two modules' tables when the second write *is* the handoff to the next stage — `RunScanUseCase` writes `scanning`'s `ScanResult` rows and `normalization`'s `NormalizationRun` row in one transaction, which is what removes the Postgres-commit-plus-Redis-enqueue dual write (ADR-0017 decision 1). The boundary that remains enforceable is kept: the port's write method takes primitives, so no other module's domain type crosses. This licenses stage handoffs, not cross-module writes generally.
 - **Error handling:** domain-level errors are typed exceptions (e.g., `InvalidSecurityContext`, `ScannerUnavailable`) defined in the domain/application layers; inbound adapters translate them to HTTP status codes — the domain never returns HTTP concepts.
-- **Idempotency:** `IngestScanResultUseCase` and `CorrelateFindingsUseCase` are safe to re-run against the same scan (dedup hashes on Findings, upsert semantics on Risks) so a worker crash-and-retry cannot corrupt state.
+- **Idempotency:** every stage is safe to re-run against the same scan, because each one's write is keyed rather than appended. `RunScanUseCase` upserts `ScanResult` on `(scan_id, tool)` and requests normalization with `ON CONFLICT DO NOTHING` on `scan_id`; the webhook receiver dedups on `X-GitHub-Delivery`; normalization and correlation add dedup hashes on Findings and upsert semantics on Risks. So a worker crash-and-retry cannot corrupt state. Note the one thing a retry does *not* preserve: re-running a scan re-runs **every** enabled scanner, which can turn a succeeded `ScanResult` into a failed one — the reason a scanner failure no longer re-raises (ADR-016).
 - **SSRF protection:** the `ZapAdapter` validates and allow-lists target URLs before invoking a scan (see `PRODUCT_SPEC.md` §11) — enforced at the adapter boundary, not left to the tool itself. Validation covers both the target URL's syntax (scheme, literal-IP/localhost hostnames) and the DNS-rebinding case: the hostname's *resolved* IP is checked immediately before use, not just the hostname string (see ADR-0013).
 - **Testing strategy per layer:**
   - Domain + Application: unit tests with in-memory fakes for every port — no DB, no network, fast.
@@ -386,7 +437,7 @@ Single deployable unit for MVP; `platform/` wires everything together via depend
 Full ADRs live in `docs/adr/`. Key decisions so far:
 
 - **ADR-001 — Modular monolith over microservices.** Team size (one person) and MVP timeline (12-16 weeks) don't justify distributed-systems overhead. Module boundaries are enforced in-process so extraction later is possible.
-- **ADR-002 — Hexagonal architecture at the module level.** Directly serves two hard product requirements: scanner extensibility (Section 6 of Product Spec) and explainable, testable risk scoring isolated from any framework or LLM dependency.
+- **ADR-002 — Hexagonal architecture at the module level.** Directly serves two hard product requirements: scanner extensibility (Section 7 of Product Spec, Non-Functional Requirements → Extensibility) and explainable, testable risk scoring isolated from any framework or LLM dependency.
 - **ADR-003 — Explainable scoring, not trained ML, for the Risk Engine in MVP.** Priority must be traceable to explicit signals; a black-box model would undermine the product's core pitch.
 - **ADR-004 — LLM sits strictly downstream of scoring.** The Explanation Layer narrates already-computed decisions; it never determines priority itself, closing off a class of prompt-injection-via-scan-output risk as well as keeping output auditable.
 - **ADR-006 — `src/verion/` layout.** Avoids `platform/` shadowing Python's stdlib `platform` module (see §7).
@@ -398,6 +449,9 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
 - **ADR-012 — Trivy vulnerability DB defaults to a live refresh in production.** Unlike ADR-002's static-ruleset precedent for Semgrep, a vulnerability scanner's value is CVE currency — a frozen DB would silently defeat its purpose. `TrivyAdapter` (M3.4) refreshes live by default; tests pin `skip_db_update=True` against a CI-warmed cache instead.
 - **ADR-013 — ZapAdapter target-URL SSRF validation.** A pure syntax check plus a DNS-rebinding check against the actually-resolved IP (via an injectable `DnsResolverPort`), both run before any subprocess/Docker call. Hand-rolled against stdlib only — no maintained third-party SSRF-validation library was found per ADR-009.
 - **ADR-014 — GitHub webhook signature verification and delivery handling.** M3.6's inbound webhook receiver — the first unauthenticated-by-default HTTP endpoint in the codebase. HMAC-SHA256 signature verification (`hmac.compare_digest`) runs before any payload content is trusted; a separate `X-GitHub-Delivery`-keyed dedup runs before any project-resolution query, protecting against GitHub's own redelivery behavior; webhook registration composes onto `projects`' existing `VcsProviderPort`/`ConnectRepositoryViaGitHubUseCase` flow, list-then-create for idempotency.
+- **ADR-015 — `mypy --strict` as the CI type-checking gate, scoped to `src/`.** Makes §10's "adapters type-checked against them" true rather than aspirational. `--strict` cost only five errors more than default mode because `src/` was already annotated to that standard. Conformance is verified only where an adapter meets a port-annotated site — a `di.py` factory's return type or an explicit annotation at construction — which is why `platform/worker.py` annotates its adapters: arq's `ctx` is `dict[str, Any]` and anything stored in it is invisible to the checker.
+- **ADR-016 — Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration.** M3.7's four decisions. One arq job per `Scan` with scanners concurrent against a single checkout, decided on snapshot coherence rather than job bookkeeping — fan-out would let different tools see different commits and make M5's cross-tool correlation unsound. Per-tool outcome lives on `ScanResult` (a failed tool still gets a row), `Scan.status` is derived and gains `PARTIAL`, and **M4 reads `get_succeeded_by_scan_id`, never `Scan.status`**. Scanner configuration is a `ScannerConfig` entity in `projects`, read by `scanning` through a port. `ScannerPort` gains `tool` and `target_kind` so dispatch routes on data rather than on a `tool == "zap"` branch.
+- **ADR-0017 — Normalization trigger, and where pipeline progress lives.** M4.0. `ScanStatus` stays scanner-scoped and gains no pipeline stages; progress lives in a `NormalizationRun` record owned by `normalization` and written by `RunScanUseCase` through a primitives-only port, in the same transaction as the `ScanResult` rows — so the row *is* the outbox and the Redis enqueue degrades to a latency optimization. Normalization runs on `PARTIAL` and on an all-tools-failed scan, on the invariant that a row exists iff `ScanResult` rows were persisted. Redraws §8, which described a synchronous pipeline that was never built.
 
 `0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created.
 

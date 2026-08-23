@@ -9,8 +9,19 @@ from collections.abc import Mapping
 # get_current_github_access_token, just without Depends(). A repo URL, its auth
 # token and a project's scanner configuration genuinely live in those two other
 # modules; Scan itself only ever carries project_id/triggered_by.
+#
+# NormalizationRunRepositoryPort is the same legality but a different shape:
+# the three above are *reads*, this one is a *write* into another module's
+# table, which is why its method takes primitives rather than a
+# NormalizationRun — constructing that entity here would be a direct
+# .domain import and the contract would reject it. It is also why this use
+# case's unit of work now spans two modules, recorded in ARCHITECTURE.md §9
+# and decided in ADR-0017 decision 1.
 from verion.modules.identity.ports.github_connection_repository import (
     GitHubConnectionRepositoryPort,
+)
+from verion.modules.normalization.ports.normalization_run_repository import (
+    NormalizationRunRepositoryPort,
 )
 from verion.modules.projects.ports.connected_repo_repository import ConnectedRepoRepositoryPort
 from verion.modules.projects.ports.scanner_config_repository import ScannerConfigRepositoryPort
@@ -73,6 +84,14 @@ class RunScanUseCase:
     precisely the corruption PRODUCT_SPEC.md §12 forbids. This is a deliberate
     change from M3.3's single-scanner behaviour, where any scanner failure
     re-raised.
+
+    **What it hands off (ADR-0017 decision 2).** Persisting the ScanResult rows
+    ends this stage, not the pipeline. In the same transaction this use case
+    records that normalization is owed for the scan, so the handoff survives a
+    lost enqueue and cannot be half-written. Note the status this sets is still
+    scanner-scoped: COMPLETED means every enabled scanner finished, never that
+    the pipeline finished. Nothing downstream may read it — M4 reads
+    get_succeeded_by_scan_id.
     """
 
     def __init__(
@@ -84,6 +103,7 @@ class RunScanUseCase:
         connected_repos: ConnectedRepoRepositoryPort,
         github_connections: GitHubConnectionRepositoryPort,
         scanner_configs: ScannerConfigRepositoryPort,
+        normalization_runs: NormalizationRunRepositoryPort,
         id_generator: IdGeneratorPort,
         clock: ClockPort,
     ) -> None:
@@ -94,6 +114,7 @@ class RunScanUseCase:
         self._connected_repos = connected_repos
         self._github_connections = github_connections
         self._scanner_configs = scanner_configs
+        self._normalization_runs = normalization_runs
         self._id_generator = id_generator
         self._clock = clock
 
@@ -149,6 +170,33 @@ class RunScanUseCase:
 
             for result in results:
                 await self._scan_results.upsert(result)
+
+            # **Ordering constraint, not incidental placement** (ADR-0017
+            # decision 2). This must sit after the upsert loop and *before* the
+            # status update below. Reversed, a failure writing this row would
+            # still commit COMPLETED — worker.py commits in `finally` — and the
+            # retry would return immediately at the `== COMPLETED` guard above,
+            # so normalization would be lost silently and permanently.
+            #
+            # In this order the scan is never left COMPLETED, whichever way the
+            # write fails, and that is the whole property: a DB error aborts the
+            # transaction, so the `finally` commit raises PendingRollbackError
+            # and even the RUNNING flush above rolls back, leaving the scan at
+            # its last committed status (PENDING on a first attempt); any other
+            # exception commits RUNNING. Neither short-circuits, so arq's retry
+            # picks it up either way.
+            #
+            # Same transaction as the ScanResult rows, deliberately: one commit
+            # covers both, so the row *is* the outbox and there is no
+            # Postgres-commit-plus-Redis-enqueue dual write to compensate for.
+            # The write is idempotent (ON CONFLICT DO NOTHING on scan_id), so a
+            # retry re-requesting a run that already exists is a no-op rather
+            # than an IntegrityError loop.
+            await self._normalization_runs.request(
+                id=self._id_generator.new_id(),
+                scan_id=scan.id,
+                requested_at=self._clock.now(),
+            )
 
             scan = dataclasses.replace(
                 scan, status=derive_scan_status(results), finished_at=self._clock.now()

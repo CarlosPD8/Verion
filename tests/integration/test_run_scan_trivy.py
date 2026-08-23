@@ -6,6 +6,9 @@ from verion.modules.identity.adapters.outbound.db.repository import (
     PostgresGitHubConnectionRepository,
 )
 from verion.modules.identity.domain.github_connection import GitHubConnection
+from verion.modules.normalization.adapters.outbound.db.repository import (
+    PostgresNormalizationRunRepository,
+)
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
     PostgresProjectRepository,
@@ -99,6 +102,9 @@ async def test_run_scan_use_case_completes_with_trivy_adapter_injected(db_sessio
         connected_repos=PostgresConnectedRepoRepository(db_session),
         github_connections=PostgresGitHubConnectionRepository(db_session),
         scanner_configs=PostgresScannerConfigRepository(db_session),
+        # Same session as every repository above: the ScanResult rows and
+        # the normalization handoff row commit together (ADR-0017 decision 2).
+        normalization_runs=PostgresNormalizationRunRepository(db_session),
         id_generator=UuidIdGenerator(),
         clock=SystemClock(),
     )

@@ -4,7 +4,7 @@
 
 Verion is a developer-first AppSec platform that unifies signals from existing security tools — SAST, SCA, secrets, DAST — understands the context of the application being protected, correlates evidence across sources, and turns raw findings into prioritized, explainable, and verifiable remediation decisions.
 
-> **Status:** in development — M0–M3 complete, M4 (Normalization) next. The scanning pipeline works end to end: a trigger (API or GitHub webhook) fans out to Semgrep, Trivy and OWASP ZAP concurrently and persists each tool's raw output. The layers that turn that output into decisions — normalization, correlation, risk scoring, the explanation layer, and the dashboard — are M4 onward. See the roadmap below.
+> **Status:** in development — M0–M3 complete, M4 (Normalization) in progress: M4.0 has landed, M4.1 is next. The scanning pipeline works end to end: a trigger (API or GitHub webhook) fans out to Semgrep, Trivy and OWASP ZAP concurrently and persists each tool's raw output, then records that normalization is owed for that scan. The layers that turn that output into decisions — the `Finding` schema itself, correlation, risk scoring, the explanation layer, and the dashboard — are M4.1 onward. See the roadmap below.
 
 ---
 

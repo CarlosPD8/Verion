@@ -21,3 +21,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0014](0014-github-webhook-verification.md) | GitHub webhook signature verification and delivery handling | Accepted |
 | [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted |
 | [0016](0016-multi-scanner-dispatch.md) | Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration | Accepted |
+| [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted |
