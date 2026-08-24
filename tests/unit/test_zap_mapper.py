@@ -23,14 +23,17 @@ def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
     """Against a genuine ZAP 2.17.0 traditional-json report."""
     findings = _map(scanner_fixture(_REAL), id_generator, clock)
 
-    assert len(findings) == 11
+    assert len(findings) == 13
     assert {f.source for f in findings} == {ScannerTool.ZAP}
 
+    # `/` rather than `/robots.txt`: the G23 target is a live Flask app, and
+    # X-Content-Type-Options fires on the two routes it serves rather than on the
+    # crawler's probe paths. The alert, its CWE and its parameter are unchanged.
     xcto = next(
         f
         for f in findings
         if f.title == "X-Content-Type-Options Header Missing"
-        and f.location.url == "http://target.example:8080/robots.txt"
+        and f.location.url == "http://target.example:8080/"
     )
     assert xcto.severity is Severity.LOW
     assert xcto.native_severity == "Low"
@@ -49,10 +52,10 @@ def test_severity_comes_from_riskcode_not_from_a_severity_field(
     findings = _map(scanner_fixture(_REAL), id_generator, clock)
     counted = Counter(f.severity for f in findings)
 
-    # riskcode 2 on two alerts covering 3 and 2 instances; riskcode 1 on two
-    # alerts covering 3 each.
-    assert counted == Counter({Severity.LOW: 6, Severity.MEDIUM: 5})
-    assert {f.native_severity for f in findings} == {"Low", "Medium"}
+    # riskcode 2 on two alerts covering 4 and 2 instances; riskcode 1 on two
+    # covering 4 and 2; riskcode 0 on one covering 1.
+    assert counted == Counter({Severity.LOW: 6, Severity.MEDIUM: 6, Severity.INFO: 1})
+    assert {f.native_severity for f in findings} == {"Low", "Medium", "Informational"}
 
 
 def test_cvss_and_owasp_are_none_because_the_report_carries_neither(
@@ -71,8 +74,11 @@ def test_one_finding_per_alert_instance(scanner_fixture, id_generator, clock):
     decides per *instance*.
 
     An alert-level finding would have to take its location from `instances[0]`,
-    and that is not deterministic — the three instances of the alert below carry
-    ids 6, 7 and 5, so they arrive in crawl order rather than sorted. Identity
+    and that is not deterministic — in the G23 capture the four instances of the
+    CSP alert carry ids 6, 5, 1 and 0, so they arrive in crawl order rather than
+    sorted. (The pre-M5.1 corpus made the same point with ids 6, 7, 5 on a
+    three-instance alert; the argument is a property of ZAP's crawl order, not of
+    either capture, but the cited ids are re-read from the current one.) Identity
     would have had to fall back to the site while `Location` displayed a URI that
     was not part of it. Per-instance also makes resolution granular: fixing the
     header on one URL and not another becomes one resolved and one still present.
@@ -85,9 +91,9 @@ def test_one_finding_per_alert_instance(scanner_fixture, id_generator, clock):
     alerts = [a for s in json.loads(raw)["site"] for a in s["alerts"]]
     instances = [i for a in alerts for i in (a.get("instances") or [])]
 
-    assert len(alerts) == 4
-    assert len(findings) == len(instances) == 11
-    assert len({f.dedup_hash for f in findings}) == 11
+    assert len(alerts) == 5
+    assert len(findings) == len(instances) == 13
+    assert len({f.dedup_hash for f in findings}) == 13
     recovered = [i for f in findings for i in json.loads(f.evidence.raw_payload)["instances"]]
     assert sorted(json.dumps(i, sort_keys=True) for i in recovered) == sorted(
         json.dumps(i, sort_keys=True) for i in instances
@@ -122,7 +128,7 @@ def test_evidence_is_the_alert_narrowed_to_this_finding_s_instance(
         f
         for f in _map(raw, id_generator, clock)
         if f.title == "Missing Anti-clickjacking Header"
-        and f.location.url == "http://target.example:8080/robots.txt"
+        and f.location.url == "http://target.example:8080/"
     )
     source = next(
         a
@@ -133,7 +139,7 @@ def test_evidence_is_the_alert_narrowed_to_this_finding_s_instance(
     payload = json.loads(finding.evidence.raw_payload)
 
     assert payload["instances"] == [
-        i for i in source["instances"] if i["uri"] == "http://target.example:8080/robots.txt"
+        i for i in source["instances"] if i["uri"] == "http://target.example:8080/"
     ]
     assert {k: v for k, v in payload.items() if k != "instances"} == {
         k: v for k, v in source.items() if k != "instances"
@@ -141,9 +147,25 @@ def test_evidence_is_the_alert_narrowed_to_this_finding_s_instance(
     assert finding.evidence.source_tool is ScannerTool.ZAP
 
 
-def test_the_riskcodes_absent_from_the_real_capture(scanner_fixture, id_generator, clock):
-    """The real fixture has only riskcode 1 and 2, so High and Informational are
-    covered here."""
+def test_high_is_the_one_riskcode_absent_from_the_real_capture(
+    scanner_fixture, id_generator, clock
+):
+    """The real fixture has riskcode 0, 1 and 2, so only **High** is uncovered by
+    it and needs the synthetic set.
+
+    Re-derived and renamed at M5.1. The docstring read "only riskcode 1 and 2, so
+    High and Informational are covered here" until the G23 capture, which brought a
+    riskcode 0 (`Information Disclosure - Suspicious Comments`). The old plural
+    name — `test_the_riskcodes_absent_from_the_real_capture` — asserted the same
+    falsified claim in the place a reader trusts without opening the body, which is
+    the standard applied to `test_trivy_mapper.py`'s rename in this commit.
+
+    The test kept passing throughout, because it reads the synthetic fixture, which
+    covers Informational whether or not the real one does. Nothing would have caught
+    the claim going stale — the G20 shape in a docstring rather than in a number.
+    Informational is still asserted below: it is now covered *twice*, which is
+    harmless, and the synthetic assertion is the one that survives a re-capture.
+    """
     by_title = {f.title: f for f in _map(scanner_fixture(_EDGES), id_generator, clock)}
 
     high = by_title["Cross Site Scripting (Reflected)"]

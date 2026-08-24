@@ -3,16 +3,16 @@
   "results": [
     {
       "check_id": "dangerous-eval",
-      "path": "vulnerable.py",
+      "path": "app.py",
       "start": {
-        "line": 2,
-        "col": 12,
-        "offset": 43
+        "line": 28,
+        "col": 18,
+        "offset": 1049
       },
       "end": {
-        "line": 2,
+        "line": 28,
         "col": 28,
-        "offset": 59
+        "offset": 1059
       },
       "extra": {
         "message": "Avoid eval() on untrusted input.",
@@ -28,17 +28,17 @@
   "errors": [],
   "paths": {
     "scanned": [
-      "vulnerable.py"
+      "app.py"
     ]
   },
   "time": {
     "rules": [],
-    "rules_parse_time": 0.011822700500488281,
+    "rules_parse_time": 0.01800060272216797,
     "profiling_times": {
-      "config_time": 0.16521859169006348,
-      "core_time": 0.3250396251678467,
+      "config_time": 0.21686172485351562,
+      "core_time": 0.5061366558074951,
       "ignores_time": 0.0,
-      "total_time": 0.5174212455749512
+      "total_time": 0.7559206485748291
     },
     "parsing_time": {
       "total_time": 0.0,
@@ -53,9 +53,9 @@
       "very_slow_files": []
     },
     "scanning_time": {
-      "total_time": 0.010999917984008789,
+      "total_time": 0.03118753433227539,
       "per_file_time": {
-        "mean": 0.010999917984008789,
+        "mean": 0.03118753433227539,
         "std_dev": 0.0
       },
       "very_slow_stats": {
@@ -99,7 +99,7 @@
     },
     "targets": [],
     "total_bytes": 0,
-    "max_memory_bytes": 86368640
+    "max_memory_bytes": 87768448
   },
   "engine_requested": "OSS",
   "skipped_rules": [],

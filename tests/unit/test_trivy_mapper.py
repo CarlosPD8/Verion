@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 
 from verion.modules.normalization.domain.mappers.trivy import map_trivy_output
 from verion.shared_kernel.scanner_tools import ScannerTool
@@ -19,13 +20,22 @@ def _map(raw, id_generator, clock, scan_id="scan-1"):
 
 
 def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
-    """Against genuine Trivy 0.74.0 output for `urllib3==1.24.1`."""
+    """Against genuine Trivy 0.74.0 output for the G23 target's pinned closure.
+
+    Re-derived at M5.1 against the common-target corpus. The old capture was one
+    `requirements.txt` holding `urllib3==1.24.1` alone; this one is that target's
+    whole closure, so the counts below cover three packages (Flask 2, Werkzeug 6,
+    urllib3 12) rather than one.
+    """
     findings = _map(scanner_fixture(_REAL), id_generator, clock)
 
-    assert len(findings) == 12
+    assert len(findings) == 20
     assert {f.source for f in findings} == {ScannerTool.TRIVY}
-    assert {f.severity for f in findings} == {Severity.HIGH, Severity.MEDIUM}
-    assert sorted(f.native_severity for f in findings) == ["HIGH"] * 6 + ["MEDIUM"] * 6
+    # LOW is new in this corpus — the previous capture had no LOW at all.
+    assert {f.severity for f in findings} == {Severity.HIGH, Severity.MEDIUM, Severity.LOW}
+    assert sorted(f.native_severity for f in findings) == (
+        ["HIGH"] * 8 + ["LOW"] * 1 + ["MEDIUM"] * 11
+    )
 
     known = next(f for f in findings if f.title.startswith("CVE-2019-11324"))
     assert known.severity is Severity.HIGH
@@ -37,14 +47,24 @@ def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
 
 
 def test_each_vulnerability_gets_its_own_identity(scanner_fixture, id_generator, clock):
-    """Identity is `VulnerabilityID` + `Target` + `PkgName`. Twelve CVEs against
-    one package in one manifest must be twelve findings, not one."""
-    findings = _map(scanner_fixture(_REAL), id_generator, clock)
+    """Identity is `VulnerabilityID` + `Target` + `PkgName`. Twenty CVEs across
+    three packages in one manifest must be twenty findings, not three.
 
-    assert len({f.dedup_hash for f in findings}) == 12
+    **The expected set is now derived from the whole document rather than from
+    `range(12)`.** The literal index range was a G20 hazard in its own right: it
+    covered the first twelve elements by position, so a re-capture that grew the
+    fixture left the extra elements unasserted while the test still looked like a
+    completeness check. Deriving it from every `Vulnerabilities` entry makes the
+    assertion track the fixture instead of a number somebody has to remember.
+    """
+    findings = _map(scanner_fixture(_REAL), id_generator, clock)
+    document = json.loads(scanner_fixture(_REAL))
+
+    assert len({f.dedup_hash for f in findings}) == 20
     assert {f.rule_id for f in findings} == {
-        json.loads(scanner_fixture(_REAL))["Results"][0]["Vulnerabilities"][i]["VulnerabilityID"]
-        for i in range(12)
+        vulnerability["VulnerabilityID"]
+        for result in document["Results"]
+        for vulnerability in (result.get("Vulnerabilities") or [])
     }
 
 
@@ -69,42 +89,74 @@ def test_a_version_bump_is_not_a_new_finding(scanner_fixture, id_generator, cloc
     assert after.dedup_hash == before.dedup_hash
 
 
-def test_every_real_vulnerability_carries_exactly_one_cwe(scanner_fixture, id_generator, clock):
-    """The measurement that settled `Finding.cwe` as a single value rather than a
-    tuple (ADR-0018).
+def test_the_real_cwe_cardinality_is_one_apart_from_a_single_two(
+    scanner_fixture, id_generator, clock
+):
+    """The measurement ADR-0018 decision 4 cites — **and this test is why the
+    falsification was loud rather than silent.**
 
-    **What this does and does not guard.** It guards the *fixture*: `{1}` is a
-    literal and the fixture is data read at run time, so a re-capture that brought
-    a two-CWE vulnerability fails here rather than silently widening the evidence
-    the ADR rests on. Verified by mutation — injecting a second CweID into the
-    fixture fails this assertion at the line below.
+    Renamed at M5.1, because the old name asserted the falsified fact. It read
+    `test_every_real_vulnerability_carries_exactly_one_cwe`, and the G23 capture
+    made that false: `CVE-2024-49767` (Werkzeug 2.3.8) carries
+    `["CWE-400", "CWE-770"]`. A test whose *name* states a claim the data refutes
+    is worse than a stale docstring, since the name is what a reader trusts
+    without opening the body.
 
-    It does **not** guard production. This target is one `requirements.txt`; other
-    ecosystems do emit multiple CweIDs, and no fixture can prove otherwise. That
-    case is covered by `test_multiple_cwes_keep_the_first_and_lose_none` below,
-    which pins the mapper's *behaviour* rather than the data's shape — the two
-    tests answer different questions and both are needed.
+    **What this does and does not guard, unchanged in kind.** It guards the
+    *fixture*: the literals below are read against data loaded at run time, so any
+    re-capture that changes the cardinality — or moves the two-CWE case to a
+    different vulnerability — fails here rather than silently widening the
+    evidence an accepted ADR rests on. That is exactly what happened at M5.1, in
+    commit `00708b9`, where this test is red on purpose.
+
+    It does **not** guard production, and the corpus does not settle *which*
+    selection rule is in force: the mapper keeps the first entry in document
+    order, but `CWE-400` is also the numerically lower one, so the data cannot
+    distinguish "first" from "lowest" — only `mappers/trivy.py` does. Whether that
+    ordering is even stable across vulnerability-DB updates is unmeasured (G26).
+    The mapper's *behaviour* on multi-CWE input is pinned by
+    `test_multiple_cwes_keep_the_first_and_lose_none` below; the two tests answer
+    different questions and both are needed.
     """
     findings = _map(scanner_fixture(_REAL), id_generator, clock)
 
     assert all(f.cwe is not None for f in findings)
     source = json.loads(scanner_fixture(_REAL))
-    counts = {
+    by_cardinality = Counter(
         len(v.get("CweIDs") or [])
         for r in source["Results"]
         for v in (r.get("Vulnerabilities") or [])
-    }
-    assert counts == {1}
+    )
+    assert by_cardinality == Counter({1: 19, 2: 1})
+
+    # Named, not just counted: a re-capture that keeps one two-CWE vulnerability
+    # but makes it a different one is a change to the evidence too.
+    multi = [
+        v["VulnerabilityID"]
+        for r in source["Results"]
+        for v in (r.get("Vulnerabilities") or [])
+        if len(v.get("CweIDs") or []) > 1
+    ]
+    assert multi == ["CVE-2024-49767"]
+    assert next(f for f in findings if f.rule_id == "CVE-2024-49767").cwe == "CWE-400"
 
 
 def test_multiple_cwes_keep_the_first_and_lose_none(scanner_fixture, id_generator, clock):
     """What happens when a tool emits two CWEs — specified, not incidental.
 
-    `Finding.cwe` is a single value because the measured maximum across all three
-    real fixtures is 1, but that is a fact about *these targets*, not about Trivy.
-    Other ecosystems emit several. Without this test the mapper's `next(iter(...))`
-    would be an unexamined silent truncation, and the first production npm scan
-    would be where anyone found out.
+    `Finding.cwe` is a single value, and until M5.1 the stated basis was that the
+    measured maximum across the real fixtures was 1 — a fact about *those targets*,
+    not about Trivy. **That basis is now falsified**: the G23 corpus contains one
+    two-CWE vulnerability (ADR-0018's Amendments, 2026-08-24). The decision stands,
+    for the reason this test exists: without it the mapper's `next(iter(...))` would
+    have been an unexamined silent truncation, and a real two-CWE element arriving
+    would have been the first anyone knew of it.
+
+    **This test needed no change when that happened, which is the point of writing
+    it against synthetic input.** It specifies the mapper's behaviour rather than
+    the corpus's shape, so it was already correct for data that did not yet exist.
+    Its sibling `test_the_real_cwe_cardinality_is_one_apart_from_a_single_two` is
+    the one that guards the corpus, and that one did have to change.
 
     The contract asserted here is the one ADR-0018 claims: the first CWE as the
     tool ordered it becomes the correlation key, and **nothing is discarded** —
@@ -144,9 +196,14 @@ def test_evidence_round_trips_to_the_exact_source_element(scanner_fixture, id_ge
 
 
 def test_the_full_severity_scale_including_unknown(scanner_fixture, id_generator, clock):
-    """The real fixture contains only HIGH and MEDIUM, so CRITICAL, LOW and the
-    literal UNKNOWN are covered here. UNKNOWN is carried through rather than
-    folded into LOW — collapsing it would invent a Risk Engine input."""
+    """The real fixture contains HIGH, MEDIUM and one LOW, so CRITICAL and the
+    literal UNKNOWN are what still need covering here. UNKNOWN is carried through
+    rather than folded into LOW — collapsing it would invent a Risk Engine input.
+
+    (Read "only HIGH and MEDIUM" until M5.1; the G23 corpus brought a LOW. The
+    synthetic set still covers it, so this test never went red — a docstring going
+    stale silently, which is the G20 shape.)
+    """
     by_id = {f.title.split(":")[0]: f for f in _map(scanner_fixture(_EDGES), id_generator, clock)}
 
     assert by_id["CVE-9000-0001"].severity is Severity.CRITICAL

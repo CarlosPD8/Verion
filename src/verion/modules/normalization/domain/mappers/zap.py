@@ -51,8 +51,9 @@ def map_zap_output(
     on. Three things decided it:
 
     - Alert-level identity cannot include the URL. The location would be
-      `instances[0]`, and that is not deterministic — in the captured fixture one
-      alert's three instances carry ids 6, 7, 5, so they arrive in crawl order.
+      `instances[0]`, and that is not deterministic — in the captured fixture the
+      CSP alert's four instances carry ids 6, 5, 1, 0, so they arrive in crawl
+      order rather than sorted.
       The same finding's displayed URL would flip between scans, and identity
       would have to fall back to the site while `Location` still showed a URI that
       was not part of it.

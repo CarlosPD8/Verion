@@ -219,7 +219,7 @@ async def test_the_semgrep_findings_carry_a_stable_identity_after_the_g9_g10_fix
     findings = await PostgresFindingRepository(db_session).get_by_project_id(scan.project_id)
     finding = next(f for f in findings if str(f.source) == "semgrep")
     assert finding.rule_id == "dangerous-eval"
-    assert finding.location.file_path == "vulnerable.py"
+    assert finding.location.file_path == "app.py"
     assert finding.dedup_hash.startswith("v1:")
 
 

@@ -58,9 +58,11 @@ is the reading that would put scanned source into every listing.
 
 **The rule-12 hazard is the bulk shape, not the payload.** A listing carrying
 every finding's `raw_payload` is a source-code export with nothing in its
-signature saying so. Measured: the three committed fixtures produce 24 findings
-whose payloads total **71,532 characters** — for ZAP alone, 1.63× that scan's own
-`raw_output`. A single request would hand over all of it. Splitting also makes
+signature saying so. Measured: the three committed fixtures produce 34 findings
+whose payloads total **93,792 characters** — for ZAP alone, 1.43× that scan's own
+`raw_output`. *(Re-derived at M5.1 against the G23 common-target corpus; the
+pre-G23 figures were 24 findings, 71,532 characters and 1.63×. Both the total and
+the ZAP ratio moved, and the decision rests on neither's exact value.)* A single request would hand over all of it. Splitting also makes
 each access its own request with its own URL, which is auditable and
 independently rate-limitable at M10.2 where a query flag would hide it inside a
 listing.
@@ -335,8 +337,10 @@ and the unfinished count a bitmap index scan (**0.071 ms**).
 `PRODUCT_SPEC.md` §10 measures noise reduction as the ratio of raw findings to
 surfaced **Risks**, and `Risk` is M5/M6, so the ratio itself waits. What M4.5
 makes observable is the denominator, and it is not flattering: the three committed
-fixtures produce **24 source elements → 24 findings, a 1:1 collapse**, because no
-two elements in that set share an identity. That is a statement about the fixture
+fixtures produce **34 source elements → 34 findings, a 1:1 collapse**, because no
+two elements in that set share an identity. *(24 → 24 before the M5.1 re-capture.
+The corpus grew; the collapse ratio did not change, which is the observation this
+paragraph is making.)* That is a statement about the fixture
 set being too small to exercise within-scan dedup, not about the product.
 
 The number this endpoint *does* demonstrate is FR-5's actual criterion: scanning

@@ -2,7 +2,7 @@
 
 ADR-0020 asked M4.5 to `EXPLAIN` the project listing and the sighting join "at
 realistic volume before deciding anything further", and warned in the same breath
-that the three committed fixtures produce 24 findings — a volume at which
+that the three committed fixtures produce 34 findings — a volume at which
 Postgres seq-scans whatever indexes exist, so a benchmark there measures nothing
 while reading as evidence.
 
