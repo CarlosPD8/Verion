@@ -89,7 +89,10 @@ pip install uv
 # install dependencies + create the local virtualenv
 uv sync
 
-# enable pre-commit hooks (ruff lint + format on every commit)
+# enable pre-commit hooks (ruff lint + format on every commit).
+# these run the ruff from the venv above — the same version CI runs. `uv run`
+# creates that venv on demand, so a commit works even without the step above;
+# doing it first just means the first commit isn't paying for the install.
 uv run pre-commit install
 
 # start local Postgres + Redis

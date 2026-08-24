@@ -74,6 +74,41 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+# Still reported, still fails CI — never auto-rewritten (G8). Every code below
+# rewrites the *structure* of an expression, or relocates an import. In a test
+# whose subject IS that structure — operand order, argument order, an import held
+# back on purpose — a semantics-preserving rewrite is still a coverage-destroying
+# one, and the weakened test goes green with nothing objecting. SIM300 already did
+# exactly this to test_severity.py once, collapsing four assertions into two.
+#
+# Deliberately not `per-file-ignores`: that would stop these rules firing at all,
+# in CI as well as in the hook, trading a silent-rewrite risk for a silent-
+# detection loss. `unfixable` removes only the rewriting.
+#
+# This list is not the whole of G8. A future rule that rewrites expression
+# structure and never gets added here is the same failure — see the register.
+#
+# Derive it, do not eyeball it. The first version of this list was built from an
+# enumeration that silently dropped every C4 rule (the filter stripped trailing
+# digits, so "C400" became "C" and never matched the "C4" selector) and counted
+# preview rules that cannot fire. `ruff check --show-settings` reports the
+# enabled set from the resolved config and is the source to use.
+unfixable = [
+    # Comparison and boolean-expression rewrites.
+    "SIM300",                               # yoda-conditions
+    "SIM201", "SIM202",                     # negate-(not-)equal-op
+    "SIM220", "SIM221", "SIM222", "SIM223", # boolean-expression collapse
+    "E711", "E712", "E713", "E714",         # None/True/in/is comparison rewrites
+    # Import relocation — fix is new in 0.16.3.
+    "E402",
+    # The whole autofixable flake8-comprehensions family. Every one rewrites a
+    # call into a comprehension or literal or back again (C417 turns
+    # `map(f, xs)` into a comprehension; C416 removes one entirely), which is
+    # the written criterion above, so they are in. C415 is enabled but carries
+    # no fix, so listing it would be noise.
+    "C400", "C401", "C402", "C403", "C404", "C405", "C406", "C408", "C409",
+    "C410", "C411", "C413", "C414", "C416", "C417", "C418", "C419", "C420",
+]
 
 [tool.ruff.format]
 quote-style = "double"

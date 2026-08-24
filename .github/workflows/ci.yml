@@ -35,20 +35,39 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://verion:verion@localhost:5432/verion
       REDIS_URL: redis://localhost:6379/0
+    # Every third-party action is pinned to a full commit SHA with the tag it
+    # resolved to in a trailing comment, and advanced deliberately — a tag is a
+    # mutable pointer, a SHA is not. This is the house style for all of them, not
+    # a special case for setup-trivy (which was the only one until M5.0). Two
+    # reasons it is settled once rather than per action: astral-sh/setup-uv
+    # publishes no floating major tag above v7, so it *must* be pinned exactly
+    # anyway; and one file with two conventions has no rule saying which applies
+    # to the next action added. Verify each target against the action's own
+    # repository before bumping (ADR-0009) — including the runtime, which is read
+    # from `runs.using` in that tag's action.yml and not from the release notes.
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         # The Python version comes from .python-version (3.12), which uv reads
         # directly — pyproject's requires-python, ruff target-version and mypy
         # python_version all already agree with it.
         #
-        # Do NOT add a `python-version:` input here. It is not an input on v3
-        # (it was added in v4), so it is silently ignored and CI annotates it
-        # as unexpected on both Install uv and Post Install uv. One was passed
-        # here from M0.2 until 2026-08-21 and never did anything.
+        # Do NOT add a `python-version:` input here. On v10 it *is* a real input
+        # (it was added in v4; on the v3 pinned here until M5.0 it was silently
+        # ignored, which is what the previous version of this comment said). So
+        # the reason not to pass it has changed and got stronger: it would make a
+        # second source of truth that can disagree with .python-version, rather
+        # than doing nothing. One was passed here from M0.2 until 2026-08-21.
+        #
+        # Two more v10 defaults this step depends on, recorded so a future bump
+        # can tell what was deliberate: `activate-environment` is false, so every
+        # step below still goes through `uv run`; and `enable-cache` is set
+        # explicitly here, so v10's "disable automatic caching for sensitive
+        # events" — which only applies to the default `auto` — does not. v9 also
+        # flipped `prune-cache` to false, so the uv cache uploads unpruned.
         with:
           enable-cache: true
 
@@ -79,10 +98,10 @@ jobs:
       - name: Install Trivy
         # Trivy is a Go binary, not pip-installable (unlike Semgrep, whose
         # PyPI wheel bundles the compiled binary) — this is a genuinely new
-        # class of CI dependency. Pinned to a commit SHA (not just the tag)
-        # per this repo's dependency-verification standard (ADR-0009):
-        # 81e51434... is aquasecurity/setup-trivy's v0.3.1 tag, the current
-        # release as of writing (v0.3.0 is broken upstream, do not use).
+        # class of CI dependency. 81e51434... is aquasecurity/setup-trivy's
+        # v0.3.1 tag, still the newest release at M5.0 (v0.3.0 is broken
+        # upstream, do not use). The SHA pin is the convention described at the
+        # top of `steps:` — this step is where it started, not an exception to it.
         uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
           version: v0.74.0
@@ -93,7 +112,7 @@ jobs:
         run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Trivy vulnerability DB
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/trivy
           key: trivy-db-${{ steps.trivy-cache-date.outputs.date }}

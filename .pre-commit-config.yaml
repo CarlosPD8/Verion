@@ -1,10 +1,46 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+  # These two run the PROJECT's ruff — the one uv.lock resolves and CI runs —
+  # rather than a copy pre-commit installs from its own pinned repo. That is what
+  # makes one version definitionally true for both sides (G12): until M5.0 the
+  # hook was ruff-pre-commit v0.6.9 while CI resolved 0.16.3, and the hook passed
+  # exactly the file CI rejected.
+  #
+  # Two consequences worth knowing before editing this block:
+  #
+  #   * The version now comes from uv.lock. `pre-commit autoupdate` no longer
+  #     touches ruff, so nothing here will prompt when ruff falls behind — a quiet
+  #     autoupdate is not evidence that it is current. Bump it in pyproject.toml
+  #     and both sides move together.
+  #   * ruff-check still runs --fix, so it can still rewrite a file under you,
+  #     fail the commit, and leave the ORIGINAL staged. The codes that rewrite the
+  #     structure of an expression are listed as `unfixable` in pyproject.toml's
+  #     [tool.ruff.lint] — see G8 in docs/ROADMAP.md for why. Anything not on that
+  #     list is still rewritable.
+  #
+  # `language: system` means these need `uv` on PATH. They do NOT need a synced
+  # venv first — `uv run` creates and syncs it on demand, verified on a fresh
+  # clone — so the cost is a slow first commit, not a failed one. A missing `uv`,
+  # or being offline with a cold cache, is what actually breaks them.
+  # --force-exclude on both: pre-commit passes explicit paths, and explicit paths
+  # bypass ruff's `exclude` config without it. Upstream's own hooks pass it too.
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--fix]
+      - id: ruff-check
+        name: ruff check (project ruff via uv — G12)
+        entry: uv run ruff check --force-exclude --fix
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
       - id: ruff-format
+        name: ruff format (project ruff via uv — G12)
+        entry: uv run ruff format --force-exclude
+        language: system
+        # markdown is deliberate. Ruff's FORMATTER reads Python code blocks in
+        # .md (30 files here); its LINTER does not, which is why ruff-check above
+        # excludes it. Omitting markdown reproduces the exact miss that opened
+        # G12 — an unformatted Python block inside an ADR.
+        types_or: [python, pyi, jupyter, markdown]
+        require_serial: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
