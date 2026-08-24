@@ -2,7 +2,7 @@
 
 Each ADR documents one consequential architectural or process decision: the situation that prompted it, what was decided, the honest trade-offs, and what alternatives were rejected and why. See `CLAUDE.md`'s working-style rule for when a new ADR is warranted.
 
-`0005` is intentionally reserved (not yet created) for the future risk-scoring-model ADR, per `docs/ROADMAP.md` M6.1. `0023` is likewise reserved for M5.1's decision on how `correlation` names the type it correlates.
+`0005` is intentionally reserved (not yet created) for the future risk-scoring-model ADR, per `docs/ROADMAP.md` M6.1. It is now the only reserved number — `0023` was written at M5.1 and is in the table below.
 
 | ADR | Title | Status |
 |---|---|---|
@@ -22,8 +22,9 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted |
 | [0016](0016-multi-scanner-dispatch.md) | Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration | Accepted |
 | [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1, M4.3, M4.4) |
-| [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2) |
+| [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2, M5.1) |
 | [0019](0019-finding-identity-and-deduplication.md) | `Finding` identity, deduplication, and what the hash is over | Accepted (amended M4.3, M4.4) |
 | [0020](0020-finding-upsert-semantics.md) | How the `Finding` upsert stays equal to `merge_observation` | Accepted (amended M4.5) |
 | [0021](0021-normalization-job-execution.md) | Normalization job execution: scheduling, state machine, and failure semantics | Accepted (amended M4.5) |
 | [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted |
+| [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted |
