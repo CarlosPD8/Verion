@@ -76,6 +76,38 @@ class NormalizationRunRepositoryPort(Protocol):
         """
         ...
 
+    async def get_latest_by_project_id(self, project_id: str) -> NormalizationRun | None:
+        """The most recently requested run for this project, if any.
+
+        M4.5's — the first thing that surfaces a `NormalizationRun` to a human at
+        all. Answerable within this module only because ADR-0019 decision 7 put
+        `project_id` on this table; `get_succeeded_by_scan_id` carries none, and
+        the sweep's `WHERE` clause rules out a read port back into `scanning`.
+
+        Ordered by `requested_at`, matching `get_stale`: it is `NOT NULL` on every
+        row, where `started_at` and `finished_at` are null for a `pending` one.
+        """
+        ...
+
+    async def count_unfinished_by_project_id(self, project_id: str) -> int:
+        """How many of this project's runs have not reached `completed`.
+
+        **This is the field that actually answers "may this findings list be
+        incomplete?", and `get_latest_by_project_id` alone would not.** A project
+        whose most recent scan normalized cleanly while three earlier ones failed
+        reports `completed` on its latest run and looks healthy, while three
+        scans' findings were never produced. G15 is exactly that shape: a listing
+        that silently omits a scan's findings is indistinguishable from a clean
+        project.
+
+        Counts `pending`, `running` and `failed` alike, deliberately — from a
+        reader's point of view "not normalized yet" and "normalization failed"
+        both mean the same thing about the list they are looking at, and the
+        latest run's `status`/`failure_reason` are there for anyone who needs the
+        difference.
+        """
+        ...
+
     async def get_stale(self, *, older_than: datetime, limit: int) -> list[NormalizationRun]:
         """Runs that are owed and are not visibly progressing — the sweep's input.
 

@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, case, func, select, true
 from sqlalchemy import update as sqlalchemy_update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.selectable import LateralFromClause
 
 from verion.modules.normalization.adapters.outbound.db.models import (
     EvidenceModel,
@@ -16,6 +17,7 @@ from verion.modules.normalization.domain.finding import (
     Finding,
     FindingSighting,
     Location,
+    SightedFinding,
 )
 from verion.modules.normalization.domain.normalization_run import (
     NormalizationRun,
@@ -143,6 +145,37 @@ class PostgresNormalizationRunRepository:
         # commit-in-`finally`, the same reason `request` flushes.
         await self._session.flush()
 
+    async def get_latest_by_project_id(self, project_id: str) -> NormalizationRun | None:
+        # `requested_at` DESC, then `id` as a total tiebreak: two scans of one
+        # project can be requested within the same clock tick, and without the
+        # second key "the latest run" would be whichever row Postgres returned
+        # first — the non-deterministic-representative mistake ZAP's instances[0]
+        # is this project's record of. Served by ix_normalization_runs_project_id.
+        result = await self._session.execute(
+            select(NormalizationRunModel)
+            .where(NormalizationRunModel.project_id == project_id)
+            .order_by(NormalizationRunModel.requested_at.desc(), NormalizationRunModel.id.desc())
+            .limit(1)
+        )
+        model = result.scalars().one_or_none()
+        return _to_domain(model) if model is not None else None
+
+    async def count_unfinished_by_project_id(self, project_id: str) -> int:
+        # Everything that is not COMPLETED, which is the only terminal state
+        # (ADR-0021 decision 3). Expressed as `!= completed` rather than as a list
+        # of the other three so that a fifth status member is counted as
+        # unfinished by default — the safe direction for a field whose whole job
+        # is to say "this list may be missing findings".
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(NormalizationRunModel)
+            .where(
+                NormalizationRunModel.project_id == project_id,
+                NormalizationRunModel.status != str(NormalizationRunStatus.COMPLETED),
+            )
+        )
+        return result.scalar_one()
+
     async def get_stale(self, *, older_than: datetime, limit: int) -> list[NormalizationRun]:
         # `normalization_runs` and nothing else. No join to `scans`, no subquery
         # against it, no filter on `Scan.status` — ADR-0017 decision 2 states that
@@ -239,6 +272,110 @@ def _finding_to_domain(model: FindingModel, evidence: EvidenceModel) -> Finding:
         cwe=model.cwe,
         owasp_category=model.owasp_category,
         cvss=model.cvss,
+    )
+
+
+# Severity ordering in SQL, DERIVED from Severity.rank rather than transcribed.
+#
+# This is ADR-0020 decision 1's problem in a second place: a domain rule and its
+# SQL equivalent that can drift with nothing detecting it. There the answer was to
+# make the SET clause a transcription and pin it with tests; here the rule is a
+# pure function of the enum, so the SQL can be GENERATED from it and there is no
+# second copy to keep honest at all.
+#
+# `{str(s): s.rank}` reads .rank directly. An `array_position(ARRAY[...], severity)`
+# expression would have worked too and was the first shape considered, but it
+# derives the rank from a list POSITION — one indirection away from the source, so
+# a change to _RANK that reordered nothing would leave it silently stale. This
+# cannot: every value here is the rank itself.
+#
+# else_=-1 sorts an unrecognised stored value last rather than NULL. Unreachable
+# through ck_findings_severity; kept because a CHECK is a claim about the database
+# and this is a claim about the query.
+_SEVERITY_RANK_SQL = case(
+    {str(member): member.rank for member in Severity},
+    value=FindingModel.severity,
+    else_=-1,
+)
+
+
+def _project_filters(
+    project_id: str, min_severity: Severity | None, source: ScannerTool | None
+) -> list[ColumnElement[bool]]:
+    """The listing's WHERE clause, shared by `list_for_project` and `count_for_project`."""
+    filters: list[ColumnElement[bool]] = [FindingModel.project_id == project_id]
+    if min_severity is not None:
+        # An IN over the members at or above this rank, computed here, rather than
+        # a comparison against a rank expression in SQL. Two reasons, and neither
+        # is style: `.rank` is only defined on Severity, so an uncoerced query
+        # string raises AttributeError at construction instead of being compared
+        # alphabetically (ADR-0018 decision 2's failure); and an IN over a handful
+        # of literals is something an index on `severity` could serve, where a
+        # CASE comparison never can.
+        #
+        # Note what this means for UNKNOWN, which ranks BELOW info: any
+        # min_severity other than UNKNOWN itself excludes findings whose severity
+        # no tool could determine. Stated in the port docstring and pinned by a
+        # test, because it is surprising and it is a deliberate consequence of
+        # honouring one total order rather than inventing a second.
+        filters.append(
+            FindingModel.severity.in_(
+                [str(member) for member in Severity if member.rank >= min_severity.rank]
+            )
+        )
+    if source is not None:
+        filters.append(FindingModel.source == str(source))
+    return filters
+
+
+def _sighting_summary() -> LateralFromClause:
+    """Per finding: when it was first and last seen, how often, and by which scan.
+
+    ADR-0019 decision 1 refuses `last_seen_at`/`last_seen_scan_id` as COLUMNS on
+    `findings` — a denormalized summary that can silently go stale in M9.1's path
+    — while stating that both are `max()` over the sightings. This is that
+    `max()`, computed per request, so there is nothing to go stale.
+
+    **A LATERAL correlated to one finding, NOT a `DISTINCT ON` over the whole
+    table, and the difference was measured rather than reasoned about.** The first
+    version was a whole-table subquery merge-joined against the page. Postgres
+    cannot push the page's 50 ids into it, so it seq-scanned all 300,000 sightings
+    and sorted them on disk (22 MB, `external merge`) to serve one page:
+    **763 ms**. Correlated, each row is an index scan of that finding's ~3
+    sightings on `finding_sightings_pkey`'s leading column, 50 times.
+
+    That measurement is also a warning about how it was nearly missed. The same
+    query benchmarked at **8.8 ms** with sequential synthetic ids, because one
+    project's findings then clustered at the head of the id-ordered scan and the
+    merge join terminated early. Real ids are UUIDs (rule 9), so they do not
+    cluster — the fast number described the id scheme, not the query. See
+    ADR-0022 and `scripts/seed_findings_benchmark.py`.
+
+    The window functions run over this finding's sightings before `LIMIT 1`, so
+    `first_seen_at` and `sighting_count` cover the whole history while the row
+    itself is the latest observation.
+
+    **`scan_id DESC` is a tiebreak, not decoration.** Two scans of one project can
+    be normalized within the same clock tick, and ordering by `observed_at` alone
+    returns whichever row the plan happened to produce first — the same
+    non-deterministic-representative mistake `_representative_key` exists to avoid
+    and that ZAP's `instances[0]` is this project's record of.
+    """
+    return (
+        select(
+            FindingSightingModel.scan_id.label("last_seen_scan_id"),
+            FindingSightingModel.observed_at.label("last_seen_at"),
+            FindingSightingModel.match_count.label("latest_match_count"),
+            func.min(FindingSightingModel.observed_at).over().label("first_seen_at"),
+            func.count().over().label("sighting_count"),
+        )
+        .where(FindingSightingModel.finding_id == FindingModel.id)
+        .order_by(
+            FindingSightingModel.observed_at.desc(),
+            FindingSightingModel.scan_id.desc(),
+        )
+        .limit(1)
+        .lateral()
     )
 
 
@@ -370,17 +507,95 @@ class PostgresFindingRepository:
         await self._session.execute(statement)
         await self._session.flush()
 
-    async def get_by_project_id(self, project_id: str) -> list[Finding]:
-        # Ordered by dedup_hash so the result is deterministic regardless of
-        # insertion order — the same total order collapse_by_identity returns in.
+    async def list_for_project(
+        self,
+        *,
+        project_id: str,
+        min_severity: Severity | None,
+        source: ScannerTool | None,
+        limit: int,
+        offset: int,
+    ) -> list[SightedFinding]:
+        # The page is chosen FIRST, in its own subquery, and everything else joins
+        # to those rows. Ordering and limiting in the outer query instead would
+        # make the joins run before the LIMIT — which is how the first version of
+        # this method came to aggregate every sighting in the database to return
+        # fifty findings (763 ms at 300k sightings; see `_sighting_summary`).
+        page = (
+            select(FindingModel.id)
+            .where(*_project_filters(project_id, min_severity, source))
+            .order_by(_SEVERITY_RANK_SQL.desc(), FindingModel.dedup_hash)
+            .limit(limit)
+            .offset(offset)
+            .subquery()
+        )
+        sightings = _sighting_summary()
+        # An OUTER join to evidence with an explicit raise rather than an inner
+        # join: every finding has evidence by construction (both rows are written
+        # by the same upsert, in one transaction), and Finding.evidence is not
+        # optional, so a missing row is unrepresentable in the domain. An inner
+        # join would silently omit such a finding, which is the wrong failure — a
+        # security finding disappearing from a response is worse than an error
+        # saying the database is inconsistent. The sighting summary is joined the
+        # same way and for the same reason: _persist writes the sighting in the
+        # same transaction as the upsert, so a finding without one means something
+        # wrote around this repository.
         #
-        # An OUTER join with an explicit raise rather than an inner join: every
-        # finding has evidence by construction (both rows are written by the same
-        # upsert, in one transaction), and Finding.evidence is not optional, so a
-        # missing row is unrepresentable in the domain. An inner join would
-        # silently omit such a finding from a listing, which is the wrong failure
-        # — a security finding disappearing from a response is worse than an
-        # error saying the database is inconsistent.
+        # The ORDER BY is repeated here because a subquery's ordering is not
+        # guaranteed to survive a join — the inner one selects the page, this one
+        # presents it, and at fifty rows the second sort is free.
+        statement = (
+            select(FindingModel, EvidenceModel, sightings)
+            .join(page, page.c.id == FindingModel.id)
+            .outerjoin(EvidenceModel, EvidenceModel.finding_id == FindingModel.id)
+            .outerjoin(sightings, true())
+            .order_by(_SEVERITY_RANK_SQL.desc(), FindingModel.dedup_hash)
+        )
+        result = await self._session.execute(statement)
+
+        sighted: list[SightedFinding] = []
+        for row in result.all():
+            finding_model, evidence_model = row[0], row[1]
+            if evidence_model is None:
+                raise ValueError(
+                    f"Finding '{finding_model.id}' has no evidence row — Evidence is 1:1 with "
+                    f"Finding and both are written by the same upsert, so this means something "
+                    f"wrote a finding outside the repository"
+                )
+            if row.sighting_count is None:
+                raise ValueError(
+                    f"Finding '{finding_model.id}' has no sightings — NormalizeScanUseCase "
+                    f"records one in the same transaction as the upsert, so this means "
+                    f"something wrote a finding outside the repository"
+                )
+            sighted.append(
+                SightedFinding(
+                    finding=_finding_to_domain(finding_model, evidence_model),
+                    first_seen_at=row.first_seen_at,
+                    last_seen_at=row.last_seen_at,
+                    last_seen_scan_id=row.last_seen_scan_id,
+                    sighting_count=row.sighting_count,
+                    latest_match_count=row.latest_match_count,
+                )
+            )
+        return sighted
+
+    async def count_for_project(
+        self, *, project_id: str, min_severity: Severity | None, source: ScannerTool | None
+    ) -> int:
+        # The same predicates as list_for_project, built by the same function
+        # rather than retyped — a count that filtered differently from its listing
+        # would be a `total` that silently disagrees with the page it describes.
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(FindingModel)
+            .where(*_project_filters(project_id, min_severity, source))
+        )
+        return result.scalar_one()
+
+    async def get_by_project_id(self, project_id: str) -> list[Finding]:
+        # No sighting join and no severity ordering — see the port docstring for
+        # why this survived M4.5's listing rather than being replaced by it.
         result = await self._session.execute(
             select(FindingModel, EvidenceModel)
             .outerjoin(EvidenceModel, EvidenceModel.finding_id == FindingModel.id)
@@ -397,6 +612,29 @@ class PostgresFindingRepository:
                 )
             findings.append(_finding_to_domain(finding_model, evidence_model))
         return findings
+
+    async def get_by_id(self, *, project_id: str, finding_id: str) -> Finding | None:
+        # project_id is in the WHERE clause, not checked after the fetch. A
+        # finding from another project and a finding that does not exist both
+        # produce zero rows, so the caller cannot tell them apart and neither can
+        # its 404 — which is what stops an id from one project being used to probe
+        # which ids exist in another.
+        result = await self._session.execute(
+            select(FindingModel, EvidenceModel)
+            .outerjoin(EvidenceModel, EvidenceModel.finding_id == FindingModel.id)
+            .where(FindingModel.id == finding_id, FindingModel.project_id == project_id)
+        )
+        row = result.one_or_none()
+        if row is None:
+            return None
+        finding_model, evidence_model = row
+        if evidence_model is None:
+            raise ValueError(
+                f"Finding '{finding_model.id}' has no evidence row — Evidence is 1:1 with "
+                f"Finding and both are written by the same upsert, so this means something "
+                f"wrote a finding outside the repository"
+            )
+        return _finding_to_domain(finding_model, evidence_model)
 
     async def get_sightings_by_finding_id(self, finding_id: str) -> list[FindingSighting]:
         result = await self._session.execute(

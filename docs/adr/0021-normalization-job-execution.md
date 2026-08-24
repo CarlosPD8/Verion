@@ -310,7 +310,9 @@ trigger nobody has scoped.
 is the project's first index that exists in its own right, and an `Index` is not
 in `table.constraints` — so without it the sweep's index would have been asserted
 by nothing in either direction. ADR-0020 already names the next one
-(`ix_finding_sightings_scan_id`, M4.5).
+(`ix_finding_sightings_scan_id`, M4.5). *(Amended — the next one to ship was
+`ix_normalization_runs_project_id` in M4.5, and `ix_finding_sightings_scan_id` is
+M9.1's. See Amendments.)*
 
 **No logging was added, and the cost of that is now written down in one place**:
 `worker.py`'s enqueue catch. While Redis is unreachable every scan degrades to
@@ -327,6 +329,33 @@ would have added a fourth ZAP-class test, a third of the remaining headroom to
 that costs real time is `test_semgrep_adapter.py`'s CWD-invariance case, which
 runs the real adapter twice because that is the only way to observe the invariant
 at all.
+
+## Amendments
+
+- **2026-08-24 (M4.5):** Two forward-looking claims in Consequences are corrected.
+  No decision changes and no shipped code from this issue changed.
+  - **The next index was not `ix_finding_sightings_scan_id`.** M4.5 shipped
+    `ix_normalization_runs_project_id` on `(project_id, requested_at DESC)`,
+    carrying the two queries that surface `NormalizationRun` to a reader, and
+    deliberately did **not** ship the sightings index: its listing turned out to be
+    project-scoped and scan-independent, so it has no scan-first query, and
+    ADR-0017's "an index without its query is a guess" applies with nothing against
+    it. The sightings index is M9.1's, together with the absence check and the
+    succeeded-tools caveat — all four now recorded as that issue's acceptance
+    criteria in one place rather than spread across two ADRs' Consequences.
+    See ADR-0022 decision 4.
+  - **"M4.5 inherits a `NormalizationRun` worth surfacing" is discharged**, and
+    the shape is worth naming because the obvious one is insufficient:
+    `GET /projects/{id}/findings` returns the project's latest run *and*
+    `unfinished_runs`, a count of every run that has not reached `completed`. The
+    latest run alone reports `completed` for a project whose three earlier scans
+    never normalized, which is exactly the G15 case this ADR opened.
+  - **Decision 4's rule-12 care was load-bearing rather than precautionary**, which
+    is worth recording now that the consumer exists: `failure_reason` is returned
+    over HTTP, so the choice to persist the exception *type only* is what makes
+    that safe. The assertion is this issue's own
+    `test_normalize_scan.py::test_the_failure_reason_never_carries_the_exception_message`,
+    not M4.5's — M4.5 consumes the guarantee and adds no second copy of it.
 
 ## Alternatives considered
 

@@ -24,8 +24,11 @@ had no secondary index — every write path was served by a constraint index, wh
 the constraint comparison already covers. `ix_normalization_runs_sweep` is the
 first that exists on its own, and an `Index` is not in `table.constraints`, so
 without this it would have been asserted by nothing in either direction. The same
-failure the CHECK comparison exists for, one object type over, and ADR-0020
-already names the next one (`ix_finding_sightings_scan_id`, M4.5).
+failure the CHECK comparison exists for, one object type over. M4.5 added the
+second, `ix_normalization_runs_project_id`. ADR-0020 named
+`ix_finding_sightings_scan_id` as the next one and put it at "M4.5/M9.1"; it is
+**M9.1**, because M4.5's listing is project-scoped and has no scan-first query to
+justify it (ADR-0022 decision 4).
 
 Deliberately out of scope, so the limits are stated rather than assumed: column
 types, nullability, and an index's columns/predicate — names only, for the reason

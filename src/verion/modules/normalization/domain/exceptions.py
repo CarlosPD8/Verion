@@ -9,6 +9,32 @@ class NormalizationError(Exception):
     """
 
 
+class ProjectAccessDenied(NormalizationError):
+    """The caller may not read this project — because it does not exist, or
+    because they are not a member, and this type deliberately cannot say which.
+
+    That is not vagueness, it is the policy. `ProjectAccessPort.may_read_project`
+    returns one bool precisely so no consumer can distinguish the two cases, and
+    the route maps this to **404** for both. A 403 here would tell an
+    unauthorized caller that the project exists, which on a *findings* endpoint
+    is project enumeration against the most sensitive read in the system.
+
+    It is this module's own exception rather than `projects`' `InsufficientPermissions`
+    because that type lives in another module's `domain/` (rule 3). Nothing is
+    lost: the two carry the same information, which is none beyond "no".
+    """
+
+
+class FindingNotFound(NormalizationError):
+    """No such finding in this project.
+
+    Raised for a `finding_id` that does not exist AND for one that exists in a
+    different project, indistinguishably — the same reasoning as
+    `ProjectAccessDenied`, one level down. A caller who is authorized for project
+    A must not be able to probe which finding ids exist in project B.
+    """
+
+
 class UnknownScannerOutput(NormalizationError):
     """A persisted `ScanResult` names a tool this module has no mapper for.
 

@@ -151,8 +151,23 @@ class NormalizeScanUseCase:
             # `failure_reason` is the field ADR-0017 decision 1 created for a
             # failure that is neither a scanner outcome nor a pre-tool failure.
             #
-            # Only the hashes and the count, never the disagreeing values: those
-            # are `title`/`severity` and can carry scanned content (rule 12).
+            # Only the hashes and the count, never the disagreeing values.
+            #
+            # **The reason is narrower than this comment claimed until M4.5, and
+            # the overstatement is corrected rather than left standing.** It said
+            # `title`/`severity` "can carry scanned content (rule 12)". They
+            # cannot, under any mapper this project has: `title` is `check_id`
+            # for Semgrep, `VulnerabilityID` plus the advisory's own title for
+            # Trivy, and the alert name for ZAP — rule- and advisory-derived
+            # prose, never the matched source. `severity` is a closed vocabulary.
+            # The true reason to omit them is duller and still sufficient: they
+            # do not identify WHICH group was skipped, `dedup_hash` does, and a
+            # bounded diagnostic field should carry the identifier rather than
+            # the payload. Rule 12 was doing no work here.
+            #
+            # It mattered enough to fix because M4.5 makes this field an API
+            # response, so a false claim about what may safely go in it is now a
+            # claim about what may safely leave the system.
             await self._normalization_runs.update(
                 run.fail(
                     self._clock.now(),

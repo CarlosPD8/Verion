@@ -9,6 +9,7 @@ from verion.modules.projects.adapters.outbound.db.models import (
     ScannerConfigModel,
     SecurityContextModel,
 )
+from verion.modules.projects.domain.authorization import may_read
 from verion.modules.projects.domain.exceptions import SecurityContextNotFound
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
 from verion.modules.projects.domain.scanner_config import ScannerConfig
@@ -146,6 +147,28 @@ class PostgresProjectMembershipRepository:
     ) -> ProjectMembership | None:
         model = await self._session.get(ProjectMembershipModel, (project_id, user_id))
         return _membership_to_domain(model) if model is not None else None
+
+
+class PostgresProjectAccessReader:
+    """`ProjectAccessPort` over `project_memberships`. See that port's docstring.
+
+    Reads the membership and hands the decision to `may_read`, rather than
+    returning `model is not None` directly. The extra hop is the point: the rule
+    lives in `domain/authorization.py` and this adapter only fetches what the rule
+    needs, so a VIEWER role would change one function and not this file.
+
+    One statement, served by the composite primary key. It does not check that the
+    project row exists, and does not need to: a membership is created with the
+    project (`CreateProjectUseCase`), so a membership implies one, and the port
+    deliberately cannot report the difference anyway.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def may_read_project(self, *, project_id: str, user_id: str) -> bool:
+        model = await self._session.get(ProjectMembershipModel, (project_id, user_id))
+        return may_read(_membership_to_domain(model) if model is not None else None)
 
 
 class PostgresSecurityContextRepository:

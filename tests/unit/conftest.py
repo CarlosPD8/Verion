@@ -7,6 +7,7 @@ from verion.modules.identity.domain.user import User
 from verion.modules.normalization.domain.finding import (
     Finding,
     FindingSighting,
+    SightedFinding,
     merge_observation,
 )
 from verion.modules.normalization.domain.normalization_run import (
@@ -24,6 +25,48 @@ from verion.modules.scanning.domain.scan import Scan
 from verion.modules.scanning.domain.scan_result import ScanResult, ScanResultStatus
 from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.shared_kernel.scanner_tools import ScannerTool
+from verion.shared_kernel.severity import Severity
+
+
+class InMemoryProjectAccess:
+    """`ProjectAccessPort` — a set of (project_id, user_id) pairs that may read.
+
+    A set rather than a membership store, deliberately: the port returns a verdict
+    and cannot say WHY access was denied, so a fake that modelled memberships
+    would be modelling more than the port exposes and would invite a test to
+    assert on a distinction no consumer can observe.
+    """
+
+    def __init__(self, permitted: set[tuple[str, str]] | None = None) -> None:
+        self._permitted = permitted or set()
+        self.calls: list[tuple[str, str]] = []
+
+    def permit(self, project_id: str, user_id: str) -> None:
+        self._permitted.add((project_id, user_id))
+
+    async def may_read_project(self, *, project_id: str, user_id: str) -> bool:
+        self.calls.append((project_id, user_id))
+        return (project_id, user_id) in self._permitted
+
+
+class ExplodingFindingRepository:
+    """Every read raises. Proves a use case authorized BEFORE it touched storage.
+
+    The gate-placement assertion, in the shape ADR-0013 established for the SSRF
+    validators: a check that happens to run first is not the same as a check that
+    must. If an authorization check is moved below a read by a later refactor,
+    nothing else in the suite would fail — the denial still happens, just after
+    the database was consulted with an unauthorized caller's project id.
+    """
+
+    async def list_for_project(self, **_: object) -> list[SightedFinding]:
+        raise AssertionError("the repository was read before authorization")
+
+    async def count_for_project(self, **_: object) -> int:
+        raise AssertionError("the repository was read before authorization")
+
+    async def get_by_id(self, **_: object) -> Finding | None:
+        raise AssertionError("the repository was read before authorization")
 
 
 class InMemoryUserRepository:
@@ -342,6 +385,21 @@ class InMemoryNormalizationRunRepository:
         ]
         return sorted(stale, key=lambda run: run.requested_at)[:limit]
 
+    async def get_latest_by_project_id(self, project_id: str) -> NormalizationRun | None:
+        # requested_at DESC then id DESC, mirroring the adapter's total order —
+        # two scans of one project can be requested within the same clock tick.
+        for_project = [run for run in self._runs.values() if run.project_id == project_id]
+        if not for_project:
+            return None
+        return max(for_project, key=lambda run: (run.requested_at, run.id))
+
+    async def count_unfinished_by_project_id(self, project_id: str) -> int:
+        return sum(
+            1
+            for run in self._runs.values()
+            if run.project_id == project_id and run.status is not NormalizationRunStatus.COMPLETED
+        )
+
     def seed(self, run: NormalizationRun) -> None:
         """Place a run in an arbitrary state, for tests about what happens next."""
         self._runs[run.scan_id] = run
@@ -389,6 +447,70 @@ class InMemoryFindingRepository:
             key=lambda f: f.dedup_hash,
         )
 
+    def _matching(
+        self, project_id: str, min_severity: Severity | None, source: ScannerTool | None
+    ) -> list[Finding]:
+        # Filters by RANK, mirroring the adapter's IN-over-members. Written as a
+        # rank comparison rather than a copy of the adapter's member list so the
+        # two agree by both deriving from Severity.rank rather than from each
+        # other — including the consequence that UNKNOWN (rank 0) drops out of
+        # every min_severity except itself.
+        return [
+            finding
+            for finding in self._findings.values()
+            if finding.project_id == project_id
+            and (min_severity is None or finding.severity.rank >= min_severity.rank)
+            and (source is None or finding.source is source)
+        ]
+
+    async def list_for_project(
+        self,
+        *,
+        project_id: str,
+        min_severity: Severity | None,
+        source: ScannerTool | None,
+        limit: int,
+        offset: int,
+    ) -> list[SightedFinding]:
+        ordered = sorted(
+            self._matching(project_id, min_severity, source),
+            key=lambda f: (-f.severity.rank, f.dedup_hash),
+        )
+        page = ordered[offset : offset + limit]
+        sighted: list[SightedFinding] = []
+        for finding in page:
+            observations = sorted(
+                (s for s in self._sightings.values() if s.finding_id == finding.id),
+                key=lambda s: (s.observed_at, s.scan_id),
+            )
+            if not observations:
+                # The real adapter raises here too: NormalizeScanUseCase writes a
+                # sighting in the same transaction as the upsert, so a finding
+                # without one means something wrote around the repository.
+                raise ValueError(f"Finding '{finding.id}' has no sightings")
+            sighted.append(
+                SightedFinding(
+                    finding=finding,
+                    first_seen_at=observations[0].observed_at,
+                    last_seen_at=observations[-1].observed_at,
+                    last_seen_scan_id=observations[-1].scan_id,
+                    sighting_count=len(observations),
+                    latest_match_count=observations[-1].match_count,
+                )
+            )
+        return sighted
+
+    async def count_for_project(
+        self, *, project_id: str, min_severity: Severity | None, source: ScannerTool | None
+    ) -> int:
+        return len(self._matching(project_id, min_severity, source))
+
+    async def get_by_id(self, *, project_id: str, finding_id: str) -> Finding | None:
+        for finding in self._findings.values():
+            if finding.id == finding_id and finding.project_id == project_id:
+                return finding
+        return None
+
     async def get_sightings_by_finding_id(self, finding_id: str) -> list[FindingSighting]:
         return sorted(
             (s for s in self._sightings.values() if s.finding_id == finding_id),
@@ -410,6 +532,16 @@ class RecordingNormalizationQueue:
 @pytest.fixture
 def finding_repository() -> InMemoryFindingRepository:
     return InMemoryFindingRepository()
+
+
+@pytest.fixture
+def project_access() -> InMemoryProjectAccess:
+    return InMemoryProjectAccess()
+
+
+@pytest.fixture
+def exploding_finding_repository() -> ExplodingFindingRepository:
+    return ExplodingFindingRepository()
 
 
 @pytest.fixture

@@ -276,6 +276,65 @@ class FindingSighting:
             )
 
 
+@dataclass(frozen=True)
+class SightedFinding:
+    """A `Finding` together with the aggregate of every scan that observed it.
+
+    **Derived on every read, stored nowhere**, which is what keeps it on the right
+    side of ADR-0019 decision 1. That decision refuses `last_seen_at` and
+    `last_seen_scan_id` as *columns* on `Finding` — a denormalized summary that can
+    silently go stale in M9.1's path — while saying in the same breath that both
+    are `max()` over the sightings. This type is that `max()`, computed per
+    request. Nothing here can go stale, because nothing here is kept.
+
+    **Why it belongs in `domain/` when `FindingPage` did not**, recorded because
+    deciding this by habit is how a criterion stops being one:
+
+    > `domain/` takes types whose fields are facts about the system being
+    > modelled. A type whose fields are artifacts of how a caller asked the
+    > question — a page size, an offset, a total assembled for an envelope — is
+    > not one, however convenient it would be to return.
+
+    Every field below is `min()`, `max()` or `count()` over `FindingSighting`
+    rows, so each is a fact about the finding rather than about the request. This
+    type would be unchanged if the consumer were a CLI, and M9.1's absence check
+    wants exactly this shape. A paginated wrapper would not have been, so the port
+    returns a plain list and the inbound adapter assembles the envelope.
+
+    **`last_seen_at` is not `resolved`, and the distinction is load-bearing.**
+    This type says *when* a finding was last observed and never *whether it is
+    still present*. Turning the first into the second requires knowing which tools
+    SUCCEEDED in the scan being compared against — ADR-0019's Consequences — and
+    a naive absence check without it silently resolves every dependency finding in
+    a project the moment one Trivy run fails. That belongs to M9.1, which owns the
+    decision; M4.5 exposes the observation and stops there.
+    """
+
+    finding: Finding
+    first_seen_at: datetime
+    last_seen_at: datetime
+    last_seen_scan_id: str
+    sighting_count: int
+    # The match_count of the LATEST sighting, not a sum across scans. A sum would
+    # be meaningless: match_count is a per-scan total (see FindingSighting), so
+    # adding them across scans counts the same two source elements once per scan.
+    latest_match_count: int
+
+    def __post_init__(self) -> None:
+        if self.sighting_count < 1:
+            raise ValueError(
+                f"SightedFinding for finding '{self.finding.id}' has sighting_count "
+                f"{self.sighting_count} — this type aggregates sightings, so it cannot "
+                f"describe a finding that was never sighted"
+            )
+        if self.last_seen_at < self.first_seen_at:
+            raise ValueError(
+                f"SightedFinding for finding '{self.finding.id}' was last seen "
+                f"{self.last_seen_at.isoformat()}, before it was first seen "
+                f"{self.first_seen_at.isoformat()}"
+            )
+
+
 def merge_observation(existing: Finding, observed: Finding) -> Finding:
     """Fold a later scan's observation into the stored `Finding`.
 

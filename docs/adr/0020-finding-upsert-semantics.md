@@ -85,6 +85,44 @@ A convention ("remember to update the `SET` clause") is the kind of rule this pr
 
 **One test-harness change rides along, and it is recorded here because it is what makes this issue's eight new constraints real.** The integration suite now builds its schema with `alembic upgrade head` instead of `Base.metadata.create_all`. Previously the two were compared by nothing: in CI they happened to agree because `alembic upgrade head` runs before `pytest` against the same service and `create_all` defaults to `checkfirst=True`, silently skipping every already-migrated table — an undocumented consequence of step ordering, invisible locally, and covering only constraints some test exercises. A `CHECK` declared on a model and missing from its migration would otherwise have passed the whole suite and failed in production. `test_schema_matches_models.py` covers the remainder by comparing table, column and named-constraint sets in **both** directions; the second direction is what stops it going vacuous, since `Base.metadata` holds only the tables whose modules have been imported. A side effect worth knowing: **rule 8 becomes partially mechanically enforced** — a model on a second declarative base gets no migration, so its table now does not exist and its tests fail loudly — for any model an integration test touches.
 
+## Amendments
+
+- **2026-08-24 (M4.5):** Both of this document's instructions to M4.5 are
+  discharged, one of them with a result that contradicts what Consequences
+  expected. No decision here changes; decisions 1–5 are untouched.
+  - **`ix_finding_sightings_scan_id` did not ship in M4.5.** Consequences says it
+    ships "with M4.5/M9.1, in the migration carrying its query", and the operative
+    half is the second: M4.5's listing is **project-scoped and scan-independent**,
+    so it has no scan-first query at all. Its per-finding sighting summary
+    correlates on `finding_id`, the sightings primary key's leading column. The
+    index goes to M9.1 with the absence check. What M4.5 shipped instead is
+    `ix_normalization_runs_project_id`, on a table that had no index and grows one
+    row per scan forever. See ADR-0022 decision 4.
+  - **The `EXPLAIN` was run, and it reversed a query, which is the point of having
+    asked for it.** At 100k findings / 300k sightings the first implementation took
+    **763 ms**: the sighting summary was a whole-table `DISTINCT ON` merge-joined
+    against the page, so Postgres seq-scanned all 300,000 sightings and sorted them
+    on disk to return fifty rows. Rewritten as a LATERAL correlated to one finding
+    it is **3.07 ms**. The listing's project filter does ride
+    `uq_findings_project_id_dedup_hash` as an index prefix, exactly as Consequences
+    predicted.
+  - **The warning in Consequences was nearly not enough.** It says a benchmark at
+    24 rows "would measure nothing while reading as evidence". The first run at
+    *full* volume measured 8.8 ms and was also meaningless, because the synthetic
+    finding ids were sequential — one project's findings clustered at the head of
+    the id-ordered scan and the merge join terminated early. Real ids are UUIDs
+    (rule 9). So volume alone does not make a benchmark honest; the synthetic data
+    also has to lack no property production has. Recorded because it is the same
+    disconnected-verification shape G8 and G9 already carry, arriving through a
+    seed script.
+  - **ADR-0019 decision 1's `last_seen` cache invitation was re-read here, as this
+    document instructed, and declined.** It was the wrong lever: the cost was never
+    that aggregating sightings is expensive, it was that the query aggregated every
+    finding's sightings to serve one page. Correlating fixed it without
+    denormalizing anything, so no silently-staleable summary enters M9.1's path.
+  - The measurement is reproducible rather than asserted:
+    `scripts/seed_findings_benchmark.py`, versioned for that reason.
+
 ## Alternatives considered
 
 **Read-modify-write through `merge_observation` itself.** Rejected in decision 2. Worth restating what it would have bought: the domain function on the production path, so no transcription to keep honest. What kills it is not elegance but the `IntegrityError` this project has now rejected three times for the same reason.

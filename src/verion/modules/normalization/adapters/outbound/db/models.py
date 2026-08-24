@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    desc,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -105,6 +106,17 @@ class NormalizationRunModel(Base):
             "requested_at",
             postgresql_where=text("status IN ('pending', 'running')"),
         ),
+        # M4.5's index, shipped in the migration carrying the two queries that
+        # want it — the same ADR-0017 rule the sweep index above satisfies.
+        # `get_latest_by_project_id` is ORDER BY requested_at DESC LIMIT 1 within
+        # one project, which this serves end to end; `count_unfinished_by_project_id`
+        # rides the leading column and filters on status.
+        #
+        # NOT partial, unlike the sweep's. That one is proportional to the backlog
+        # because pending/running rows are a shrinking fraction of history; this
+        # one has to answer "the latest run" for a project whose runs are all
+        # completed, which is the ordinary case.
+        Index("ix_normalization_runs_project_id", "project_id", desc("requested_at")),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -260,9 +272,13 @@ class FindingSightingModel(Base):
 
     Column order is `(finding_id, scan_id)` and that is shape rather than
     tuning: it is the primary key, so changing it later is a real migration. It
-    serves finding-first lookups; the scan-first query M4.5 and M9.1 need is
-    served by an index on `scan_id`, which is additive and ships with the query
-    that wants it.
+    serves finding-first lookups, which is what M4.5's per-finding sighting
+    summary correlates on. The scan-first query — "which findings were sighted in
+    scan N" — is served by an index on `scan_id`, which is additive and ships with
+    the query that wants it. **That is M9.1 and not M4.5**, as ADR-0020 allowed
+    for: M4.5's listing turned out to be project-scoped and scan-independent, so
+    it has no scan-first query and shipping the index there would have been the
+    guess ADR-0017 forbids. See ADR-0022 decision 4.
     """
 
     __tablename__ = "finding_sightings"

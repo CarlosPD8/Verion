@@ -26,10 +26,21 @@ from verion.modules.identity.ports.password_hasher import PasswordHasherPort
 from verion.modules.identity.ports.user_repository import UserRepositoryPort
 from verion.modules.normalization.adapters.outbound.db.repository import (
     PostgresFindingRepository,
+    PostgresNormalizationRunRepository,
+)
+from verion.modules.normalization.application.get_finding_evidence import (
+    GetFindingEvidenceUseCase,
+)
+from verion.modules.normalization.application.list_project_findings import (
+    ListProjectFindingsUseCase,
 )
 from verion.modules.normalization.ports.finding_repository import FindingRepositoryPort
+from verion.modules.normalization.ports.normalization_run_repository import (
+    NormalizationRunRepositoryPort,
+)
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
+    PostgresProjectAccessReader,
     PostgresProjectMembershipRepository,
     PostgresProjectRepository,
     PostgresScannerConfigRepository,
@@ -52,6 +63,7 @@ from verion.modules.projects.application.update_exposure_tags import UpdateExpos
 from verion.modules.projects.application.update_scanner_config import UpdateScannerConfigUseCase
 from verion.modules.projects.domain.context_detection import detect_stack
 from verion.modules.projects.ports.connected_repo_repository import ConnectedRepoRepositoryPort
+from verion.modules.projects.ports.project_access import ProjectAccessPort
 from verion.modules.projects.ports.project_membership_repository import (
     ProjectMembershipRepositoryPort,
 )
@@ -498,20 +510,64 @@ HandleGitHubWebhookUseCaseDep = Annotated[
 ]
 
 
-# Still no route depends on this — the read API is M4.5 — and it is here anyway,
-# for a reason worth stating rather than leaving as an apparent oversight. A
-# factory's PORT-annotated return type is the only place `mypy --strict` ever
-# verifies that an adapter satisfies its Protocol (CLAUDE.md's Tier 1 table).
-#
-# Since M4.4 that is belt and braces rather than the only cover:
-# `NormalizeScanUseCase.__init__` annotates its parameter as FindingRepositoryPort
-# and worker.py's normalize_scan constructs the adapter into it, which is the same
-# meeting point PostgresNormalizationRunRepository has always had via
-# RunScanUseCase. Kept because M4.5 wires a route through here, and removing a
-# conformance check the moment a second one appears is how the second one becomes
-# the only one without anybody deciding that.
+# A factory's PORT-annotated return type is the only place `mypy --strict` ever
+# verifies that an adapter satisfies its Protocol (CLAUDE.md's Tier 1 table). This
+# one shipped in M4.3 with no route depending on it, for that reason alone; since
+# M4.5 the two use cases below consume it and the route is real.
 def get_finding_repository(session: DbSessionDep) -> FindingRepositoryPort:
     return PostgresFindingRepository(session)
 
 
 FindingRepositoryDep = Annotated[FindingRepositoryPort, Depends(get_finding_repository)]
+
+
+# New in M4.5. `worker.py` has always constructed its own for the job path; the
+# read API needs a request-scoped one, and routing it through here is also what
+# puts PostgresNormalizationRunRepository against its Protocol at a second
+# checked site.
+def get_normalization_run_repository(session: DbSessionDep) -> NormalizationRunRepositoryPort:
+    return PostgresNormalizationRunRepository(session)
+
+
+NormalizationRunRepositoryDep = Annotated[
+    NormalizationRunRepositoryPort, Depends(get_normalization_run_repository)
+]
+
+
+# `projects`' authorization verdict, consumed by `normalization`'s routes. Not
+# PostgresProjectMembershipRepository, which is a persistence port — see
+# ProjectAccessPort's docstring and ADR-0022 decision 2 for why the difference
+# matters more than the one line of code it saves.
+def get_project_access(session: DbSessionDep) -> ProjectAccessPort:
+    return PostgresProjectAccessReader(session)
+
+
+ProjectAccessDep = Annotated[ProjectAccessPort, Depends(get_project_access)]
+
+
+def get_list_project_findings_use_case(
+    project_access: ProjectAccessDep,
+    findings: FindingRepositoryDep,
+    normalization_runs: NormalizationRunRepositoryDep,
+) -> ListProjectFindingsUseCase:
+    return ListProjectFindingsUseCase(
+        project_access=project_access,
+        findings=findings,
+        normalization_runs=normalization_runs,
+    )
+
+
+ListProjectFindingsUseCaseDep = Annotated[
+    ListProjectFindingsUseCase, Depends(get_list_project_findings_use_case)
+]
+
+
+def get_get_finding_evidence_use_case(
+    project_access: ProjectAccessDep, findings: FindingRepositoryDep
+) -> GetFindingEvidenceUseCase:
+    return GetFindingEvidenceUseCase(project_access=project_access, findings=findings)
+
+
+GetFindingEvidenceUseCaseDep = Annotated[
+    GetFindingEvidenceUseCase, Depends(get_get_finding_evidence_use_case)
+]

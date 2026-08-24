@@ -5,6 +5,7 @@ from arq.connections import RedisSettings, create_pool
 from fastapi import FastAPI
 
 from verion.modules.identity.adapters.inbound.api.router import router as identity_router
+from verion.modules.normalization.adapters.inbound.api.router import router as findings_router
 from verion.modules.projects.adapters.inbound.api.router import router as projects_router
 from verion.modules.scanning.adapters.inbound.api.router import router as scanning_router
 from verion.platform.settings import get_settings
@@ -35,6 +36,12 @@ def create_app() -> FastAPI:
 
     app.include_router(identity_router, prefix="/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/projects", tags=["projects"])
+    # `normalization`'s routes share the /projects prefix rather than getting one
+    # of their own, because the resource they hang off IS a project:
+    # /projects/{id}/findings. Two routers under one prefix is fine — their paths
+    # are disjoint, so nothing shadows anything — and the alternative would be a
+    # URL that named the module instead of the resource.
+    app.include_router(findings_router, prefix="/projects", tags=["findings"])
     app.include_router(scanning_router, prefix="/scanning", tags=["scanning"])
 
     return app
