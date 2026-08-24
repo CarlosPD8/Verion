@@ -2,7 +2,7 @@
 
 **Status:** Draft v1.0
 **Related:** `PRODUCT_SPEC.md`
-**Last updated:** 2026-08-18
+**Last updated:** 2026-08-24
 
 ---
 
@@ -283,7 +283,7 @@ erDiagram
 | `SweepPendingNormalizationsUseCase` | The reconciliation backstop: re-enqueue normalization for runs that are owed and not progressing. Selects on `normalization_runs` alone, never `Scan.status` (M4.4) |
 | `ListProjectFindingsUseCase` | A project's findings with each one's sighting aggregate, filtered and paged, plus the normalization state that says whether the list is complete. Project-scoped and scan-independent — it reports when a finding was last seen, never whether it is resolved (M4.5) |
 | `GetFindingEvidenceUseCase` | One finding's verbatim tool output — FR-9's link, followed. The only route that returns scanned content, deliberately separate from the listing (M4.5, ADR-0022) |
-| `CorrelateFindingsUseCase` | Run correlation over a scan's findings |
+| `CorrelateFindingsUseCase` | Group related `Finding`s into candidate Risks. **Its scope — a project's findings or one scan's — is M5.1's decision and is deliberately not stated here.** This row said "over a scan's findings" until the M4→M5 boundary review, which is a query `FindingRepositoryPort` deliberately does not offer: `scan_id` is not the leading column of the sightings primary key, and the scan-first read, its index, the absence check and the succeeded-tools caveat are M9.1's acceptance criteria, together. §8 drew the same stage as an unscoped `read Findings`, so the two sections disagreed and this one was the more specific. M5.1 choosing scan scoping means building M9.1's query first, not inheriting it |
 | `ComputeRiskUseCase` | Score and prioritize correlated Risks |
 | `GenerateSecurityBriefUseCase` | Produce the developer-facing explanation |
 | `ResolveRiskUseCase` / `DismissRiskUseCase` | Change risk lifecycle state, with reason |
@@ -546,7 +546,11 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
 
 - **ADR-0020 — How the `Finding` upsert stays equal to `merge_observation`.** M4.3. ADR-0019 made that pure function the executable spec for the upsert without saying how a domain function and one SQL statement stay in agreement. They can, because the function's refresh set is **total except the two surrogate ids** — so `ON CONFLICT DO UPDATE` transcribes it rather than re-deciding it, and the `SET` clause is exactly `_RULE_LEVEL_ATTRIBUTES` plus the three `Location` fields the hash excludes. Read-modify-write is rejected on a concurrency window the obvious bound misses: `UNIQUE(scan_id)` bounds duplicate jobs for **one** scan, not two scans of the same project normalizing at once, so it would hit the `IntegrityError` ADR-014 and ADR-0017 both rejected. The equivalence **expires** the moment a field must not refresh — M6.1's `confidence` is the named candidate — and three test layers (column partition, refresh-set derivation from the domain's own declarations, and a whole-object comparison against `merge_observation`) are what hold it rather than a convention. `upsert` returns the resolved `Finding` because only it settles which `id` wins; `record_sighting` overwrites a per-scan **total** because retries are guaranteed and only overwriting is idempotent.
 
-`0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created.
+- **ADR-0021 — Normalization job execution: scheduling, state machine, and failure semantics.** M4.4, discharging the four items ADR-0017 deferred. The sweep is an arq cron job that only ever *enqueues*, and it selects `pending` **and** `running` — a deviation from the pending-only shape ADR-0017 anticipated, argued on an asymmetry: a pending-only sweep can never recover a row a killed worker left `running` (silent and permanent), while the failure it risks instead, re-enqueuing a live job, is a no-op via arq's job-id dedup. Its 900s threshold is **derived from `job_timeout` (600) and is a constraint rather than slack**, pinned by a test. `COMPLETED` is the only terminal state; `FAILED` is deliberately re-claimable, because a terminal `FAILED` would make arq's retry reach the claim, get `None`, and silently do nothing. Failure splits on whether it is deterministic in the persisted `ScanResult` rows — transient re-raises for retry, a deterministic `collapse_by_identity` disagreement skips that group, persists everything else and marks the run failed. Opened **G15**: the sweep excludes `failed`, so a transient failure that exhausts arq's retries is never recovered.
+
+- **ADR-0022 — The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness.** M4.5. Two routes, because FR-9 asks for a *link* and rule 12's hazard is the **bulk shape** — a listing carrying every finding's `raw_payload` is a source-code export with nothing in its signature saying so (measured: 71,532 characters across the 24 findings the three real captured fixtures produce — the fixture set is six files, three real and three synthetic-edge), so an addressable per-finding route returns the payload and the listing never does. `projects` publishes **`ProjectAccessPort`**, a verdict-returning port, because consuming a *persistence* port would put "authorization means a membership row exists" in every consuming module; one method, so both denials are 404 and a non-member cannot distinguish an absent project from one they may not read — the shape M5.2, M6.3, M7.2 and M8.2 copy. The response envelope carries normalization state, and `unfinished_runs` is the load-bearing half: `latest_run` alone reports `completed` for a project whose three earlier scans never normalized. Project-scoped and scan-independent, with no `?status=open` — that needs the succeeded-tools scoping M9.1 owns, and without it one failed Trivy silently resolves every dependency finding.
+
+`0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created. `0023` is `ROADMAP.md` M5.1's, for how `correlation` names the type it correlates.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Status:** Draft v1.0
 **Owner:** [Your Name]
-**Last updated:** 2026-08-18
+**Last updated:** 2026-08-21
 
 ---
 

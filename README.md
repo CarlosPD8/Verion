@@ -69,7 +69,7 @@ Building in 16 weeks across 12 milestones — see [`docs/ROADMAP.md`](docs/ROADM
 - [X] M1 — Identity & Projects
 - [X] M2 — Security Context
 - [X] M3 — Scanning Infrastructure
-- [ ] M4 — Normalization
+- [X] M4 — Normalization
 - [ ] M5 — Correlation Engine
 - [ ] M6 — Risk / Decision Engine
 - [ ] M7 — Security Brief / Explanation Layer

@@ -2,7 +2,7 @@
 
 Each ADR documents one consequential architectural or process decision: the situation that prompted it, what was decided, the honest trade-offs, and what alternatives were rejected and why. See `CLAUDE.md`'s working-style rule for when a new ADR is warranted.
 
-`0005` is intentionally reserved (not yet created) for the future risk-scoring-model ADR, per `docs/ROADMAP.md` M6.1.
+`0005` is intentionally reserved (not yet created) for the future risk-scoring-model ADR, per `docs/ROADMAP.md` M6.1. `0023` is likewise reserved for M5.1's decision on how `correlation` names the type it correlates.
 
 | ADR | Title | Status |
 |---|---|---|
