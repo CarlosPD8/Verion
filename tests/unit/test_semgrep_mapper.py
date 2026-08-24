@@ -30,9 +30,10 @@ def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
     assert finding.severity is Severity.HIGH
     assert finding.native_severity == "ERROR"
     assert finding.title == "dangerous-eval"
-    assert finding.location.file_path == "vulnerable.py"
-    assert finding.location.start_line == 2
-    assert finding.location.end_line == 2
+    # The G23 target's own source file, not M4.1's two-line `vulnerable.py`.
+    assert finding.location.file_path == "app.py"
+    assert finding.location.start_line == 28
+    assert finding.location.end_line == 28
 
 
 def test_absent_fields_are_none_and_are_never_invented(scanner_fixture, id_generator, clock):
@@ -147,8 +148,14 @@ def test_a_line_shift_does_not_change_identity(scanner_fixture, id_generator, cl
 
 
 def test_an_empty_result_set_produces_no_findings(id_generator, clock):
-    """What `octocat/Hello-World` actually returns, and why the fixtures are
-    captured from the per-adapter targets instead."""
+    """An empty `results` array is a real Semgrep response, not a malformed one.
+
+    `octocat/Hello-World` produces exactly this against the pinned Python-only
+    ruleset, which is why it was never a viable capture target. (This docstring
+    read "…and why the fixtures are captured from the per-adapter targets instead"
+    until M5.1: since G23 they are captured from one common target, so that clause
+    described an arrangement that no longer exists.)
+    """
     empty = '{"version": "1.173.0", "results": [], "errors": [], "paths": {"scanned": []}}'
 
     assert _map(empty, id_generator, clock) == []

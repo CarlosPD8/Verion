@@ -124,10 +124,11 @@ M4.1 capture needed two rewrites here, one of which was a correction rather than
 redaction.
 
 **`Metadata` is new in this capture and is why that second Trivy row exists.** M4.1's Trivy
-fixture has `"Metadata": null`, because that capture ran `trivy fs` over a plain directory.
-This one ran over a real `GitRepoCheckout`, so Trivy detected a git repository and recorded
-its provenance — including the upstream commit's author identity, a field no previous
-fixture contained and which nothing here needs. It is rewritten on the README's own stated
+fixture has **no `Metadata` key at all** — that capture ran `trivy fs` over a plain
+directory, so Trivy emitted no git provenance and the key is absent rather than null. This
+one ran over a real `GitRepoCheckout`, so Trivy detected a git repository and recorded its
+provenance — including the upstream commit's author identity, a field no previous fixture
+contained and which nothing here needs. It is rewritten on the README's own stated
 standard: `ArtifactName` was rewritten because it carried the OS username, and a real name
 and email address is more identifying, not less. **`RepoURL`, `Branch`, `Commit` and
 `CommitMsg` are kept** — they are exactly the provenance this corpus is *about*, and
@@ -144,10 +145,39 @@ username, `AppData`, `Escritorio`, drive-letter path prefixes, `host.docker.inte
 `verion-scan-…` capture directory, **and any email address or the upstream author's name**:
 **zero hits of capture-machine or personal identity across all three**.
 
-The email pattern is in that list because the first pass omitted it, and therefore returned
-a clean result against a document that contained a real address twice. **A scan whose
-*pattern list* is the incomplete part reads exactly like a clean document**, which is the
-failure mode worth recording rather than quietly widening the list after the fact.
+**The pattern list is this sweep's weak point, not its coverage — read it that way.** A leak
+scan can only report on what it was told to look for, so a zero here is a statement about
+the list as much as about the files. The email pattern is in it because the first pass
+omitted one and therefore returned a clean result against a document that contained a real
+address twice. **A sweep whose *pattern list* is the incomplete part reads exactly like a
+clean document**, which is the same shape as a citation sweep that reports "no broken
+references" because its file list was short. Widening the list quietly after the fact would
+have hidden the one thing worth learning.
+
+The list currently covers: the capture machine's OS username, `AppData`, `Escritorio`,
+drive-letter path prefixes (`C:\Users`), the `host.docker.internal` capture hostname, the
+`verion-scan-…` temporary checkout directory, **any email address** (domain constrained to
+end in letters), and the upstream author's name. Anyone adding a target, a tool, or a
+capture host should add its identifying strings here **before** running the scan, not after
+reading a zero.
+
+**And a redaction table is only as current as the last capture that changed the document's
+shape.** The M4.1 account was complete for the corpus it described and became silently
+incomplete for this one. Trivy's document gained **two** top-level keys between the two
+captures, because this one ran over a real `GitRepoCheckout` and the previous ran over a
+plain directory:
+
+| | M4.1 | M5.1 |
+|---|---|---|
+| top-level keys | `SchemaVersion`, `Trivy`, `ReportID`, `CreatedAt`, `ArtifactName`, `ArtifactType`, `Results` | the same **plus `ArtifactID` and `Metadata`** |
+
+`Metadata` is the one that carried an identity field the redaction table had no row for.
+Nothing announced either key. So a re-capture must **diff the document's key set against the
+previous one**, not only re-run the previous patterns, because a pattern list cannot match a
+field nobody knew would exist. That instruction is worth its space precisely because the
+first version of this paragraph named only one of the two new keys — and asserted the old
+fixture had `"Metadata": null`, when the key is *absent*, which is a different shape and the
+one that makes a naive diff miss it.
 
 Two things that pattern does match and which are deliberately kept, stated so a re-run is
 not mistaken for a regression:
@@ -159,6 +189,11 @@ not mistaken for a regression:
   subject matter rather than a credential.
 - **2 occurrences of `author@target.example`**, which is this file's own redaction
   placeholder.
+- **`Metadata.RepoURL`**, which contains the target repository owner's GitHub handle. It is
+  a deliberate keep — the URL of the public repository this corpus is *of* — but it is
+  named here because the sentence above says "zero hits of personal identity", and a
+  handle is identity even when it is the point. It matches no pattern in the list, so
+  nothing would have surfaced it; it is disclosed rather than detected.
 
 A naive `user@host.tld` pattern also matches Trivy's PURL strings (`pkg:pypi/blinker@1.9.0`)
 57 times. Those are not addresses; the pattern used requires the domain to end in letters.
@@ -305,9 +340,12 @@ derived from these files, and a re-capture is exactly the event that invalidates
 4. **Before redacting**, print the per-tool counts, the CWE cardinality, the severity
    spread, and ZAP's crawled URI set. An empty document, or a ZAP run that never reached
    `/calculate`, is a failed capture rather than a result.
-5. Redact per the table above, re-run the leak scan, and update **every number in this
-   file** — the byte counts, the versions, the Trivy DB timestamp, and both coverage
-   tables.
+5. **Diff the new documents' key sets against the committed ones before redacting.** A new
+   top-level key is how the last capture introduced an identity field the redaction table
+   had no row for, and no pattern list can match a field nobody knew would exist. Then
+   redact per the table above, re-run the leak scan with any new identifying strings added
+   to its pattern list *first*, and update **every number in this file** — the byte counts,
+   the versions, the Trivy DB timestamp, and both coverage tables.
 6. Expect mapper assertions to fail, and treat that as the guards working rather than as
    breakage to route around. Re-derive them in a separate commit from the capture, so the
    failure is visible in history rather than only as a diff.

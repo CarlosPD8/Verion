@@ -76,8 +76,12 @@ def map_trivy_output(
     deliberately not used.** It is per-tool by construction (Semgrep's equivalent
     is the constant "requires login" and ZAP has none), so it could never be the
     single function over the common schema this project needs; and its input set
-    is opaque — 5,467 candidate concatenations of the obvious fields reproduce
-    none of the captured values — so whether it survives a DB refresh is unknown.
+    is opaque — 5,467 candidate concatenations of the obvious fields reproduced
+    none of the values in the M4.1 capture — so whether it survives a DB refresh
+    is unknown. That search was run against the 12 vulnerabilities of the pre-G23
+    corpus and has NOT been re-run against the 20 in the current one; the
+    conclusion is left standing because "unknown" does not weaken with a new
+    corpus, but nobody should cite the number as covering today's fixture.
     """
     document = json.loads(raw_output)
     findings: list[Finding] = []
@@ -123,10 +127,19 @@ def map_trivy_output(
                         source_tool=ScannerTool.TRIVY,
                         captured_at=clock.now(),
                     ),
-                    # Measured across the real fixture: every one of the 12
-                    # vulnerabilities carries exactly one CweIDs entry, which is
-                    # what settled `cwe` as a single value rather than a tuple
-                    # (ADR-0018). The full list stays in raw_payload regardless.
+                    # First entry in document order, and that is a real choice
+                    # rather than the only possibility: CweIDs is a list. The
+                    # measurement behind `cwe` being a single value rather than a
+                    # tuple (ADR-0018 decision 4) was "maximum 1 across the real
+                    # fixtures", and the G23 capture falsified it — 19 of 20
+                    # vulnerabilities carry one, CVE-2024-49767 carries two. The
+                    # decision stands: the full list stays in raw_payload, so
+                    # nothing is lost, and correlation compares one canonical CWE.
+                    # What is NOT established is that this survivor is stable over
+                    # time — nothing says Trivy's CweIDs ordering is fixed across
+                    # vulnerability-DB updates, and `cwe` is in the upsert's
+                    # refresh set, so a flip would rewrite stored rows silently.
+                    # Tracked as G26; see ADR-0018's Amendments.
                     cwe=canonical_cwe(next(iter(vulnerability.get("CweIDs") or []), None)),
                     # Trivy has no OWASP category concept.
                     owasp_category=None,

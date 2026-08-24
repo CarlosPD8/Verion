@@ -66,8 +66,10 @@ class GetFindingEvidenceUseCase:
     FR-9 asks that every Risk and Brief "link back to" the tool output that
     produced it. An addressable route is that link. Reading FR-9 as "return the
     payload inline everywhere" is convenience rather than the requirement, and it
-    is the reading that would have put 71 KB of scanned source into a listing of
-    24 findings.
+    is the reading that would have put 92 KB of scanned source into a listing of
+    34 findings. (Re-derived against the G23 corpus at M5.1: 93,792 characters
+    across 34 findings, from 71,532 across 24 in the pre-G23 fixtures. The figure
+    grew with the corpus and the argument does not depend on its size.)
     """
 
     def __init__(self, project_access: ProjectAccessPort, findings: FindingRepositoryPort) -> None:
