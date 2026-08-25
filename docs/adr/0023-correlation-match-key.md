@@ -196,6 +196,15 @@ be validated" — is discharged as to what is out.)*
 
   **Twelve signals across three tool pairs, thirty-six cells, and no cell is non-zero.**
 
+  ***(Scoped 2026-08-25: read "no cell is non-zero" as a measurement over **the committed corpus**,
+  which is a passive-only ZAP capture. It is accurate about that corpus and this amendment names it
+  throughout. Under an **active** scan plan one cell becomes non-zero — `cwe` on Trivy↔ZAP, via
+  `CWE-22` — which Decision B below now rests on rather than contradicting, because the one pair it
+  produces is spurious. Flagged here rather than left for a reader to hit as an apparent
+  self-contradiction two screens down. The tier breakdown that follows is unaffected: the
+  twenty-nine construction-tier cells are properties of the mappers, which no scan plan changes,
+  and the three vocabulary-tier cells are properties of the identifier namespaces.)***
+
   **`severity` is deliberately not in that set, and it must be named because it is measured
   NON-EMPTY** — Semgrep↔Trivy intersect on `high`, Trivy↔ZAP on `low` and `medium` (Semgrep↔ZAP is
   empty). A reader who tries it will find that, so the reason has to be on the record: **ADR-0018
@@ -267,7 +276,12 @@ be validated" — is discharged as to what is out.)*
     `Location.installed_version`.** All thirty-six cells are empty, so **the only cross-tool
     correspondence this corpus yields that is about a shared subject rather than a shared
     magnitude comes from outside the signal set entirely** — not from a field read, but from a
-    string inside `Evidence.raw_payload`. ZAP's `10036-2` alert carries `evidence` of `"Werkzeug/2.3.8
+    string inside `Evidence.raw_payload`. *(Scoped 2026-08-25 on the same terms as the note above:
+    "all thirty-six cells are empty" is a
+    measurement over the **committed passive-only corpus**. Under an active plan the `cwe` cell on
+    Trivy↔ZAP is non-empty. **Decision A is unaffected either way** — its subject is the `Server`
+    banner and `Location.package`, which no scan plan populates — and the "only correspondence this
+    corpus yields" clause survives for the corpus it names.)* ZAP's `10036-2` alert carries `evidence` of `"Werkzeug/2.3.8
     Python/3.11.5"` on each of its instances; parsed as `(name, version)` and compared against
     Trivy's `(package, installed_version)`, `Werkzeug/2.3.8` matches **six** of Trivy's twenty
     findings and `Python/3.11.5` matches none. Lifting that into `Location` inside
@@ -316,57 +330,101 @@ be validated" — is discharged as to what is out.)*
     location of a finding — not `Location`, where it would be compared field-to-field against a
     manifest.
 
-  - **Decision B — `cwe` is out of the match key. G6 is the re-entry trigger.** Four grounds, in
-    this order — **three measured and one the absence of a measurement**, which is a real
-    distinction and not a hedge: **(1)** the intersection is empty on all three pairs *(measured)*;
-    **(2)** Semgrep contributes zero values at all, **G6** *(measured)*; **(3)** **G24** bounds
-    ZAP's reachable CWE vocabulary to passive response-configuration weaknesses permanently and
-    independently of any corpus *(measured — ZAP's five alerts are all response-level)*; and
-    **(4)** **G26** leaves it unverified whether the surviving value is even stable across
-    vulnerability-database updates — *unmeasured by construction*, since it is the absence of a
+  - **Decision B — `cwe` is out of the match key. G6 is the re-entry trigger.**
+
+    ***(Grounds REWRITTEN 2026-08-25 by the active-scan probe, not annotated. Two of the four
+    original grounds are falsified, and they are struck rather than left listed with a marker
+    beside them — a falsified ground that stays on the page is a ground somebody will cite. What
+    they said, once, for the record: **(1)** "the intersection is empty on all three pairs" and
+    **(3)** "**G24** bounds ZAP's reachable CWE vocabulary to passive response-configuration
+    weaknesses permanently and independently of any corpus". Both were measured against a
+    passive-only scan plan and both fail when the plan changes. The decision does not: it is
+    re-founded below on a stronger ground the original list did not contain. This is the treatment
+    this project gives a claim that turns out **wrong** rather than incomplete.)***
+
+    **Three grounds — two measured and one the absence of a measurement**, which is a real
+    distinction and not a hedge:
+
+    **(1) The only cross-tool CWE pair ever measured is one side hallucinating** *(measured)*.
+    Under an active scan the Trivy↔ZAP intersection is **not** empty: `CWE-22` appears on both
+    sides. It buys nothing, and what it buys is the point. The pair is **ZAP `6-5` "Path
+    Traversal", riskcode 3 but confidence 1**, at `/calculate?expr=calculate` — the attack payload
+    is the literal string `calculate`, the URL's own last path segment — against an application
+    that performs **no file access on user-controlled input**: the only sink reached from the query
+    string is `eval`. It is a false positive with nothing behind it. The other side is **Trivy `CVE-2024-49766`**, whose fixture `Title` reads in full
+    `werkzeug: python-werkzeug: Werkzeug safe_join not safe on Windows`, MEDIUM — a real CVE about
+    a path-joining helper inside the framework. So the two
+    findings share a CWE and describe unrelated things, one of which does not exist. **This is a
+    stronger ground than the empty intersection it replaces**: an empty cell says the signal
+    produced nothing here and might produce something elsewhere, while a populated cell whose only
+    occupant is spurious says what the signal produces when it *does* fire. It is ADR-0019
+    decision 3's *"prefer the failure that under-counts over the failure that fabricates events"*
+    arriving as data rather than as argument, and it is the same distinction Decision A draws
+    against the banner — an under-match versus a false match.
+
+    **(2) Semgrep contributes zero values at all, G6** *(measured)*. Unchanged.
+
+    **(3) G26 leaves it unverified whether the surviving value is even stable across
+    vulnerability-database updates** — *unmeasured by construction*, since it is the absence of a
     reading rather than a reading. G26's own `Deferral rationale:` calls that measurement
-    "measurable and cheap" and states its exit condition, so ground (4) is the one that can be
-    retired by somebody doing an afternoon's work.
+    "measurable and cheap" and states its exit condition, so this is the ground that can be retired
+    by somebody doing an afternoon's work.
 
-    **What resolving G6 would and would not remove, stated exactly, because the loose version is
-    wrong in both directions.** Grounds (1) and (2) are **not independent**: two of the three cells
-    constituting ground (1) — `cwe` on Semgrep↔Trivy and on Semgrep↔ZAP — are empty *because of*
-    G6, as the ruleset-tier bullet above says in as many words. So resolving G6 reopens two of
-    ground (1)'s three pairs along with ground (2), and what survives from ground (1) is the
-    **Trivy↔ZAP cell alone**, measured empty on a common target. Grounds (3) and (4) are untouched
-    by G6 and remain whole.
+    **What resolving G6 would and would not remove, restated against the new list.** Ground (2) is
+    G6 itself, so resolving it removes that ground outright. **It no longer reopens anything in
+    ground (1)**, because ground (1) is now a Trivy↔ZAP finding and Semgrep is not a party to it —
+    which is a change worth naming: under the old list, resolving G6 both removed a ground *and*
+    reopened two thirds of another, and that entanglement was the subject of a whole paragraph.
+    The new ground (1) and ground (3) are independent of G6 and remain whole.
 
-    So the honest statement is: **resolving G6 leaves one measured cell plus two independent
-    grounds standing, which is a trigger to re-read this decision rather than to reverse it** —
-    and anybody who resolves G6 and concludes CWE is thereby back in the key has skipped that
-    re-read. Conversely this decision is **conditional on G6 remaining unresolved**, which is why
-    that entry stays open rather than being marked discharged when M5.1 closes.
+    So the honest statement is unchanged in shape and stronger in content: **resolving G6 leaves
+    two independent grounds standing, one of them a measured false match, which is a trigger to
+    re-read this decision rather than to reverse it** — and anybody who resolves G6 and concludes
+    CWE is thereby back in the key has skipped that re-read. Conversely this decision remains
+    **conditional on G6 remaining unresolved**, which is why that entry stays open rather than
+    being marked discharged when M5.1 closes.
 
-
-    Read this together with the corpus's own limit, recorded in the fixtures README: fourteen CWEs
-    against four, over one small Flask app with three vulnerable packages, is thin, and one
-    application cannot separate *"these families never overlap"* from *"this one happened not
-    to"*. The disjointness is admissible evidence, and it is not proof of a structural split.
+    Read this together with the corpus's own limit, recorded in the fixtures README: over one small
+    Flask app with three vulnerable packages, neither the disjointness the old ground (1) rested on
+    nor the single collision the new one rests on is proof of a structural property. **The
+    asymmetry is that they fail differently.** A thin corpus measuring an empty intersection cannot
+    separate *"these families never overlap"* from *"this one happened not to"* — it might be
+    hiding a real signal. A thin corpus measuring a **false match** has already produced the
+    failure mode; a larger corpus could add true matches beside it, but cannot retract this one.
+    That is why the replacement is an upgrade rather than a substitution of equals.
 
   - **Decision C — the SAST↔DAST derivation is deferred, and the reason is not its cost.** The
     derivation — normalising ZAP's crawled URL path against a Flask route table to reach the
-    source line Semgrep flagged — is bounded work for this target's shape. It is deferred because
-    **on this corpus it would produce a group with no information in it.** Measured: four distinct
-    crawled URLs. The per-URL alert sets are:
+    source line Semgrep flagged — is bounded work for this target's shape.
 
-    | URL | alerts |
+    ***(Basis REWRITTEN 2026-08-25 by the active-scan probe, not annotated — on the same rule
+    Decision B's rewrite states one bullet above: a falsified measurement that stays on the page is
+    a measurement somebody will cite. What it said, once, for the record: that the per-URL alert
+    sets were `/` → five alerts and `/calculate?expr=2*3` → four, that **"no alert fires only on
+    `/calculate`, and its alert set is a strict subset of `/`'s"**, and that the derived group would
+    therefore be **"a co-location with zero discriminating power"**. All three were measured against
+    a passive-only scan plan and all three fail when the plan changes. **The deferral does not** —
+    see the Amendments entry, which carries the full treatment and the reason the decision now rests
+    on.)***
+
+    It is deferred because the group it would produce cannot yet be trusted. Measured under an
+    active scan plan, keyed on **path** rather than full URL — `6-5` fires at `?expr=calculate` and
+    `90036` at `?expr=2*3`, so a full-URL key splits the vulnerable endpoint across two rows and
+    hides the result:
+
+    | URL path | alerts |
     |---|---|
-    | `/` | `10020-1`, `10021`, `10027`, `10036-2`, `10038-1` |
-    | `/calculate?expr=2*3` | `10020-1`, `10021`, `10036-2`, `10038-1` |
+    | `/` | `10020-1`, `10021`, `10027`, `10036-2`, `10038-1`, `10106` |
+    | `/calculate` | `10020-1`, `10021`, `10036-2`, `10038-1`, **`6-5`**, **`90036`** |
     | `/robots.txt` | `10036-2`, `10038-1` |
     | `/sitemap.xml` | `10036-2`, `10038-1` |
 
-    **No alert fires only on `/calculate`, and its alert set is a strict subset of `/`'s.** So the
-    derived group would be `{dangerous-eval}` together with four response-header alerts, every one
-    of which also fires on `/` — which additionally carries a fifth the endpoint does not. Nothing
-    ZAP observed distinguishes the vulnerable endpoint from the site root. It is a co-location with
-    zero discriminating power, which does not clear `PRODUCT_SPEC.md` §10's bar of "materially
-    better prioritization" and would read as if it did.
+    **Two alerts fire only on `/calculate`** — `6-5` and `90036`, the latter at confidence 3 — **and
+    the subset relation is false in both directions**, since `/` carries `10027` and `10106` the
+    endpoint does not. So discriminating power exists, and the objection this decision was
+    originally founded on is gone. **What replaces it is worse and is why the deferral stands:** the
+    group would be well-formed and possibly about two different systems, because nothing asserts the
+    crawled URL serves the tree Semgrep read. See the Amendments entry.
 
     **Two triggers, required for different reasons, and neither substitutes for the other.**
     Recorded as a distinction rather than a list, because a reader handed an undifferentiated pair
@@ -374,7 +432,7 @@ be validated" — is discharged as to what is out.)*
 
     | | condition on | what its absence means |
     |---|---|---|
-    | **G24** | **existence** — that a shared finding exists at all | the scan plan is passive-only, so DAST reports nothing about the `eval()` sink. The SAST half exists; the DAST half does not. |
+    | **G24** | **existence** — that a shared finding exists at all | the shipped scan plan is passive-only **while it is**, so DAST reports nothing about the `eval()` sink. The SAST half exists; the DAST half does not. Measured satisfiable by the probe above and still open — no `activeScan` job has shipped. |
     | **G27** | **validity** — that comparing them is well-founded | nothing asserts the crawled URL serves the tree Semgrep read, and the derivation's route-path-to-view-function stage assumes exactly that. |
 
     Resolving **G24 alone** yields a real SAST↔DAST pair whose correlation is still unfounded,
@@ -383,6 +441,53 @@ be validated" — is discharged as to what is out.)*
     through it. **G27 is the less visible of the two**, and deliberately named so: the banner case
     at least presents as a version comparison somebody might question, while the derivation's
     dependence on the same coupling is betrayed by nothing at all.
+
+- **2026-08-25 (active-scan probe): Decision C's measured basis is FALSIFIED. The decision stands,
+  and it stands behind BOTH triggers exactly as before — what changed is that G24 is now measured
+  *satisfiable*, which is not the same as satisfied.** A hand-run of `ZapAdapter`'s plan shape with an `activeScan` job added, against
+  the same target at the same commit. **Which half died and which survived**, stated as a split
+  because a decision whose basis is retracted wholesale is one nobody can rely on:
+
+  **Died — the discriminating-power measurement.** *"No alert fires only on `/calculate`, and its
+  alert set is a strict subset of `/`'s"* is false under an active scan, and so is everything drawn
+  from it. **The corrected per-path sets are in Decision C's own body**, which was rewritten in place
+  rather than left pointing here — one table, not two, because a measurement copied into two
+  documents is the drift G20 exists to track. In summary: **two alerts fire only on `/calculate`** —
+  `6-5` "Path Traversal" and **`90036` "Server Side Template Injection (Blind)", riskcode 3,
+  confidence 3, param `expr`** — and the subset relation is **false in both directions**, since `/`
+  carries `10027` and `10106` the endpoint does not. So the
+  derived group is not `{dangerous-eval}` plus four alerts the root also carries; it is
+  `dangerous-eval` plus a confidence-3 finding that the endpoint executes shell commands, which the
+  root does not have and structurally cannot. **The "co-location with zero discriminating power"
+  conclusion is retracted** — such a group clears `PRODUCT_SPEC.md` §10's bar rather than reading
+  as though it did.
+
+  The table above is keyed on **path** where the original was keyed on URL, and that is not
+  presentational: `6-5` fires at `?expr=calculate` and `90036` at `?expr=2*3`, so a full-URL key
+  splits the vulnerable endpoint across two rows and hides the result. The derivation this decision
+  defers therefore has to normalise the query string away — one more stage, which the original
+  table's shape concealed.
+
+  **Survived — the whole of the validity argument.** Nothing the probe measured touches **G27**.
+  The app was served out-of-process from the checkout itself, the one configuration in which the
+  coupling holds by construction, so the probe is silent on that question by the same accident the
+  G23 capture was. The two-trigger table is **unchanged in substance and changed in balance**, and
+  the distinction has to be stated exactly because the loose version is wrong: **G24 is measured
+  *satisfiable*, which is not the same as *satisfied*.** Its `Status:` is `assigned → M5.4` — open.
+  Nothing has shipped an `activeScan` job, so no DAST finding about the sink exists in any
+  production scan today, and **both triggers remain open**. What changed is their *character*: G24
+  was an open question about whether the finding was obtainable at all, and is now a decision about
+  scan policy with a measured answer behind it, while G27 is unchanged and is now the harder of the
+  two. Read the table's G24 row as *"the scan plan is passive-only **while it is**"* rather than as
+  a permanent bound; the register entry's title carries the same correction.
+
+  **What this does NOT change is the deferral.** The derivation is still deferred; what changed is
+  the reason, and it is deferred behind **both** triggers exactly as before. It was deferred
+  because it *would produce a group with no information in it*. It is now deferred because
+  **the group would be well-formed and possibly about two different systems** — a worse failure,
+  and a stronger reason to wait for G27 rather than a weaker one. `ROADMAP.md`
+  schedules the three pieces as **M5.4** (existence, behind consent), **M5.5** (validity, G27) and
+  **M5.6** (the derivation itself) — three issues, where this decision's table implies two.
 
   **Still deferred, so the discharge is not read as wider than it is: the key's own field list.**
   This amendment records what is *out* and, in the roadmap, what M5 groups on. The frozen
