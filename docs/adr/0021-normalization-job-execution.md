@@ -392,4 +392,9 @@ overloading `failed`. Rejected as disproportionate: the case is latent (all 30
 elements across the six committed fixtures carry their tool's identifier — 0
 missing), and a column plus a domain field plus a migration to describe a state
 nothing has ever reached is exactly the speculative shape ADR-016 decision 3
-refuses. Revisit if a real capture ever reaches the fallback.
+refuses. Revisit if a real capture ever reaches the fallback. *(**M5.1: 39
+elements after G23's re-capture, still 0 missing** — the number moved, the
+property held, and this rejection is unaffected. Annotated here because this copy of the
+figure was missed when the corpus was replaced — the class **G20** tracks, and
+that entry's Note carries the full enumeration of where the stale number
+survived.)*

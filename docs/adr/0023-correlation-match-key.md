@@ -166,6 +166,235 @@ shares no populated `Location` field with either other tool, so no location sign
 DAST. What is **not** settled — and the ADR is explicit that it is not — is Semgrep↔Trivy,
 which do share `file_path`, and CWE. Both need the corpus G23 names.
 
+*(**Superseded by the Amendments below, 2026-08-25.** G23's corpus exists, both open questions are
+measured empty, and this section's deferral — "No captured data exists on which that choice could
+be validated" — is discharged as to what is out.)*
+
+## Amendments
+
+- **2026-08-25 (M5.1): the Consequences deferral — "which fields the match key carries" — is
+  discharged as to what is *out*. What the key *carries* is still not fixed, and that is
+  deliberate.** G23's trigger fired: the three committed fixtures now come from one `Scan` over
+  one target, so a measurement across them measures a *signal* rather than a coincidence of three
+  captures. This amendment records what that measurement settled. **It settles three negatives and
+  no positive, and the absence of a positive is the result rather than an omission.**
+
+  **The finding, stated in the form the corpus admits.**
+
+  **The signal set is the one this project already nominated**, which is what makes it citable
+  rather than invented here:
+
+  - **`cwe` and each of `Location`'s eight fields** — ADR-0018's Consequences names exactly these:
+    "M5 gets a canonical CWE it can compare across tools, and a `Location` whose fields it can
+    compare without knowing which tool produced either side." Decision 2 adds the *fields, not the
+    type* qualification: "`Location` out — M5 will compare locations, but it compares fields."
+  - **`owasp_category` and `cvss`** — ADR-0018's Context puts them in the same sentence as `cwe`:
+    "The same question arrives again for `cwe`, `owasp_category` and `cvss`."
+  - **`rule_id`** — nominated by `ROADMAP.md` M5.1, which then corrected itself: it is each tool's
+    own namespaced identifier and can only group *within* a tool. Measured here anyway, because a
+    nominee withdrawn on reasoning is worth confirming on data.
+
+  **Twelve signals across three tool pairs, thirty-six cells, and no cell is non-zero.**
+
+  **`severity` is deliberately not in that set, and it must be named because it is measured
+  NON-EMPTY** — Semgrep↔Trivy intersect on `high`, Trivy↔ZAP on `low` and `medium` (Semgrep↔ZAP is
+  empty). A reader who tries it will find that, so the reason has to be on the record: **ADR-0018
+  decision 2 states `Severity`'s M5 role as "M5 ranks correlated findings"** — it orders what
+  correlation has already grouped. Using it to *decide* the grouping inverts that. `native_severity`,
+  `title` and `source` are likewise unnominated; all three happen to measure empty on all three
+  pairs, and `source` is empty by definition, equality on it meaning "same tool". `id` is a
+  surrogate, `project_id` is the correlation scope, `evidence` is provenance ADR-0018 decision 6
+  keeps outside the common schema, and `location` is measured through its eight fields.
+
+  **Why the set is cited rather than derived**, since the obvious derivation does not work: a rule
+  of the form *"a signal is a field a tool may leave unsupplied"* cannot be read off `Finding`'s
+  annotations, because **partiality lives in the mappers, not in the dataclass.**
+  `native_severity or "(absent)"` and `title or "(unnamed semgrep rule)"` are the same
+  construction as `rule_id or "(unidentified)"` — ADR-0019 decision 2 says so outright, calling
+  that fallback "in the same idiom `native_severity` uses for `"(absent)"`". Any rule keyed on
+  `X | None` therefore separates fields that the code treats identically.
+
+  **The sweep was previously reported over ten signals and thirty cells**, omitting
+  `owasp_category` and `cvss`. Both were then measured: neither is populated by more than one
+  tool, so both are construction-tier on all three pairs and the conclusion did not move — but the
+  counts did, and the earlier figure should not be quoted.
+
+  The thirty-six cells do not have the same standing, and collapsing them into one claim would
+  repeat the sample-to-general step this project has caught repeatedly.
+
+  - **Twenty-nine are empty by mapper construction**, which is a property of the code and holds
+    for any target. Each mapper's `Location(...)` construction names its own subset:
+    `mappers/semgrep.py` names `file_path`, `start_line` and `end_line`; `mappers/trivy.py` names
+    `file_path`, `package` and `installed_version`; `mappers/zap.py` names `url`, `http_method`
+    and `parameter`. **Those subsets are not disjoint — Semgrep's and Trivy's both contain
+    `file_path`, which is exactly why that cell is corpus-dependent rather than structural** and is
+    the one location signal that had a real question attached to it. Outside the fields each mapper
+    names, everything defaults to `None` and no code path can change it; `owasp_category` reaches
+    only Semgrep and `cvss` only Trivy, so both are construction-tier on every pair. Two tools that
+    never populate one field cannot be equal on it, whatever they scanned.
+  - **Two are empty by ruleset configuration, not by construction — `cwe` on Semgrep↔Trivy and on
+    Semgrep↔ZAP — and separating them from the twenty-nine above is not pedantry.** Semgrep
+    populates no CWE today, so those two cells read as structural from the data alone. They are
+    not: `mappers/semgrep.py` reads `canonical_cwe(_first(metadata.get("cwe")))` unconditionally,
+    and the committed `semgrep_synthetic_edges.json` exercises exactly that path, yielding
+    `CWE-95` and `CWE-16`. The cells are empty because the pinned ruleset declares no `metadata:`
+    (**G6**) — a production configuration edit away from being non-empty. Folding them into the
+    "holds for any target" tier would contradict Decision B below, which counts G6's resolution as
+    removing one of its grounds; a cell cannot be both structural-for-any-target and removable by
+    editing `rulesets/default.yml`.
+  - **Three are empty by disjoint identifier vocabularies** — `rule_id`, on all three pairs. Both
+    sides populate it, so this is not structural by *population*; it is structural by *namespace*:
+    `dangerous-eval` against `CVE-2019-11324` against `10038-1`. Already recorded in **G6**'s note
+    as surviving any corpus. Confirmed here on thirty-four findings rather than the pre-G23
+    corpus's twenty-four, and adding nothing that note did not already carry.
+  - **Two were corpus-dependent, and are the only cells this measurement actually settles.** `cwe`
+    on Trivy↔ZAP: fourteen distinct values against four, disjoint, with Semgrep contributing none
+    at all (**G6**). `file_path` on Semgrep↔Trivy: `app.py` against `requirements.txt`. The second
+    is sharper than the semantic argument G6 offered for it — Semgrep's `paths.scanned` is
+    `['app.py']`, so it never read the manifest, and Trivy's `Target` is the manifest and never a
+    source file. The two vocabularies do not overlap on this repository even though the field is
+    shared.
+
+  **No replacement field was chosen, because none exists.** This amendment must not be read as
+  "correlation matches on X instead". The measured result is that field equality **over the twelve
+  signals above** produces an **empty relation** cross-tool — not over every field on `Finding`,
+  which `severity` would falsify — and that thirty-two of the thirty-six cells
+  — twenty-nine by construction and three by vocabulary — are empty for reasons no corpus can
+  change. Of the remaining four, two turn on a ruleset this project controls and two were the
+  genuinely open questions.
+
+  - **Decision A — the ZAP `Server` banner does not populate `Location.package` or
+    `Location.installed_version`.** All thirty-six cells are empty, so **the only cross-tool
+    correspondence this corpus yields that is about a shared subject rather than a shared
+    magnitude comes from outside the signal set entirely** — not from a field read, but from a
+    string inside `Evidence.raw_payload`. ZAP's `10036-2` alert carries `evidence` of `"Werkzeug/2.3.8
+    Python/3.11.5"` on each of its instances; parsed as `(name, version)` and compared against
+    Trivy's `(package, installed_version)`, `Werkzeug/2.3.8` matches **six** of Trivy's twenty
+    findings and `Python/3.11.5` matches none. Lifting that into `Location` inside
+    `mappers/zap.py` would convert two of the twenty-nine construction-tier zeros — `package` and
+    `installed_version` on Trivy↔ZAP — into live signals. It is refused on **two independent
+    arguments, both of which are required**:
+    - **ADR-0018 decision 4** — *"A field with no source is `None`, never `""` and never a
+      guess"* — governs which tool is a source for which field, and works that out as a
+      per-field-per-tool table. Adding ZAP as a source for `package` is precisely that operation,
+      so this is that decision's to take and not a local mapper convenience. Note the objection is
+      *not* that the banner is invented: it is verbatim tool output, and passes that decision's
+      "never a guess" clause as literally written. **Nor is it that an existing row forbids it** —
+      that table has three rows, `cwe`, `owasp_category` and `cvss`, and no `Location` field has
+      ever appeared in it. What the proposal requires is *adding a row*, which is a decision at
+      ADR-0018's level rather than a mapper's, and this amendment is where it is declined.
+    - **`Location`'s own docstring**, which says the flat shape exists so that a downstream reader
+      can ask *"do these two findings share a `file_path`?"* — verbatim — *"without knowing, or
+      caring, which tools they came from. That question is the whole point of correlation."* If
+      `package` means "pinned in this manifest" from Trivy and "the server said so" from ZAP, then
+      comparing the two **requires** knowing which tool produced each side, which destroys the
+      property the flat shape exists to provide. The design would defeat itself at the level of
+      its own stated rationale.
+
+    **The asymmetry that decides it, since `file_path` already carries two meanings and that
+    objection has to be answered rather than ignored.** Trivy's `file_path` is a manifest path and
+    Semgrep's a source path — two meanings, measured above. But both refer to **the scanned
+    tree**, so the ambiguity produces an *empty intersection*: an **under-match**. The banner's
+    two referents are **the running process** and **the scanned tree** — different systems — so
+    its ambiguity produces a **false match** whenever a version number coincides. ADR-0019
+    decision 3 draws exactly this line: *"Where identity is uncertain, prefer the failure that
+    **under-counts** over the failure that **fabricates events**."* The ambiguity `Location`
+    already carries falls on the safe side of that principle; the proposed one falls on the other.
+
+    **And a perverse property worth recording, because it is what closes the case rather than
+    merely supporting it.** Alert `10036-2` **is** "Server Leaks Version Information via `Server`
+    HTTP Response Header Field", and removing or blanking that header is its remediation. So the
+    correlation signal exists **only while the target still carries the vulnerability the signal
+    is derived from**, and evaporates the moment the team acts on the scanner's own advice. A
+    signal anti-correlated with the target's security posture gives least coverage exactly where a
+    deployment is well configured.
+
+    **Nothing is lost by refusing it.** The banner is already in `Evidence.raw_payload` verbatim,
+    which is where per-tool structure the common schema does not model is supposed to live. If it
+    ever needs structure, its home is **Security Context** — FR-3 asks for "deployment signals",
+    and a live server's self-reported stack is a fact about the deployment rather than the
+    location of a finding — not `Location`, where it would be compared field-to-field against a
+    manifest.
+
+  - **Decision B — `cwe` is out of the match key. G6 is the re-entry trigger.** Four grounds, in
+    this order — **three measured and one the absence of a measurement**, which is a real
+    distinction and not a hedge: **(1)** the intersection is empty on all three pairs *(measured)*;
+    **(2)** Semgrep contributes zero values at all, **G6** *(measured)*; **(3)** **G24** bounds
+    ZAP's reachable CWE vocabulary to passive response-configuration weaknesses permanently and
+    independently of any corpus *(measured — ZAP's five alerts are all response-level)*; and
+    **(4)** **G26** leaves it unverified whether the surviving value is even stable across
+    vulnerability-database updates — *unmeasured by construction*, since it is the absence of a
+    reading rather than a reading. G26's own `Deferral rationale:` calls that measurement
+    "measurable and cheap" and states its exit condition, so ground (4) is the one that can be
+    retired by somebody doing an afternoon's work.
+
+    **What resolving G6 would and would not remove, stated exactly, because the loose version is
+    wrong in both directions.** Grounds (1) and (2) are **not independent**: two of the three cells
+    constituting ground (1) — `cwe` on Semgrep↔Trivy and on Semgrep↔ZAP — are empty *because of*
+    G6, as the ruleset-tier bullet above says in as many words. So resolving G6 reopens two of
+    ground (1)'s three pairs along with ground (2), and what survives from ground (1) is the
+    **Trivy↔ZAP cell alone**, measured empty on a common target. Grounds (3) and (4) are untouched
+    by G6 and remain whole.
+
+    So the honest statement is: **resolving G6 leaves one measured cell plus two independent
+    grounds standing, which is a trigger to re-read this decision rather than to reverse it** —
+    and anybody who resolves G6 and concludes CWE is thereby back in the key has skipped that
+    re-read. Conversely this decision is **conditional on G6 remaining unresolved**, which is why
+    that entry stays open rather than being marked discharged when M5.1 closes.
+
+
+    Read this together with the corpus's own limit, recorded in the fixtures README: fourteen CWEs
+    against four, over one small Flask app with three vulnerable packages, is thin, and one
+    application cannot separate *"these families never overlap"* from *"this one happened not
+    to"*. The disjointness is admissible evidence, and it is not proof of a structural split.
+
+  - **Decision C — the SAST↔DAST derivation is deferred, and the reason is not its cost.** The
+    derivation — normalising ZAP's crawled URL path against a Flask route table to reach the
+    source line Semgrep flagged — is bounded work for this target's shape. It is deferred because
+    **on this corpus it would produce a group with no information in it.** Measured: four distinct
+    crawled URLs. The per-URL alert sets are:
+
+    | URL | alerts |
+    |---|---|
+    | `/` | `10020-1`, `10021`, `10027`, `10036-2`, `10038-1` |
+    | `/calculate?expr=2*3` | `10020-1`, `10021`, `10036-2`, `10038-1` |
+    | `/robots.txt` | `10036-2`, `10038-1` |
+    | `/sitemap.xml` | `10036-2`, `10038-1` |
+
+    **No alert fires only on `/calculate`, and its alert set is a strict subset of `/`'s.** So the
+    derived group would be `{dangerous-eval}` together with four response-header alerts, every one
+    of which also fires on `/` — which additionally carries a fifth the endpoint does not. Nothing
+    ZAP observed distinguishes the vulnerable endpoint from the site root. It is a co-location with
+    zero discriminating power, which does not clear `PRODUCT_SPEC.md` §10's bar of "materially
+    better prioritization" and would read as if it did.
+
+    **Two triggers, required for different reasons, and neither substitutes for the other.**
+    Recorded as a distinction rather than a list, because a reader handed an undifferentiated pair
+    will resolve the more visible one and conclude the path is open:
+
+    | | condition on | what its absence means |
+    |---|---|---|
+    | **G24** | **existence** — that a shared finding exists at all | the scan plan is passive-only, so DAST reports nothing about the `eval()` sink. The SAST half exists; the DAST half does not. |
+    | **G27** | **validity** — that comparing them is well-founded | nothing asserts the crawled URL serves the tree Semgrep read, and the derivation's route-path-to-view-function stage assumes exactly that. |
+
+    Resolving **G24 alone** yields a real SAST↔DAST pair whose correlation is still unfounded,
+    because the URL may serve a different tree; the correlation is produced, is wrong, and nothing
+    records that it happened. Resolving **G27 alone** yields a valid path with nothing to put
+    through it. **G27 is the less visible of the two**, and deliberately named so: the banner case
+    at least presents as a version comparison somebody might question, while the derivation's
+    dependence on the same coupling is betrayed by nothing at all.
+
+  **Still deferred, so the discharge is not read as wider than it is: the key's own field list.**
+  This amendment records what is *out* and, in the roadmap, what M5 groups on. The frozen
+  dataclass's fields — and the no-narrowing constraint section (b) imposes on whoever writes
+  them — stay with the implementation issue, where matching code will exist to constrain the
+  choice.
+
+  **What M5 delivers instead is intra-tool, and is scoped in `ROADMAP.md` M5.1 rather than here.**
+  Decisions A–C above concern cross-tool matching only. The roadmap entry carries the grouping
+  signals, the measurement behind them, and the `PRODUCT_SPEC.md` §5-versus-FR-6 disagreement that
+  the intra-tool scope rests on.
+
 ## Alternatives considered
 
 **1. A structural `Protocol` in `correlation/domain/` describing only the fields correlation
