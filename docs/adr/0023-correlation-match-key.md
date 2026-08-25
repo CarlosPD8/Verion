@@ -500,6 +500,12 @@ be validated" — is discharged as to what is out.)*
   signals, the measurement behind them, and the `PRODUCT_SPEC.md` §5-versus-FR-6 disagreement that
   the intra-tool scope rests on.
 
+- **2026-08-25: the "implementation issue" the amendment above defers the key's field list to is
+  `ROADMAP.md` M5.8.** No such issue existed when that deferral was written — M5.1 closed without
+  building `CorrelateFindingsUseCase`, so it pointed at nothing, which is registered as **G30**.
+  That field list and section (b)'s no-narrowing constraint are M5.8's acceptance criteria, and a
+  field list departing from what is frozen above amends this ADR here.
+
 ## Alternatives considered
 
 **1. A structural `Protocol` in `correlation/domain/` describing only the fields correlation
