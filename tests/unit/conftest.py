@@ -68,6 +68,13 @@ class ExplodingFindingRepository:
     async def get_by_id(self, **_: object) -> Finding | None:
         raise AssertionError("the repository was read before authorization")
 
+    # Added at M5.8, when CorrelateFindingsUseCase became the first consumer to reach for
+    # this read. Without it the gate test still fails when the check is moved below the
+    # query — but on AttributeError, which reports a missing method rather than the defect
+    # the fake exists to name.
+    async def get_by_project_id(self, *_: object, **__: object) -> list[Finding]:
+        raise AssertionError("the repository was read before authorization")
+
 
 class InMemoryUserRepository:
     def __init__(self) -> None:
