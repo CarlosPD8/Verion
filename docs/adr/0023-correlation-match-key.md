@@ -506,6 +506,210 @@ be validated" — is discharged as to what is out.)*
   That field list and section (b)'s no-narrowing constraint are M5.8's acceptance criteria, and a
   field list departing from what is frozen above amends this ADR here.
 
+- **2026-08-26 (M5.8): the deferral the entry above points at is DISCHARGED — the key's scope and
+  its field list are decided here, before any matching code exists.** That ordering is the decision
+  and not a formality: a field list chosen by the session that also writes the matcher is a field
+  list chosen by whatever makes its own tests pass. This is M5.8's criterion (a) and half of its
+  criterion (b). The other half — section (b)'s no-narrowing constraint — stays with the
+  implementation, sharpened in **7** below.
+
+  **1. Scope: per-project.** Correlation reads a project's findings, not one scan's, and **M9.1's
+  four acceptance criteria therefore do not enter M5.8.** Four grounds, in this order:
+
+  - **It is the scope the data has.** `Finding` is durable and project-scoped by design — decision 1
+    of ADR-0019, **G5**, and the entity's own docstring: *"A `Finding` is durable and project-scoped,
+    not scan-scoped"*. Scan scoping would reconstruct a scope the entity deliberately does not carry.
+  - **It is the scope the measured value has.** `ROADMAP.md` M5.1 measures Trivy 20 findings → 3
+    groups by `package` and ZAP 13 → 4 by `url`, and states the value as *"one version bump resolves
+    twelve findings"* — a claim about a project, not about a scan.
+  - **The cost of the alternative is a whole issue, not a query.** `finding_sightings`' primary key
+    is `(finding_id, scan_id)`, so `WHERE scan_id = ?` supplies nothing for the leading column and
+    cannot be an index descent; the model declares no second index on that table, and
+    `FindingRepositoryPort`'s own docstring already assigns the scan-first index to M9.1's migration.
+    And M9.1's fourth criterion — the succeeded-tools caveat — is a design decision whose failure has
+    **G4**'s shape: one failed Trivy run silently resolves every dependency finding in the project,
+    with nothing raising.
+  - **The completeness envelope exists only in project form.** `get_latest_by_project_id` and
+    `count_unfinished_by_project_id` are ports and are callable from `correlation/application/`.
+    Nothing assembles a per-scan envelope today, so scan scoping would owe M5.2 one as well.
+
+  **The inherited exposure, stated in the words the existing code already uses rather than
+  discovered later.** A project-scoped Risk can group findings fixed three scans ago, because
+  resolution detection is M9.1's. `ListProjectFindingsUseCase` already carries this exposure and
+  already documents it — it *"exposes when a finding was last seen and never whether it is still
+  present"*. Correlation inherits that sentence unchanged rather than adding to it.
+
+  **2. The matching rule: equality on every field the key carries — plus, a key with no signal field
+  present matches no OTHER finding.**
+
+  The exception is stated that way round deliberately. *"Matches nothing"* would deny reflexivity,
+  and reflexivity is the property the rest of this section rests on: equality on all fields is a real
+  equivalence relation and therefore defines groups, so correlation becomes grouping by key value.
+  That is what makes this ADR's third placement — *"matching logic stays in `correlation/domain/` and
+  takes the key, never `Finding`"* — implementable. A no-signal key matching only itself is exactly
+  the singleton this section ends on, so the exception narrows the relation without breaking it.
+
+  **The alternative reading of FR-6 — "shares SOME non-empty signal" — is not transitive**, so the
+  groups it produces depend on iteration order. That is the non-deterministic-representative mistake
+  this repo already carries as a scar twice: ZAP's `instances[0]` (ADR-0019 decision 4) and
+  `get_latest_by_project_id`'s `id` tiebreak. It is recorded as a property of the rule and
+  deliberately **without** a worked A/B/C example: no finding in the corpus populates both `package`
+  and `url`, so such an example is unconstructible from real data, and this amendment is not the
+  place to reintroduce sample-to-general reasoning.
+
+  **The no-signal caveat's ground is STRUCTURAL, not measured, and it has to say so.** All eight
+  `Location` fields are nullable and nothing prevents a future mapper from leaving them so. It is
+  **not** measured: zero of the corpus's 34 findings have an all-`None` `Location`. The case that
+  looks as though it would produce one is the example in `Location`'s own docstring — a ZAP
+  site-level alert with an empty `instances` list — and **no such alert is in this corpus**, whose
+  five alerts carry thirteen instances between them; were one captured, `mappers/zap.py` would fall
+  back to `site["@name"]`, which is populated. `Location`'s docstring says an all-`None` Location is
+  **allowed**; allowed is not produced. Matching two absences would fabricate an event, which
+  ADR-0019 decision 3 already legislated against: *"prefer the failure that under-counts over the
+  failure that fabricates events."*
+
+  **A finding whose key carries no signal becomes a SINGLETON Risk, not no Risk.** Between raising
+  and silently dropping a finding, this project has already ranked the drop as the worse of the two:
+  `list_for_project` raises rather than silently omitting a finding with no sighting, *"because a
+  finding silently vanishing from a listing is the worse failure"*. The same comparison decides this,
+  one module over — and a Risk count that cannot be reconciled against `count_for_project` diverges
+  with nothing saying so.
+
+  **3. The field list.**
+
+  ```python
+  project_id: str  # scope, not a signal
+  package: str | None  # Trivy's location signal
+  url: str | None  # ZAP's location signal
+  ```
+
+  Three fields, inside the *"three or four fields rather than the whole entity"* section (a) already
+  priced. The annotations replicate the source declarations without narrowing — `project_id` from
+  `Finding`, `package` and `url` from `Location`.
+
+  **Exclusions, each on its own ground, none borrowed from another:**
+
+  - **`cwe`** — already frozen out by Decision B. **G6** is the re-entry trigger.
+  - **`rule_id`** — `ROADMAP.md` M5.1 corrected itself on this: a rule identifier is none of asset,
+    location or context, so FR-6's restriction *by signal kind* excludes it. And grouping ZAP 13 → 5
+    partly reverses ADR-0019 decision 4's deliberate per-instance split.
+  - **`owasp_category`, `cvss`** — attributes of the vulnerability rather than location signals, so
+    the same FR-6 filter excludes them. `owasp_category` is additionally `None` throughout this
+    deployment (**G6**).
+  - **`severity`** — ADR-0018 decision 2 fixes its M5 role in the list of its consumers:
+    *"`normalization` constructs it, `risk_engine` orders by it for `RiskReasoning.severity_signal`,
+    **M5 ranks correlated findings**, M8 filters on it"*. It orders what correlation has already
+    grouped; using it to decide the grouping inverts that.
+  - **`native_severity`, `title`** — their own ground, not `severity`'s: the amendment above records
+    both as unnominated and measured empty on all three pairs. `title` additionally melts an
+    identifier together with advisory-mutable prose (ADR-0019 decision 2), so equality on it would
+    make grouping turn on an advisory's wording.
+  - **`start_line`, `end_line`, `installed_version`** — the three fields `dedup_hash` excludes
+    because they refresh on every sighting. A key field that refreshes per sighting makes the key
+    unstable across scans, and that is the ground here — **not** a bump-the-version argument:
+    `(package, installed_version)` measures identically to `package` alone on this corpus, every
+    package appearing at exactly one version, so the bump argument would predict a future rather than
+    record a measurement.
+  - **`http_method`, `parameter`, and `location` itself** — the first two are ZAP-only refinements
+    *of* `url` whose only effect is to split the groups `url` exists to produce, finer, inside one
+    tool; the structure is excluded because the key compares fields, which is ADR-0018 decision 2's
+    own formulation (*"`Location` out — M5 will compare locations, but it compares fields, not the
+    type"*).
+  - **`id`, `evidence`** — surrogate and provenance.
+  - **`source`** — see **4**. **`file_path`** — see **5**.
+
+  **4. Why `source` is out.** A Trivy finding and a ZAP finding cannot have equal keys — and the
+  ground is **STRUCTURAL, not measured**, which an earlier draft of this section had the wrong way
+  round. `mappers/zap.py` constructs `url`, `http_method` and `parameter` only; `mappers/trivy.py`
+  constructs `package`, `installed_version` and `file_path` only. So no non-Trivy finding *can* carry
+  a `package` and no non-ZAP finding *can* carry a `url`, whatever is scanned — which is the
+  mapper-construction tier the amendment above puts twenty-nine of its thirty-six cells in, arriving
+  at the key. The corpus corroborates rather than establishes it: `package` 20 of 20 Trivy, `url` 13
+  of 13 ZAP, zero overlap. **Cross-tool matching is therefore prevented by the MAPPERS, not by the
+  key** — which is the distinction this section needs, since it is the key's design that is on trial
+  here. Excluding `source` is the choice that does not
+  poison M5.5 and M5.6: with it in, the key is structurally incapable of expressing the cross-tool
+  match those issues exist to enable, and they would have to amend this ADR by **removing** a field.
+  Without it, M5.6 adds a derived location field and the key admits it — additive, the direction
+  section (b) prefers. The amendment above already observed half of this by not nominating it:
+  *"`source` is empty by definition, equality on it meaning 'same tool'"*.
+
+  **5. Why `file_path` is out, and what it costs.** This is the one exclusion a reasonable reader can
+  disagree with, so the counter-argument goes first: it **is** a location signal under FR-6, and it
+  is the only field two tools populate.
+
+  **The ground is MEASURED, and it is that `file_path` destroys a grouping this corpus already has.**
+  Trivy's `file_path` is `requirements.txt` on **20 of 20** findings, so keying on it collapses Trivy
+  **20 → 1** where `package` gives **3** — the very result section 1's second ground, *the scope the
+  measured value has*, rests on, and the one a developer acts on. Over-grouping is not a hazard `file_path` might produce elsewhere; it is
+  exhibited here, measured, and it is worse than the SAST case that is usually offered for it.
+
+  Its two populated meanings being different things — Semgrep's `app.py` a source path, Trivy's
+  `requirements.txt` a manifest path, intersection empty — is a second observation and is **not**
+  what carries this. **Decision A must be cited honestly, because it points the other way.** Its
+  flat-shape half does transfer: a field meaning two things by who wrote it requires knowing who
+  wrote it in order to compare, which destroys the property `Location`'s flat shape exists to
+  provide. Its **asymmetry half explicitly does not**, and says so about this exact field —
+  *"Trivy's `file_path` is a manifest path and Semgrep's a source path … But both refer to **the
+  scanned tree**, so the ambiguity produces an *empty intersection*: an **under-match** … The
+  ambiguity `Location` already carries falls on the safe side of that principle."* Under Decision A's
+  own reasoning the ambiguity is tolerable. So A is not the ground here: this exclusion rests on
+  destroying a measured grouping, not on under-matching being dangerous.
+
+  The SAST over-grouping argument — every `app.py` finding in one Risk, when an `eval()` and a
+  hardcoded secret in one file do not share a remediation — is **structural** and correct, and **this
+  corpus does not exhibit that half**: Semgrep has one finding, so `file_path` would produce one
+  group of one. The Trivy collapse above is the measured half, and the two should not be quoted for
+  each other.
+
+  **The cost, in the same breath:** Semgrep contributes nothing to correlation under this key
+  precisely *because* `file_path` is excluded — it is Semgrep's only populated location field, so
+  every Semgrep finding has `package` `None` and `url` `None`, carries no signal, and becomes a
+  singleton Risk; one finding here, fifty singletons in a real project. That is the under-counting
+  direction, which is the preferred one, and it has a named exit: **M5.6** is the issue that gives
+  Semgrep a location signal that can match.
+
+  **6. The tension with Decision C, written rather than left to be discovered.** `Location.url` is
+  the **full** URL, not the path: the real values are `http://target.example:8080/calculate?expr=2*3`
+  (M5.1's bullet labels them abbreviated, so its counts are right and its labels are short).
+  Decision C, in this same ADR, keys its table on **path** deliberately and says why — `6-5` fires at
+  `?expr=calculate` and `90036` at `?expr=2*3`, so a full-URL key splits the vulnerable endpoint
+  across two rows and hides the result. **So this ADR has already decided once that the full URL is
+  the wrong key, and this amendment keys on it anyway.** Why, and the trigger:
+
+  - Today the passive plan yields one `?expr` per route, so the grouping measures correctly — ZAP 13
+    findings → 4 groups.
+  - Under the active plan **M5.4** enables, `url` splits `/calculate` into two groups and separates
+    exactly the two alerts with discriminating power.
+  - **The key is not changed to a path here.** No measurement of a path-keyed *grouping* exists —
+    Decision C's table is per-path alert sets, not a grouping of `Finding`s — and nothing in this
+    repo normalizes URLs, so a path derivation would be unmeasured design inside the commit that
+    exists to avoid exactly that.
+  - **Re-entry trigger: M5.4**, seeded as **G31** in this same commit.
+
+  **7. The conformance-test constraint, which section (b) does not reach as written.** That section
+  says to derive the key's expected annotations from `Finding`'s own declarations. **Two of the three
+  fields are not on `Finding`** — `package` and `url` are on `Location`. A conformance test written
+  against `Finding` alone covers one field of three and passes green, which is this project's own
+  recurring failure shape arriving inside the test that exists to prevent it. Recorded as an
+  acceptance criterion for M5.8's implementation: **`dataclasses.fields` over BOTH `Finding` and
+  `Location`.**
+
+  **8. A falsifiable prediction, stated so the implementation commit checks it rather than confirms
+  it.** Over the committed fixtures this key yields **7 groups** — Trivy 3 (`urllib3` 12, `Werkzeug`
+  6, `Flask` 2) and ZAP 4, whose key values are the **full URLs** section 6 insists on:
+  `http://target.example:8080/` 5, `…/calculate?expr=2*3` 4, `…/robots.txt` 2, `…/sitemap.xml` 2 —
+  with **33 of 34 findings in groups**, **one no-signal singleton** (Semgrep), and **no group
+  spanning two tools**.
+
+  **What a divergence obliges, stated precisely because the obvious formulation is wrong.** It does
+  *not* establish that the key is wrong. Three things can fail — the key, the matcher, or the corpus
+  — and on today's evidence the matcher is the likeliest, since this prediction reproduces from the
+  committed fixtures now, before any matcher exists. So the rule is: a divergence obliges deciding
+  **which** of the three failed and **recording which**, in this ADR's Amendments if it is the key.
+  A divergence explained away as "the prediction was approximate" is the one outcome this section
+  exists to prevent.
+
 ## Alternatives considered
 
 **1. A structural `Protocol` in `correlation/domain/` describing only the fields correlation
