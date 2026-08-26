@@ -108,10 +108,11 @@ from `set_`.
 
 Per `CLAUDE.md`'s rule that an ADR deferring with a trigger seeds a register entry in the same
 commit, this seeds **G37**, whose trigger is *the first Risk row written* — forced at M8.1,
-possible at M6.3. (`git show HEAD:docs/ROADMAP.md | grep -c "^### G"` reports **36**, G1–G36
-with no gaps, so G37 and G38 were the next free numbers. Pinned to `HEAD` deliberately: the
-same command against the working tree counts the entries this change adds, so the present-tense
-form would be falsified by its own commit.)
+possible at M6.3. (**G37 and G38 were the next free numbers when they were opened**: the
+register ran G1–G36 with no gaps at `d3ca532`, the commit this work started from —
+`git show d3ca532:docs/ROADMAP.md | grep -c "^### G"` reports 36. Anchored to a fixed sha
+rather than to `HEAD`, which moves: an earlier draft pinned it to `HEAD` believing that was the
+safe end, and the M5.2 commit falsified it the moment it landed.)
 
 ### 3. A key change re-groups; nothing re-keys
 
@@ -228,7 +229,9 @@ hydrates every `raw_payload` in the project even though correlation reads none o
 (**STRUCTURAL**, from that method and its port docstring). Measured with
 `scripts/seed_findings_benchmark.py --projects 50 --findings-per-project 2000`, query 5, at the
 volume ADR-0022 used, over a project each run's own `_GUARD_COUNTS` confirm holds 2,000 findings
-and 2,000 evidence rows, under `EXPLAIN (ANALYZE, BUFFERS)`. **Eight runs of that one command:**
+and 2,000 evidence rows, under `EXPLAIN (ANALYZE, BUFFERS)`. **Eight runs of that one command,
+2026-08-26, before any of M5.2's code existed** — a dated record of what was observed, not a
+present-tense claim, so re-running it produces new readings rather than falsifying these:
 
 | plan | `Execution Time` | runs |
 |---|---|---|
@@ -307,14 +310,15 @@ worse than not having one.
 needs something to match **on**, which is a key, which collides. So the collision does kill
 replace-all, at one remove: not the option, but the only repair for its defect.
 
-*And it needs a WRITE trigger, which does not exist.* `grep -rn "async def enqueue" src/verion/`
-returns **four hits across two names**, `enqueue_scan` and `enqueue_normalization`, each
-declared once on a port and once on its adapter; **there is no correlation job and nothing
-enqueues one** (**STRUCTURAL**). *(An earlier draft argued this from a `git grep` for
-`CorrelateFindingsUseCase` showing it constructed only in tests — evidence this same change
-falsifies, since it adds a DI factory and a router. The read path is now wired; the write path
-is what is absent, and that is what the argument needed.)* Stored groups are a snapshot of a
-function of `findings`, and `findings`
+*And it needs a WRITE trigger, which this project has never designed.* Every stage that writes
+has an issue that decided **when** it runs and a queue port to run it on — the scan job and the
+normalization job, each with its own ADR. Correlation has neither, and M5.2's scope is a read
+surface. So replace-all does not cost one table; it costs a third pipeline trigger, designed
+inside an issue that was not scoped to design one. *(Two earlier drafts argued this by pasting a
+command's output — first a `git grep` this very change falsified by adding a DI factory, then a
+grep over enqueue functions. Neither was needed: the claim is about what the design contains,
+which no command has to be re-run to check, and pasting one only gave the sentence an expiry
+date.)* Stored groups are a snapshot of a function of `findings`, and `findings`
 changes on every normalization — so replace-all obliges M5.2 to decide *when* correlation runs
 as well, a second decision it has not been given, whose failure mode is a Risk listing quietly
 describing an older set of findings. That is ADR-0019 decision 1's silently-stale summary made
