@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from arq.connections import RedisSettings, create_pool
 from fastapi import FastAPI
 
+from verion.modules.correlation.adapters.inbound.api.router import router as risks_router
 from verion.modules.identity.adapters.inbound.api.router import router as identity_router
 from verion.modules.normalization.adapters.inbound.api.router import router as findings_router
 from verion.modules.projects.adapters.inbound.api.router import router as projects_router
@@ -42,6 +43,10 @@ def create_app() -> FastAPI:
     # are disjoint, so nothing shadows anything — and the alternative would be a
     # URL that named the module instead of the resource.
     app.include_router(findings_router, prefix="/projects", tags=["findings"])
+    # `correlation`'s route hangs off a project too, so it shares the prefix for
+    # the same reason `findings_router` does. Paths stay disjoint: /risks here,
+    # /findings there.
+    app.include_router(risks_router, prefix="/projects", tags=["risks"])
     app.include_router(scanning_router, prefix="/scanning", tags=["scanning"])
 
     return app

@@ -5,6 +5,8 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from verion.modules.correlation.application.correlate_findings import CorrelateFindingsUseCase
+from verion.modules.correlation.application.list_project_risks import ListProjectRisksUseCase
 from verion.modules.identity.adapters.outbound.db.repository import (
     PostgresGitHubConnectionRepository,
     PostgresUserRepository,
@@ -570,4 +572,30 @@ def get_get_finding_evidence_use_case(
 
 GetFindingEvidenceUseCaseDep = Annotated[
     GetFindingEvidenceUseCase, Depends(get_get_finding_evidence_use_case)
+]
+
+
+# `correlation`'s first two factories (M5.2). Both request-scoped, so neither is
+# @lru_cache'd — rule 15. The grouping use case is wired separately from the
+# listing because M6 consumes it without an envelope; ADR-0025 decision 4.
+def get_correlate_findings_use_case(
+    project_access: ProjectAccessDep, findings: FindingRepositoryDep
+) -> CorrelateFindingsUseCase:
+    return CorrelateFindingsUseCase(project_access=project_access, findings=findings)
+
+
+CorrelateFindingsUseCaseDep = Annotated[
+    CorrelateFindingsUseCase, Depends(get_correlate_findings_use_case)
+]
+
+
+def get_list_project_risks_use_case(
+    correlate: CorrelateFindingsUseCaseDep,
+    normalization_runs: NormalizationRunRepositoryDep,
+) -> ListProjectRisksUseCase:
+    return ListProjectRisksUseCase(correlate=correlate, normalization_runs=normalization_runs)
+
+
+ListProjectRisksUseCaseDep = Annotated[
+    ListProjectRisksUseCase, Depends(get_list_project_risks_use_case)
 ]

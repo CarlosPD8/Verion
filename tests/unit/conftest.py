@@ -76,6 +76,20 @@ class ExplodingFindingRepository:
         raise AssertionError("the repository was read before authorization")
 
 
+class ExplodingNormalizationRunRepository:
+    """Every envelope read raises. `ExplodingFindingRepository`'s twin, for M5.2.
+
+    `ListProjectRisksUseCase` reads two ports, and only the first sits behind the access
+    check by construction. This one is what makes the second's placement provable too.
+    """
+
+    async def get_latest_by_project_id(self, *_: object, **__: object) -> None:
+        raise AssertionError("the run repository was read before authorization")
+
+    async def count_unfinished_by_project_id(self, *_: object, **__: object) -> int:
+        raise AssertionError("the run repository was read before authorization")
+
+
 class InMemoryUserRepository:
     def __init__(self) -> None:
         self._users: dict[str, User] = {}
@@ -549,6 +563,11 @@ def project_access() -> InMemoryProjectAccess:
 @pytest.fixture
 def exploding_finding_repository() -> ExplodingFindingRepository:
     return ExplodingFindingRepository()
+
+
+@pytest.fixture
+def exploding_normalization_run_repository() -> ExplodingNormalizationRunRepository:
+    return ExplodingNormalizationRunRepository()
 
 
 @pytest.fixture

@@ -306,6 +306,35 @@ QUERIES: dict[str, str] = {
         SELECT count(*) FROM normalization_runs
         WHERE project_id = :project_id AND status <> 'completed'
     """,
+    # Added at M5.2. `get_by_project_id`'s statement, which correlation reads on
+    # every request under ADR-0025 decision 1. Unpaged and unfiltered by design —
+    # see that port method's docstring. This is the acceptance criterion for that
+    # decision rather than a plan anyone is tuning: ADR-0025's Consequences says
+    # what a bad number here means and refuses three responses to it in advance.
+    "5. the full-project read behind a Risk listing": """
+        SELECT f.*, e.*
+        FROM findings f
+        LEFT JOIN evidence e ON e.finding_id = f.id
+        WHERE f.project_id = :project_id
+        ORDER BY f.dedup_hash
+    """,
+}
+
+
+# Every query above filters on ONE project_id, so a plan over zero rows is fast
+# and reads exactly like a plan over a full one. These print first so the plans
+# below are read against a row count rather than against the seed's own claim
+# about what it wrote. In the script rather than typed once at a shell, for the
+# reason the module docstring gives for the script existing at all.
+_GUARD_COUNTS: dict[str, str] = {
+    "findings in the measured project": """
+        SELECT count(*) FROM findings WHERE project_id = :project_id
+    """,
+    "evidence rows in the measured project": """
+        SELECT count(*) FROM evidence e
+        JOIN findings f ON e.finding_id = f.id
+        WHERE f.project_id = :project_id
+    """,
 }
 
 
@@ -335,6 +364,10 @@ async def _run(projects: int, per_project: int, runs_per_project: int, keep: boo
 
         async with engine.connect() as conn:
             params = {"project_id": f"{_MARK}project-0", "source": str(ScannerTool.SEMGREP)}
+            print(f"\n=== measured project: {params['project_id']} ===")
+            for label, count_query in _GUARD_COUNTS.items():
+                measured = (await conn.execute(text(count_query), params)).scalar_one()
+                print(f"{label}: {measured:,}")
             for label, query in QUERIES.items():
                 plan = await conn.execute(text(f"EXPLAIN (ANALYZE, BUFFERS) {query}"), params)
                 print(f"\n=== {label} ===")

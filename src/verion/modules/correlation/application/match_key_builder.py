@@ -24,9 +24,11 @@ def build_match_key(*, project_id: str, package: str | None, url: str | None) ->
     does not detect an ADDED `Finding` field that should have been a signal, or a semantic
     change behind an unchanged signature — ADR-0023 section (c) lists both.
 
-    A function rather than a `MatchKey(...)` call inlined in the use case, so that this
-    stays ONE site when M5.2 adds a second consumer. Two construction sites would be two
-    places for the annotations to meet, and section (b)'s argument is about there being
-    one.
+    A function rather than a `MatchKey(...)` call inlined in the use case, so that this stays
+    ONE site when a second consumer arrives. *(That consumer was expected to be M5.2, and was
+    not: ADR-0025 makes the Risk listing compose `CorrelateFindingsUseCase` rather than build
+    keys of its own, so this is still the single caller. The reason to keep it a function is
+    unchanged — two construction sites would be two places for the annotations to meet, and
+    section (b)'s argument is about there being one.)*
     """
     return MatchKey(project_id=project_id, package=package, url=url)

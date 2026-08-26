@@ -2,7 +2,7 @@
 
 Each ADR documents one consequential architectural or process decision: the situation that prompted it, what was decided, the honest trade-offs, and what alternatives were rejected and why. See `CLAUDE.md`'s working-style rule for when a new ADR is warranted.
 
-`0005` is intentionally reserved (not yet created) for the future risk-scoring-model ADR, per `docs/ROADMAP.md` M6.1. It is now the only reserved number — `0023` was written at M5.1 and is in the table below.
+**Two numbers are reserved and not yet created**, and both are claimed by a roadmap entry rather than by a file: `0005` for the risk-scoring-model ADR (`docs/ROADMAP.md` M6.1), and `0024` for the active-scanning scan policy (M5.4, which names `docs/adr/0024-…` in its own text). *(This paragraph said `0005` was "the only reserved number" until 2026-08-26. That was already arguable when M5.4 was written — a milestone entry naming a filename is a reservation in everything but the word — and M5.2 made it plainly false by taking `0025` and stepping over `0024` rather than renumbering the citations. `grep -n "0024" docs/ROADMAP.md` returns three, of which **two are M5.4's** and the third is in G24's register entry.)*
 
 | ADR | Title | Status |
 |---|---|---|
@@ -28,3 +28,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0021](0021-normalization-job-execution.md) | Normalization job execution: scheduling, state machine, and failure semantics | Accepted (amended M4.5) |
 | [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted |
 | [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted |
+| [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted |

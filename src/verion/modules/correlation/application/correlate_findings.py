@@ -48,7 +48,10 @@ class CorrelateFindingsUseCase:
     to decide that. The two ports are callable from this layer, so M5.2 inherits the
     ability and not a rewrite.
 
-    Does not persist (M5.2) and does not decide resolution (M9.1).
+    Does not persist and does not decide resolution (M9.1). **Nothing persists a candidate Risk**
+    — ADR-0025 decision 1 makes it a projection, and decision 2 puts the first forced write at
+    M8.1, the first issue with a value that cannot be recomputed. *(This line named M5.2 as the
+    issue that would persist, until that issue decided not to.)*
     """
 
     def __init__(self, project_access: ProjectAccessPort, findings: FindingRepositoryPort) -> None:
