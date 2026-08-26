@@ -216,12 +216,30 @@ The capture makes this concrete rather than theoretical. ZAP **did** crawl the v
 endpoint — `/calculate?expr=2*3` appears in the alert instances, alongside `/`,
 `/robots.txt` and `/sitemap.xml` — received a real response from it, and reported nothing
 about the injection. Its five alerts are all response-level: CSP, anti-clickjacking,
-`Server` version disclosure, `X-Content-Type-Options`, suspicious comments.
+`Server` version disclosure, `X-Content-Type-Options`, suspicious comments. *(**Scoped
+2026-08-26 — a QUALIFICATION, not a strike.** The sentence is accurate about **the committed
+corpus**, which is all **G28**'s own bullet claims for it and all any measurement here
+supports — no other passive capture exists in this repository. It is **not** a bound on what
+ZAP can report: under an active plan
+the same target at the same commit yields three more alerts — `10106`, `6-5` and `90036`.
+Scoped rather than left alone because this is the sentence ADR-0023 Decision B's struck
+ground (3) was generalised from.)*
 
-So this corpus contains **no SAST↔DAST pair over the same vulnerability**, and no corpus
-can, whatever it is captured against. That is registered as **G24**, and it bounds what
-M5.3 can honestly demonstrate. Somebody reading these fixtures cold must not conclude the
-sink was missed, and must not conclude that a better target would fix it.
+So this corpus contains **no SAST↔DAST pair over the same vulnerability**, and none is
+obtainable from any corpus **while the plan stays passive**. *(**Corrected 2026-08-26.** That
+condition is new; the clause read *"and no corpus can, whatever it is captured against"*,
+which is **FALSIFIED** — the active-scan probe obtained the pair by changing the **scan
+plan**, not the corpus (**G24**'s `Note (2026-08-25, active-scan probe)`). It is the same
+"any corpus / never" conflation G24's own title was rewritten for, and it gets the same
+treatment: **the proposition is restored with its condition attached rather than dropped**,
+because the condition is what carries the instruction below — "the plan is a property of the
+adapter" would not, since it says only that changing the target does not change the plan. The
+plan is built by `_build_plan_yaml`, a module-level function in
+`scanning/adapters/outbound/scanners/zap_adapter.py`.)* That is registered as **G24**, and it
+bounds what M5.3 can honestly demonstrate. Somebody reading these fixtures cold must not
+conclude the sink was missed, and must not conclude that a better target would fix it —
+unchanged, and entailed by the conditioned proposition together with the sentence above it:
+passive scanning observes responses and never exercises a sink, whatever it is pointed at.
 
 Serving the real Flask app rather than static HTML still earned its place: the `Server`
 version-disclosure alert is Werkzeug's own header, and `/calculate` is only crawlable
@@ -237,7 +255,7 @@ Measured across the real captures, re-derived against this corpus rather than ca
 |---|---|---|
 | Semgrep | 0 | `extra.metadata` is `{}` — the pinned ruleset declares no metadata at all (**G6**) |
 | Trivy | 1 on 19 of 20 vulnerabilities, **2 on one** | `CVE-2024-49767` (Werkzeug 2.3.8) carries `["CWE-400", "CWE-770"]`. 14 distinct CWEs overall. |
-| ZAP | 1 | `cweid` is a scalar field, so 1 structurally — verified as `str` on all five alerts |
+| ZAP | 1 | `cweid` is a scalar field, so 1 structurally — verified as `str` on all five alerts *(**scoped 2026-08-26, a qualification not a strike**: five is this corpus's passive alert count. **One hand-run probe**, `ZapAdapter`'s plan shape with an `activeScan` job added, measured **eight** on the same target at the same commit — the five plus `10106`, `6-5` and `90036` (G24's `Note (2026-08-25, active-scan probe)`). That is one measurement under a plan **the shipped adapter does not have**, so *How to re-capture* below cannot produce it; it is not a property of re-capture. The scalar half is structural and holds either way.)* |
 
 **The maximum is 2, not 1.** The M4.1 capture measured 1 across all three tools, and
 ADR-0018 decision 4 cited that when it typed `Finding.cwe` as a single `str | None` rather
@@ -272,9 +290,18 @@ intersection is **empty for all three pairs** (Semgrep contributes none at all; 
 and ZAP's 4 are disjoint), and Semgrep's `file_path` is `app.py` against Trivy's
 `requirements.txt` — a source path against a manifest path. This is evidence about the
 *signals*, which the M4.1 set could not provide. What it is not: 14 CWEs against 4, over
-one small Flask app with three vulnerable packages, is thin, and G24 bounds ZAP's reachable
-CWE vocabulary independently of any corpus. It should not be cited as proving CWE is a dead
-cross-tool signal — that is G6's decision at M5.1, which now at least has admissible data.
+one small Flask app with three vulnerable packages, is thin. ~~and G24 bounds ZAP's reachable
+CWE vocabulary independently of any corpus~~ — **struck 2026-08-26: FALSIFIED**, and it is
+ADR-0023 Decision B's struck ground (3) in shorter words, still asserted here in the present
+tense after that ADR struck it and sent readers to this file. The active-scan probe reached
+**CWE-1336, CWE-22 and CWE-311** on top of the passive `{497, 615, 693, 1021}`, so the
+passive vocabulary was a property of the **scan plan**, not a bound on the tool. The thinness
+above is unaffected and is the part that still limits what this corpus proves. **What this
+sentence deliberately does not fix, in the same paragraph: `CWE-22` is one of Trivy's
+fourteen, so the intersection claim above is ADR-0023 Decision B's struck ground (1) still
+standing in this file — disclosed here rather than corrected, and registered as G32.** It should not
+be cited as proving CWE is a dead cross-tool signal — that is G6's decision at M5.1, which
+now at least has admissible data.
 
 **Two Semgrep fields remain unusable, and this is a property of the deployment, not of the
 capture.** `extra.fingerprint` and `extra.lines` both contain the literal string
