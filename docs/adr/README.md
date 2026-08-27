@@ -29,3 +29,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted |
 | [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted |
 | [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted |
+| [0026](0026-fixture-shape-conformance-check.md) | Checking a hand-written fixture's shape against the committed corpus | Accepted |
