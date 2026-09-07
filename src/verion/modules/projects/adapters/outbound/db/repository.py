@@ -213,6 +213,9 @@ def _scanner_config_to_domain(model: ScannerConfigModel) -> ScannerConfig:
         enabled_tools=tuple(ScannerTool(name) for name in model.enabled_tools),
         zap_target_url=model.zap_target_url,
         updated_at=model.updated_at,
+        active_scan_consent_target=model.active_scan_consent_target,
+        active_scan_consent_granted_at=model.active_scan_consent_granted_at,
+        active_scan_consent_granted_by=model.active_scan_consent_granted_by,
     )
 
 
@@ -240,6 +243,9 @@ class PostgresScannerConfigRepository:
                 enabled_tools=[str(tool) for tool in config.enabled_tools],
                 zap_target_url=config.zap_target_url,
                 updated_at=config.updated_at,
+                active_scan_consent_target=config.active_scan_consent_target,
+                active_scan_consent_granted_at=config.active_scan_consent_granted_at,
+                active_scan_consent_granted_by=config.active_scan_consent_granted_by,
             )
             .on_conflict_do_update(
                 constraint="uq_scanner_configs_project_id",
@@ -249,6 +255,13 @@ class PostgresScannerConfigRepository:
                     # disabling ZAP must not leave its stale target behind.
                     "zap_target_url": config.zap_target_url,
                     "updated_at": config.updated_at,
+                    # Written on every upsert, never conditionally: the use case
+                    # has already resolved what the three values should be, and
+                    # omitting them here would leave a withdrawal unpersisted
+                    # while reporting success.
+                    "active_scan_consent_target": config.active_scan_consent_target,
+                    "active_scan_consent_granted_at": config.active_scan_consent_granted_at,
+                    "active_scan_consent_granted_by": config.active_scan_consent_granted_by,
                 },
             )
         )

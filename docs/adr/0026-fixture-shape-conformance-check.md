@@ -231,10 +231,11 @@ declared**. A single "verified by mutation" over the check as a whole would pass
 of the membership layer while the union layer sat dead, which is G33's shape — a green
 conformance test over a fraction of its own subject — arriving one document later.
 
-**On the numbering.** `0024` is reserved for M5.4's scan policy and this ADR takes `0026`, so a
-reader arriving here and finding no `0024` is looking at a reservation rather than a gap. See
-`docs/adr/README.md`'s paragraph beginning *"Two numbers are reserved and not yet created"*,
-which records both reservations and which roadmap entry claims each.
+## Amendments
+
+- **2026-08-27: the paragraph headed *On the numbering* is deleted.** It existed to stop a reader
+  finding no `0024` and mistaking that reservation for a gap. `0024` was created on this date, so
+  there is nothing left to mistake.
 
 ## Alternatives considered
 

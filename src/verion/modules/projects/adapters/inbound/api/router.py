@@ -216,6 +216,10 @@ def _scanner_config_response(config: ScannerConfig) -> ScannerConfigResponse:
         enabled_tools=[str(tool) for tool in config.enabled_tools],
         zap_target_url=config.zap_target_url,
         updated_at=config.updated_at,
+        active_scan_consent_in_force=config.active_scan_consent_in_force,
+        active_scan_consent_target=config.active_scan_consent_target,
+        active_scan_consent_granted_at=config.active_scan_consent_granted_at,
+        active_scan_consent_granted_by=config.active_scan_consent_granted_by,
     )
 
 
@@ -236,6 +240,7 @@ async def update_scanner_config(
             user_id=user_id,
             enabled_tools=request.enabled_tools,
             zap_target_url=request.zap_target_url,
+            active_scan_consent=request.active_scan_consent,
         )
     except ProjectNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

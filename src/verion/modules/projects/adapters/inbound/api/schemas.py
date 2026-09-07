@@ -29,6 +29,11 @@ class UpdateScannerConfigRequest(BaseModel):
     # but not the alternatives.
     enabled_tools: list[str]
     zap_target_url: str | None = None
+    # Tri-state, and omitted is not the same as false: `None` leaves the stored
+    # grant alone so an owner can repoint `zap_target_url` without restating
+    # consent, which is the case ADR-0024 decision 3's rule exists for. `false`
+    # is an explicit withdrawal.
+    active_scan_consent: bool | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -72,3 +77,13 @@ class ScannerConfigResponse(BaseModel):
     enabled_tools: list[str]
     zap_target_url: str | None
     updated_at: datetime
+    # The verdict is returned alongside the stored fields rather than instead of
+    # them, because the two answer different questions: an owner who repointed
+    # the target needs to see both that consent is no longer in force AND which
+    # target it was granted against, or the false verdict looks like a bug.
+    # `granted_by` is a user id, not a credential — rule 12 does not reach it,
+    # and it is the only actor this resource records (G43).
+    active_scan_consent_in_force: bool
+    active_scan_consent_target: str | None
+    active_scan_consent_granted_at: datetime | None
+    active_scan_consent_granted_by: str | None

@@ -66,3 +66,14 @@ class ScannerConfigModel(Base):
     enabled_tools: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
     zap_target_url: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # ADR-0024 decision 1. Three nullable columns, no boolean: consent is present
+    # only when all three are set, and the target is what decision 3 compares.
+    # No FK on granted_by, for the reason ProjectModel.owner_id already gives:
+    # `users` is identity's table, and module independence holds at the
+    # persistence layer too. The project_id FKs in this file are the other side
+    # of that same rule — inside the module, so they stay.
+    active_scan_consent_target: Mapped[str | None] = mapped_column(String, nullable=True)
+    active_scan_consent_granted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    active_scan_consent_granted_by: Mapped[str | None] = mapped_column(String(36), nullable=True)

@@ -2,7 +2,7 @@
 
 Each ADR documents one consequential architectural or process decision: the situation that prompted it, what was decided, the honest trade-offs, and what alternatives were rejected and why. See `CLAUDE.md`'s working-style rule for when a new ADR is warranted.
 
-**Two numbers are reserved and not yet created**, and both are claimed by a roadmap entry rather than by a file: `0005` for the risk-scoring-model ADR (`docs/ROADMAP.md` M6.1), and `0024` for the active-scanning scan policy (M5.4, which names `docs/adr/0024-…` in its own text). *(This paragraph said `0005` was "the only reserved number" until 2026-08-26. That was already arguable when M5.4 was written — a milestone entry naming a filename is a reservation in everything but the word — and M5.2 made it plainly false by taking `0025` and stepping over `0024` rather than renumbering M5.4's citations of it. Renumbering was the cheaper-looking option and is the one the register's conventions make expensive: an entry's `Status: assigned → <issue>` is a permanent citation.)*
+**One number is reserved and not yet created**, claimed by a roadmap entry rather than by a file: `0005` for the risk-scoring-model ADR (`docs/ROADMAP.md` M6.1).
 
 | ADR | Title | Status |
 |---|---|---|
@@ -28,5 +28,6 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0021](0021-normalization-job-execution.md) | Normalization job execution: scheduling, state machine, and failure semantics | Accepted (amended M4.5) |
 | [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted |
 | [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted |
+| [0024](0024-active-scanning-consent-and-scan-policy.md) | Where active-scanning consent lives, what it is bound to, and the bounds on the `activeScan` job | Accepted |
 | [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted |
 | [0026](0026-fixture-shape-conformance-check.md) | Checking a hand-written fixture's shape against the committed corpus | Accepted |

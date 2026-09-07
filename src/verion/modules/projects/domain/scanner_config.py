@@ -47,6 +47,52 @@ class ScannerConfig:
     zap_target_url: str | None
     updated_at: datetime
 
+    # Active-scanning consent (ADR-0024 decision 1). Three nullable columns and
+    # deliberately no boolean: the target value IS the record, and a boolean
+    # beside it would be a second source of truth for the same fact.
+    #
+    # Defaulted to None rather than required at every construction site, because
+    # the default is the answer ADR-0024 decision 2 already gives for a project
+    # with no row at all — no consent — and because a default can only ever fail
+    # in the under-authorising direction. A caller that forgets these gets a
+    # config that will not be attacked, never one that will.
+    active_scan_consent_target: str | None = None
+    active_scan_consent_granted_at: datetime | None = None
+    active_scan_consent_granted_by: str | None = None
+
+    @property
+    def active_scan_consent_in_force(self) -> bool:
+        """Whether an active scan is authorised against `zap_target_url` right now.
+
+        **ADR-0024 decision 3's rule, and the single place it is evaluated.** Consent
+        is in force only while the target it was granted against is still the target
+        configured; when they differ it is absent, with no error, because changing a
+        target is a configuration act rather than a failure.
+
+        **A property rather than a stored column, for `Finding.dedup_hash`'s reason:**
+        letting a caller supply this value is the thing to prevent. A stored boolean
+        could disagree with the three fields it summarises and the target it compares
+        them against — four values in all — and the disagreement would
+        favour whichever the caller wrote — which for this value means attack traffic
+        against a host whose consent was voided.
+
+        **And a verdict rather than the data behind it**, which is what lets `scanning`
+        consume it without holding a copy of this module's rule (rule 3). ADR-0022
+        decision 2 crosses a module boundary the same way, and calls that shape the one
+        its successors copy. `scanning` reads this bool; the comparison stays here.
+
+        Equality is on the stored string verbatim, deliberately not normalized —
+        ADR-0024 decision 3 records the residue that follows, that a cosmetic edit to
+        the target voids consent and the owner re-grants. A normalizer would be a
+        second place for the two sides to disagree.
+        """
+        return (
+            self.active_scan_consent_target is not None
+            and self.active_scan_consent_granted_at is not None
+            and self.active_scan_consent_granted_by is not None
+            and self.active_scan_consent_target == self.zap_target_url
+        )
+
 
 def parse_enabled_tools(names: Sequence[str]) -> tuple[ScannerTool, ...]:
     """Rejects a name no scanner answers to, rather than accepting it and
