@@ -31,6 +31,7 @@ from verion.modules.scanning.adapters.outbound.scanners.zap_adapter import ZapAd
 from verion.modules.scanning.adapters.outbound.vcs.git_repo_checkout import GitRepoCheckout
 from verion.modules.scanning.application.run_scan import RunScanUseCase
 from verion.modules.scanning.domain.scan import Scan, ScanStatus
+from verion.modules.scanning.domain.scan_options import ScanOptions
 from verion.modules.scanning.domain.scan_result import ScanResultStatus
 from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.platform.clock import SystemClock
@@ -74,7 +75,7 @@ class _AlwaysFailingScanner:
     """A stand-in for ZAP in the partial-failure test.
 
     Deliberately a fake in a file otherwise built on real adapters: making a
-    real ZAP container fail on demand means either waiting out its 300s timeout
+    real ZAP container fail on demand means either waiting out its timeout
     or pointing it at an unreachable port, and neither buys anything this
     assertion needs. What is being proven here is the *dispatcher's* behaviour
     when one scanner fails, and the dispatcher cannot tell the difference. The
@@ -84,7 +85,7 @@ class _AlwaysFailingScanner:
     tool = ScannerTool.ZAP
     target_kind = ScannerTargetKind.URL
 
-    async def run(self, target: str):
+    async def run(self, target: str, options: ScanOptions):
         raise RuntimeError("simulated scanner failure")
 
 

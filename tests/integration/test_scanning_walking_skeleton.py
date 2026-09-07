@@ -3,6 +3,11 @@ from pathlib import Path
 
 from verion.modules.scanning.adapters.outbound.scanners.semgrep_adapter import SemgrepAdapter
 from verion.modules.scanning.adapters.outbound.vcs.git_repo_checkout import GitRepoCheckout
+from verion.modules.scanning.domain.scan_options import ScanOptions
+
+# The default state: no project has granted active-scan consent, so this is what
+# dispatch hands every scanner unless an owner opted in.
+_NO_CONSENT = ScanOptions(active_scan_consented=False)
 
 # Proves M3.2's "walking skeleton" claim — checkout and scanner adapters
 # genuinely chain together against a real repo — without any use case, queue,
@@ -31,7 +36,7 @@ async def test_checkout_then_scan_produces_raw_results():
 
     local_path = await checkout.checkout(_PUBLIC_REPO, access_token=None)
     try:
-        result = await scanner.run(local_path)
+        result = await scanner.run(local_path, _NO_CONSENT)
     finally:
         await checkout.cleanup(local_path)
 

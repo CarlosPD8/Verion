@@ -210,7 +210,15 @@ not a credential.
 **Do not read this fixture as ZAP having missed the `eval()` sink.** `ZapAdapter`'s
 automation plan runs `spider`, `passiveScan-wait` and `report`, and deliberately **no
 `activeScan` job** — see that adapter's own comment for why. Passive scanning observes
-responses; it never exercises a sink.
+responses; it never exercises a sink. *(**Scoped 2026-08-27 (M5.4) — a qualification of
+what this describes, not a strike.** It is accurate about **the run that produced these
+fixtures** and about every scan of a project that has not granted active-scanning
+consent. It is no longer a description of the shipped adapter: `_build_plan_yaml` now
+emits an `activeScan` job when consent is in force (ADR-0024), and the comment this
+sentence forwards to was deleted by that change, so the pointer no longer resolves —
+read `_active_scan_jobs` instead. A second, smaller divergence: `passiveScan-wait`'s
+ceiling dropped from 5 minutes to 2 for every project, so this corpus was captured under
+a plan production runs on neither branch. Registered as **G39**.)*
 
 The capture makes this concrete rather than theoretical. ZAP **did** crawl the vulnerable
 endpoint — `/calculate?expr=2*3` appears in the alert instances, alongside `/`,

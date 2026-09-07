@@ -9,6 +9,11 @@ import pytest
 from verion.modules.scanning.adapters.outbound.dns.system_dns_resolver import SystemDnsResolver
 from verion.modules.scanning.adapters.outbound.scanners.zap_adapter import ZapAdapter
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
+from verion.modules.scanning.domain.scan_options import ScanOptions
+
+# The default state: no project has granted active-scan consent, so this is what
+# dispatch hands every scanner unless an owner opted in.
+_NO_CONSENT = ScanOptions(active_scan_consented=False)
 
 # X-Content-Type-Options is one of several headers Python's stock
 # http.server omits by default — verified directly against a real ZAP scan
@@ -56,7 +61,7 @@ def _local_target_server() -> Iterator[int]:
 async def test_returns_raw_json_report_with_the_expected_finding():
     with _local_target_server() as port:
         adapter = ZapAdapter(dns_resolver=SystemDnsResolver(), allow_private_targets=True)
-        result = await adapter.run(f"http://host.docker.internal:{port}/")
+        result = await adapter.run(f"http://host.docker.internal:{port}/", _NO_CONSENT)
 
     assert result.tool == "zap"
     report = json.loads(result.raw_output)
@@ -75,4 +80,4 @@ async def test_raises_on_an_unreachable_target():
     # plan exits nonzero), same class of "genuine tool/target failure" as
     # TrivyAdapter's nonexistent-path test.
     with pytest.raises(ScannerExecutionFailed):
-        await adapter.run("http://host.docker.internal:1/")
+        await adapter.run("http://host.docker.internal:1/", _NO_CONSENT)

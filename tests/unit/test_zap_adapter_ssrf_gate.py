@@ -6,6 +6,12 @@ import pytest
 
 from verion.modules.scanning.adapters.outbound.scanners.zap_adapter import ZapAdapter
 from verion.modules.scanning.domain.exceptions import UnsafeDastTarget
+from verion.modules.scanning.domain.scan_options import ScanOptions
+
+# The default state: no project has granted active-scan consent, so this is what
+# dispatch hands every scanner unless an owner opted in.
+_NO_CONSENT = ScanOptions(active_scan_consented=False)
+_CONSENTED = ScanOptions(active_scan_consented=True)
 
 
 class _FakeDockerProcess:
@@ -48,10 +54,45 @@ async def test_rejects_a_private_resolved_ip_before_spawning_any_subprocess(
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     with pytest.raises(UnsafeDastTarget):
-        await adapter.run("https://example.com/")
+        await adapter.run("https://example.com/", _NO_CONSENT)
 
     assert spawned == []
     assert resolver.resolve_calls == ["example.com"]
+
+
+async def test_a_consented_private_target_is_still_refused_and_never_reaches_the_plan_builder(
+    dns_resolver_factory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """ADR-0024 decision 6: consent is not a second path around ADR-013.
+
+    **The plan-file clause is the new half and is what pins decision 4's placement.**
+    Asserting only "no subprocess" would pass an implementation that read consent
+    first, built an active plan, wrote it to disk and *then* ran the gates — the
+    refusal would look identical from outside while the ordering property was gone.
+    The plan file is the observable that distinguishes them, because
+    `_build_plan_yaml`'s only call site sits downstream of both gates.
+
+    The target is `_CONSENTED`, so this is the consented case specifically: ADR-013
+    decides which targets may be reached, consent only what is done to one already
+    admitted.
+    """
+    resolver = dns_resolver_factory(["127.0.0.1"])
+    adapter = ZapAdapter(dns_resolver=resolver)
+    _patch_plan_dir(monkeypatch, tmp_path)
+
+    spawned: list[tuple] = []
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        spawned.append(args)
+        raise AssertionError("subprocess must not be spawned when the target is unsafe")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    with pytest.raises(UnsafeDastTarget):
+        await adapter.run("https://example.com/", _CONSENTED)
+
+    assert spawned == []
+    assert list(tmp_path.iterdir()) == []
 
 
 async def test_a_public_resolved_ip_lets_the_scan_reach_docker(
@@ -70,7 +111,7 @@ async def test_a_public_resolved_ip_lets_the_scan_reach_docker(
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    result = await adapter.run("https://example.com/")
+    result = await adapter.run("https://example.com/", _NO_CONSENT)
 
     assert result.tool == "zap"
     assert result.raw_output == '{"ok": true}'
@@ -93,7 +134,7 @@ async def test_allow_private_targets_skips_the_ssrf_gate_entirely(
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    result = await adapter.run("http://127.0.0.1:8000/")
+    result = await adapter.run("http://127.0.0.1:8000/", _NO_CONSENT)
 
     assert result.tool == "zap"
     assert spawned and spawned[0][0] == "docker"

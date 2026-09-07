@@ -22,6 +22,7 @@ from verion.modules.projects.ports.vcs_provider import RepoMetadata
 from verion.modules.scanning.domain.exceptions import RepoCheckoutFailed, ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
 from verion.modules.scanning.domain.scan import Scan
+from verion.modules.scanning.domain.scan_options import ScanOptions
 from verion.modules.scanning.domain.scan_result import ScanResult, ScanResultStatus
 from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.shared_kernel.scanner_tools import ScannerTool
@@ -623,9 +624,13 @@ class FakeScanner:
         # which is the whole reason RunScanUseCase catches broadly.
         self._error = error
         self.run_calls: list[str] = []
+        # Recorded alongside the target so a test can assert what dispatch
+        # computed and handed down, not merely that something was passed.
+        self.options_calls: list[ScanOptions] = []
 
-    async def run(self, target: str) -> RawScanResult:
+    async def run(self, target: str, options: ScanOptions) -> RawScanResult:
         self.run_calls.append(target)
+        self.options_calls.append(options)
         if self._error is not None:
             raise self._error
         if self._fail:

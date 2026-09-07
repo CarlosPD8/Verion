@@ -5,6 +5,11 @@ import pytest
 
 from verion.modules.scanning.adapters.outbound.scanners.trivy_adapter import TrivyAdapter
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
+from verion.modules.scanning.domain.scan_options import ScanOptions
+
+# The default state: no project has granted active-scan consent, so this is what
+# dispatch hands every scanner unless an owner opted in.
+_NO_CONSENT = ScanOptions(active_scan_consented=False)
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _TARGET_DIR = _FIXTURES_DIR / "trivy_target"
@@ -25,7 +30,7 @@ _EXPECTED_CVE = "CVE-2019-11324"
 
 async def test_returns_raw_json_with_the_expected_vulnerability():
     adapter = TrivyAdapter(skip_db_update=True)
-    result = await adapter.run(str(_TARGET_DIR))
+    result = await adapter.run(str(_TARGET_DIR), _NO_CONSENT)
 
     assert result.tool == "trivy"
     body = json.loads(result.raw_output)
@@ -41,4 +46,4 @@ async def test_returns_raw_json_with_the_expected_vulnerability():
 async def test_raises_on_nonexistent_target_path():
     adapter = TrivyAdapter(skip_db_update=True)
     with pytest.raises(ScannerExecutionFailed):
-        await adapter.run(str(_FIXTURES_DIR / "does-not-exist"))
+        await adapter.run(str(_FIXTURES_DIR / "does-not-exist"), _NO_CONSENT)

@@ -34,6 +34,7 @@ from verion.modules.scanning.domain.exceptions import (
     UnsupportedRepoProvider,
 )
 from verion.modules.scanning.domain.scan import ScanStatus
+from verion.modules.scanning.domain.scan_options import ScanOptions
 from verion.modules.scanning.domain.scan_result import ScanResult
 from verion.modules.scanning.domain.scanner_dispatch import (
     derive_scan_status,
@@ -148,6 +149,16 @@ class RunScanUseCase:
                 config.enabled_tools if config is not None else None
             )
             zap_target_url = config.zap_target_url if config is not None else None
+            # The VERDICT, not the three columns behind it — `projects` owns the
+            # rule and exposes it derived, so this module cannot hold a second
+            # copy of it (rule 3, ADR-0024 decision 4). A project with no config
+            # row has no consent, which is the same answer ADR-016 decision 3's
+            # default gives for ZAP itself being off.
+            options = ScanOptions(
+                active_scan_consented=(
+                    config.active_scan_consent_in_force if config is not None else False
+                )
+            )
 
             if not enabled_tools:
                 raise NoScannersEnabled(f"No scanners enabled for project '{scan.project_id}'")
@@ -163,7 +174,7 @@ class RunScanUseCase:
             # output that was about to succeed.
             results = await asyncio.gather(
                 *(
-                    self._run_scanner(scan.id, scanner, local_path, zap_target_url)
+                    self._run_scanner(scan.id, scanner, local_path, zap_target_url, options)
                     for scanner in selected
                 )
             )
@@ -268,6 +279,7 @@ class RunScanUseCase:
         scanner: ScannerPort,
         local_path: str | None,
         zap_target_url: str | None,
+        options: ScanOptions,
     ) -> ScanResult:
         """Runs one scanner and returns its outcome. Never raises."""
         if scanner.target_kind is ScannerTargetKind.REPO_PATH:
@@ -283,7 +295,7 @@ class RunScanUseCase:
             return self._failed(scan_id, scanner, f"No target configured for '{scanner.tool}'")
 
         try:
-            raw_result = await scanner.run(target)
+            raw_result = await scanner.run(target, options)
         except Exception as exc:
             # Deliberately broad. An adapter failing in a way nobody
             # anticipated must not take down a sibling that succeeded — that

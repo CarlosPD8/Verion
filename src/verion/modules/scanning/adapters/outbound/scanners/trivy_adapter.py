@@ -2,6 +2,7 @@ import asyncio
 
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
+from verion.modules.scanning.domain.scan_options import ScanOptions
 from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.shared_kernel.scanner_tools import ScannerTool
 
@@ -24,7 +25,11 @@ class TrivyAdapter:
         # on a given run. See ADR-0012.
         self._skip_db_update = skip_db_update
 
-    async def run(self, target: str) -> RawScanResult:
+    # `options` is unread, for SemgrepAdapter's reason: Trivy scans a
+    # checked-out tree and takes no user-supplied target, so nothing in
+    # ScanOptions applies. Accepted rather than omitted because ScannerPort
+    # declares it.
+    async def run(self, target: str, options: ScanOptions) -> RawScanResult:
         args = ["fs", "--format", "json"]
         if self._skip_db_update:
             args.append("--skip-db-update")

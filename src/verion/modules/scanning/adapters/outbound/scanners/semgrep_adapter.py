@@ -2,6 +2,7 @@ import asyncio
 
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
+from verion.modules.scanning.domain.scan_options import ScanOptions
 from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.shared_kernel.scanner_tools import ScannerTool
 
@@ -17,7 +18,11 @@ class SemgrepAdapter:
         self._config = config
         self._timeout_seconds = timeout_seconds
 
-    async def run(self, target: str) -> RawScanResult:
+    # `options` is unread: Semgrep scans a checked-out tree and takes no
+    # user-supplied target, so nothing in ScanOptions applies to it (ADR-016
+    # decision 3 gives the same asymmetry as the reason ZAP alone needs opting
+    # into). Accepted rather than omitted because ScannerPort declares it.
+    async def run(self, target: str, options: ScanOptions) -> RawScanResult:
         # Two flags and a `cwd` that exist for one reason: both `results[].path`
         # and `results[].check_id` are `dedup_hash` inputs (ADR-0019 decision 3),
         # and by default Semgrep renders BOTH of them relative to the process's

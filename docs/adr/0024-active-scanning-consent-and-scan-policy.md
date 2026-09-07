@@ -297,8 +297,10 @@ existing ZAP test describe the same configuration after this change as before it
 
 ## Amendments
 
-Both entries **qualify an incomplete decision**; neither strikes a falsified one. Decision 2 is
-accurate about everything it says and silent about two things the implementation had to settle.
+The first two entries **qualify an incomplete decision**; neither strikes a falsified one. Decision
+2 is accurate about everything it says and silent about two things the implementation had to
+settle. **The third is a strike**, and it is marked as one because the two above it declare the
+opposite treatment.
 
 - **2026-08-27 (M5.4, commit 1): decision 2 is incomplete as to the request's shape. The consent
   field is tri-state — grant, withdraw, or omitted — and the omitted state is what makes decision
@@ -315,6 +317,18 @@ accurate about everything it says and silent about two things the implementation
   follows, and it is **an instance of G43 rather than a new gap**: `granted_at` now spans an
   interval in which consent was not in force, and nothing records that interval — which is the
   missing grant history that entry already carries.
+- **2026-08-27 (M5.4, commit 2): `## Consequences`' paragraph beginning *"The passive path is
+  unchanged."* is STRUCK. It is false in both halves.** Implementing decision 5's first
+  inequality forced `passiveScan-wait`'s ceiling from 5 minutes to 2, unconditionally — so a
+  project without consent does **not** get *"exactly the plan `_build_plan_yaml` builds today"*,
+  and the committed corpus, ADR-0026's derived profile and the existing ZAP tests do **not**
+  *"describe the same configuration after this change as before it"*: they were captured under
+  the 5-minute ceiling and production now runs 2 on both branches. Struck rather than qualified,
+  because no scoping rescues either clause — the paragraph asserted an invariance the
+  implementation had to break to satisfy this ADR's own arithmetic. **This is the second way G39
+  fired at this commit**, the first being the `activeScan` job itself; that entry's Note records
+  both, and no new entry is opened, since a profile that has stopped describing production is
+  exactly what G39 already is.
 
 ## Alternatives considered
 

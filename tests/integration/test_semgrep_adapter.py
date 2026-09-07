@@ -7,6 +7,11 @@ import pytest
 
 from verion.modules.scanning.adapters.outbound.scanners.semgrep_adapter import SemgrepAdapter
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
+from verion.modules.scanning.domain.scan_options import ScanOptions
+
+# The default state: no project has granted active-scan consent, so this is what
+# dispatch hands every scanner unless an owner opted in.
+_NO_CONSENT = ScanOptions(active_scan_consented=False)
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _TARGET_DIR = _FIXTURES_DIR / "semgrep_target"
@@ -47,7 +52,7 @@ async def test_returns_raw_json_with_the_expected_finding():
     adapter = SemgrepAdapter(config=str(_RULESET))
     target = _copy_target_outside_of_any_test_directory()
     try:
-        result = await adapter.run(target)
+        result = await adapter.run(target, _NO_CONSENT)
     finally:
         shutil.rmtree(target, ignore_errors=True)
 
@@ -85,9 +90,9 @@ async def test_rule_id_and_path_do_not_depend_on_the_worker_s_working_directory(
     target = _copy_target_outside_of_any_test_directory()
     try:
         monkeypatch.chdir(tmp_path)
-        from_tmp = json.loads((await adapter.run(target)).raw_output)
+        from_tmp = json.loads((await adapter.run(target, _NO_CONSENT)).raw_output)
         monkeypatch.chdir(Path(__file__).parents[2])
-        from_repo_root = json.loads((await adapter.run(target)).raw_output)
+        from_repo_root = json.loads((await adapter.run(target, _NO_CONSENT)).raw_output)
     finally:
         shutil.rmtree(target, ignore_errors=True)
 
@@ -101,6 +106,6 @@ async def test_raises_on_invalid_config():
     target = _copy_target_outside_of_any_test_directory()
     try:
         with pytest.raises(ScannerExecutionFailed):
-            await adapter.run(target)
+            await adapter.run(target, _NO_CONSENT)
     finally:
         shutil.rmtree(target, ignore_errors=True)

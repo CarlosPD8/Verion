@@ -11,6 +11,7 @@ import yaml
 
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
+from verion.modules.scanning.domain.scan_options import ScanOptions
 from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.modules.scanning.domain.target_url import (
     validate_resolved_ips_are_public,
@@ -35,7 +36,28 @@ class ZapAdapter:
     def __init__(
         self,
         dns_resolver: DnsResolverPort,
-        timeout_seconds: float = 300.0,
+        # 540s, raised from 300s at M5.4. ADR-0024 decision 5 leaves this
+        # arithmetic to the issue that adds the activeScan job; it is:
+        #
+        #   plan ceilings   spider 2 + passiveScan-wait 2 + activeScan 3
+        #                 = 7 min = 420s  <  540s          [inequality 1]
+        #   checkout 30s (GitRepoCheckout's own timeout, its default and not
+        #   overridden in worker.py) + max(semgrep 60, trivy 180, zap 540)
+        #                 = 570s          <  600s          [inequality 2]
+        #
+        # `max`, not a sum, because ADR-016 decision 1 runs the enabled
+        # scanners concurrently. 600 is WorkerSettings.job_timeout, which is
+        # NOT raised to make room: settings.py's comment on
+        # normalization_sweep_stale_after_seconds records that raising it makes
+        # the sweep start continuously re-enqueuing live work.
+        #
+        # The two margins are CHOSEN, not measured, and they protect different
+        # things. Inequality 1's 120s covers what the plan's own clock does not
+        # — container start, image entrypoint, report write, teardown.
+        # Inequality 2's 30s covers the rest of the arq job: the ScanResult
+        # upserts, the normalization handoff row and the status update. No
+        # committed ZAP test and no probe run has ever approached either bound.
+        timeout_seconds: float = 540.0,
         # TEST-ONLY escape hatch, mirrors TrivyAdapter.skip_db_update's
         # "safe production default, explicit test-only override" shape (see
         # ADR-0012 for that precedent, ADR-0013 for this one). Production
@@ -59,7 +81,7 @@ class ZapAdapter:
         self._allow_private_targets = allow_private_targets
         self._docker_image = docker_image
 
-    async def run(self, target: str) -> RawScanResult:
+    async def run(self, target: str, options: ScanOptions) -> RawScanResult:
         # Validated before any subprocess/Docker call — the SSRF gate, same
         # placement convention as GitRepoCheckout.checkout's
         # parse_github_clone_url call. Two steps: syntax (pure, catches
@@ -93,7 +115,12 @@ class ZapAdapter:
         os.chmod(plan_dir, 0o777)
         container_name = f"verion-zap-{uuid.uuid4().hex}"
         try:
-            Path(plan_dir, _PLAN_FILENAME).write_text(_build_plan_yaml(target))
+            # Consent is read HERE and nowhere earlier (ADR-0024 decisions 4
+            # and 6). Both ADR-013 gates are already behind us, so a target
+            # this adapter refused never reaches the plan builder at all —
+            # consent narrows what is done to an admitted target and can never
+            # widen which targets are admitted.
+            Path(plan_dir, _PLAN_FILENAME).write_text(_build_plan_yaml(target, options))
 
             process = await asyncio.create_subprocess_exec(
                 "docker",
@@ -159,13 +186,52 @@ async def _docker_kill_best_effort(container_name: str) -> None:
         await kill_process.wait()
 
 
-def _build_plan_yaml(target: str) -> str:
-    # A bounded baseline-equivalent scan — spider + passive scanning only,
-    # deliberately no `activeScan` job (an active scan is unbounded in scope
-    # and makes real attack requests against the target; out of scope for
-    # this issue). yaml.safe_dump (not an f-string) so a target URL
-    # containing YAML-special characters can never corrupt the plan's
-    # structure.
+def _active_scan_jobs(options: ScanOptions) -> list[dict[str, object]]:
+    """The `activeScan` job, or nothing at all — ADR-0024 decision 5's parameters.
+
+    A list spliced into the plan rather than a job dict with a conditional inside
+    it, so an unconsented plan carries no `activeScan` key at all instead of a
+    disabled job somebody later has to reason about.
+
+    `policy` is absent deliberately: ZAP's default is the only policy this project
+    has any evidence about, since it is what the M5.4 probe ran. The bound is the
+    context and the clock, not an allow-list of rule classes.
+    """
+    if not options.active_scan_consented:
+        return []
+    return [
+        {
+            "type": "activeScan",
+            "parameters": {
+                # The plan declares exactly one context and its `urls` is
+                # [target], so this scopes the attack to that target's subtree.
+                "context": "verion-target",
+                "maxRuleDurationInMins": 1,
+                "maxScanDurationInMins": 3,
+                "threadPerHost": 2,
+            },
+        }
+    ]
+
+
+def _build_plan_yaml(target: str, options: ScanOptions) -> str:
+    # Spider + passive scanning always; `activeScan` only behind explicit
+    # per-project consent (ADR-0024). Without consent the job LIST is what it was
+    # before M5.4 — spider, passiveScan-wait, report — but the plan is NOT
+    # identical to it: `passiveScan-wait`'s ceiling drops here too. Both edits are
+    # changes to a pinned scan plan and both fire G39; the unconsented path is
+    # narrower, not untouched.
+    #
+    # `passiveScan-wait` dropped 5 -> 2 minutes here, and that is a ceiling
+    # rather than a duration: it waits for the passive queue to drain, which no
+    # committed ZAP test has ever spent more than seconds on. Lowered because
+    # ADR-0024 decision 5's first inequality has to
+    # hold and this is the cap furthest above anything ever observed; `spider`
+    # is deliberately NOT lowered, since it bounds crawl coverage on a target
+    # nobody here has measured.
+    #
+    # yaml.safe_dump (not an f-string) so a target URL containing YAML-special
+    # characters can never corrupt the plan's structure.
     plan = {
         "env": {
             "contexts": [
@@ -186,9 +252,10 @@ def _build_plan_yaml(target: str) -> str:
             {
                 "type": "passiveScan-wait",
                 "parameters": {
-                    "maxDuration": 5,
+                    "maxDuration": 2,
                 },
             },
+            *_active_scan_jobs(options),
             {
                 "type": "report",
                 "parameters": {

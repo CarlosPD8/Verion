@@ -47,6 +47,7 @@ from verion.modules.scanning.application.run_scan import RunScanUseCase
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
 from verion.modules.scanning.domain.scan import Scan, ScanStatus
+from verion.modules.scanning.domain.scan_options import ScanOptions
 from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.platform.clock import SystemClock
 from verion.platform.id_generator import UuidIdGenerator
@@ -61,7 +62,7 @@ class _FixtureScanner:
         self.target_kind = ScannerTargetKind.REPO_PATH
         self._raw_output = raw_output
 
-    async def run(self, target: str) -> RawScanResult:
+    async def run(self, target: str, options: ScanOptions) -> RawScanResult:
         if self._raw_output is None:
             raise ScannerExecutionFailed("simulated scanner failure")
         return RawScanResult(tool=self.tool, raw_output=self._raw_output)

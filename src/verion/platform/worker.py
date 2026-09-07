@@ -256,10 +256,13 @@ class WorkerSettings:
     cron_jobs = [cron(sweep_pending_normalizations, minute=set(range(0, 60, 5)))]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     # arq's default is 300s (arq/worker.py). Scanners now run concurrently, so
-    # a full run is max() not sum() — but max() is ZapAdapter's own 300s
-    # timeout, plus a checkout, so the default would kill a legitimate
-    # three-scanner run at roughly the moment ZAP finishes, intermittently and
-    # looking like a ZAP bug. Each adapter still enforces its own hard timeout
+    # a full run is max() not sum() — but max() is ZapAdapter's own timeout,
+    # 540s since M5.4, plus a 30s checkout, so the default would kill a
+    # legitimate three-scanner run long before ZAP finishes, intermittently and
+    # looking like a ZAP bug. 540 + 30 = 570 against this 600 leaves 30s for the
+    # rest of the job, which is the margin ZapAdapter's own comment derives and
+    # is why raising a scanner timeout is not a local decision. Each adapter
+    # still enforces its own hard timeout
     # and process kill (ADR-011), so this is a backstop against a hung job
     # rather than the thing that bounds a scanner. See ADR-016 decision 1.
     job_timeout = 600

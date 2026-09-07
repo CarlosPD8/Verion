@@ -38,6 +38,7 @@ from verion.modules.scanning.application.run_scan import RunScanUseCase
 from verion.modules.scanning.domain.exceptions import ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
 from verion.modules.scanning.domain.scan import Scan, ScanStatus
+from verion.modules.scanning.domain.scan_options import ScanOptions
 from verion.modules.scanning.domain.scanner_target_kind import ScannerTargetKind
 from verion.platform.clock import SystemClock
 from verion.platform.id_generator import UuidIdGenerator
@@ -53,7 +54,7 @@ class _FakeScanner:
         self.target_kind = ScannerTargetKind.REPO_PATH
         self._fail = fail
 
-    async def run(self, target: str) -> RawScanResult:
+    async def run(self, target: str, options: ScanOptions) -> RawScanResult:
         if self._fail:
             raise ScannerExecutionFailed("simulated scanner failure")
         return RawScanResult(tool=self.tool, raw_output='{"results": []}')
