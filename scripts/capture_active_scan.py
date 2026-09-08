@@ -310,9 +310,11 @@ def stop_target(process: subprocess.Popen[bytes]) -> None:
     app outliving the scan that needed it is the one failure this script must not have, so
     the tree kill is the primary control and the port check below is the verification.
 
-    **The Windows branch is the exercised one; the POSIX branch has never run.** Both kill a
-    tree, by the mechanism each platform offers, but only the first has been observed doing
-    it. Said here rather than left for a reader to assume symmetry.
+    **The Windows branch is the one every capture has exercised. The POSIX branch had never run
+    at M5.9 commit 1, and runs on every CI job from commit 2** — `test_active_scan_finds_the_sink`
+    imports this function and CI is `ubuntu-latest`, so the `killpg` path is the one its teardown
+    takes. Dated rather than left in the present tense, because "has never run" is the kind of
+    sentence that is true when written and false a commit later with nothing to notice.
     """
     if process.poll() is None:
         if sys.platform == "win32":

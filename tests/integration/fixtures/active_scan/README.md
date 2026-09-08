@@ -218,8 +218,9 @@ bounded it, and each is in the driver rather than in this prose:
   capture run left the vulnerable app still listening on `0.0.0.0:8080` after the script exited
   (an operator observation from a discarded run, not a committed artifact). That is why
   `stop_target` uses a tree kill and why a still-open port is now a hard failure. **The tree kill
-  this capture exercised is the Windows one**; `stop_target`'s POSIX branch is written and has
-  never run.
+  this capture exercised is the Windows one**; `stop_target`'s POSIX branch had not run as of
+  this capture, and runs on every CI job from M5.9 commit 2, whose test imports the same
+  function onto `ubuntu-latest`.
 
 ## Why two rewriting pre-commit hooks are excluded from this directory
 
