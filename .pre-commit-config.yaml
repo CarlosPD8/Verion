@@ -42,11 +42,25 @@ repos:
         types_or: [python, pyi, jupyter, markdown]
         require_serial: true
 
+  # `rev` is deliberately NOT bumped here — see G21 in docs/ROADMAP.md. This file being
+  # opened is that entry's own trigger, and the bump is two majors of file-rewriting hooks,
+  # which is M5.0's anti-bundling argument exactly. The exclude below is the change; the
+  # version is not.
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
+      # These two REWRITE files, and tests/integration/fixtures/active_scan/ holds captured
+      # scanner evidence: a ZAP report and the target's own access log, both carrying attack
+      # payloads verbatim. A payload that happens to end in whitespace, or a tool that emits
+      # no final newline, would be silently edited into something no run produced — a
+      # committed artifact quietly diverging from what it claims to be. Measured at M5.9:
+      # neither hook changes either file today, so this is PREVENTIVE, not remedial. It is
+      # scoped rather than trusted for the reason pyproject.toml's `unfixable` list gives
+      # for ruff (G8): narrow the tool instead of relying on the input never arriving.
       - id: trailing-whitespace
+        exclude: ^tests/integration/fixtures/active_scan/
       - id: end-of-file-fixer
+        exclude: ^tests/integration/fixtures/active_scan/
       - id: check-yaml
       - id: check-added-large-files
       - id: check-merge-conflict

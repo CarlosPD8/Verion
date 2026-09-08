@@ -243,10 +243,16 @@ whose subject is the ordering; it is cited here rather than re-argued.
 
 ## What consent authorises
 
-**These figures are not re-derivable from this repository.** No probe artifact is committed and
+~~**These figures are not re-derivable from this repository.** No probe artifact is committed and
 none is tracked: the access log, the ZAP report and the probe's working tree do not exist here.
 They are one operator's hand-run, recorded because a decision about what consent authorises has to
-say what it authorises — not because anything in the tree can check them. Registered as **G42**.
+say what it authorises — not because anything in the tree can check them.~~ — **STRUCK 2026-09-08
+(M5.9): FALSIFIED.** M5.9 commits a ZAP report and the target's own Werkzeug access log under
+`tests/integration/fixtures/active_scan/`, so the predicate column below can be run. **The table
+that follows is the probe's and is superseded — read the restated one in `## Amendments`.** Struck
+here rather than only amended because this paragraph is ninety lines above that section, and a
+reader of the body who never reaches it would take the opposite of what holds. Registered as
+**G42**, whose first half this discharges and whose second half no capture can.
 
 Each figure is stated as the predicate that produced it, per G40's rule that *"a figure a reader
 cannot re-run has the defect this entry exists to record"*. One run, one small Flask app; the
@@ -329,6 +335,48 @@ opposite treatment.
   fired at this commit**, the first being the `activeScan` job itself; that entry's Note records
   both, and no new entry is opened, since a profile that has stopped describing production is
   exactly what G39 already is.
+
+- **2026-09-08 (M5.9): `## What consent authorises` is RE-DERIVED against a committed capture,
+  and every row is RESTATED rather than confirmed. It also carries a STRIKE, and the two are
+  separate acts.** That section opened *"These figures are not re-derivable from this repository"*;
+  **that sentence is FALSIFIED and is struck at its own site**, because a falsified claim ninety
+  lines above the amendment that falsifies it is read by everyone who does not scroll. **That makes
+  two strikes in this section**, so the introduction above — *"The first two entries qualify an
+  incomplete decision … The third is a strike"* — enumerates the first three entries and is no
+  longer a description of the whole. Left as written: it is accurate about what it enumerates, and
+  editing it would restate an amendment history rather than record one. The figures now are
+  re-derivable —
+  `tests/integration/fixtures/active_scan/app_access.log` is the target's own Werkzeug log, which
+  is the source the predicate column names for every row but the first. The figures below come
+  from **this ADR's own plan**, run through the shipped `ZapAdapter` at its pinned digest, which
+  the 2026-08-25 probe was not: it ran the committed plan shape with an `activeScan` job added and
+  **not** decision 5's parameters, which is why restatement was the expected outcome.
+
+  | Figure | Probe (2026-08-25) | This ADR's plan (2026-09-08) |
+  |---|---|---|
+  | wall clock | 62 s, of which 47 s the `activeScan` job | **65.5 s**, timed around `ZapAdapter.run()`; the log spans 60.0 s first request to last. The job is **not** separately attributed — the report carries no per-job timing, so the probe's 47 s has no counterpart here and is not restated. |
+  | requests | 391 | **390** |
+  | distinct paths | 86 | **86** |
+  | status codes | 200×252, 404×132, 405×7 | **200×253, 404×130, 405×7** |
+  | malformed | 7 | **7** |
+  | 5xx | 0 | **0** |
+
+  **The shape holds and the details moved, which is the honest reading of a second run rather than
+  a vindication of the first.** Path count is identical; request count differs by one and the
+  200/404 split by one either way — this run's own `/.zap<nonce>` probe path differs per run, and
+  the counts are a single sample, not a range. **Every family in the list below reproduced**,
+  including all six cloud-metadata providers, every named secret-file probe, and real shell
+  execution on the target: `90036` fired at confidence 3 with an `attack` of
+  `{{__import__("subprocess").check_output("sleep 15", shell=True)}}`. **Nothing persisted and
+  nothing returned 5xx** — still a property of this target, not a guarantee.
+
+  **What this does NOT verify, and it is the half G42 was opened for:** that ZAP *honoured*
+  `maxScanDurationInMins`, `maxRuleDurationInMins` or `threadPerHost`. A completed run proves the
+  plan was accepted, not that an unrecognised parameter would have been rejected — and
+  `ZapAdapter.run` binds `_, stderr = await process.communicate()` and surfaces stderr only on a
+  non-zero exit, so ZAP's console output is discarded on every successful run. **No capture taken
+  through the shipped adapter as it stands can close that**, which is recorded in G42 and in
+  ADR-0027's `## Amendments`.
 
 ## Alternatives considered
 

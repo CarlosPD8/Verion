@@ -8,9 +8,17 @@ Written and reviewed **before any of M5.9's code existed**, the ordering ADR-002
 amendment adopted and ADR-0024 and ADR-0025 followed.
 
 **Length ceiling: 20 KB (20,480 bytes), declared for this ADR as ADR-0024 declared its own scope
-bounds.** Measured at **19163 bytes**, 94% of it. The ceiling
+bounds.** At acceptance the decision text measured **19,163 bytes**, 94% of it. The ceiling
 exists because a second decision hiding inside a long ADR is indistinguishable from a thorough
 one — if it does not fit, the second decision is deferred with a trigger and a register entry.
+
+**The file now measures 21736 bytes, past that ceiling, and the overrun is disclosed rather than
+trimmed away.** Everything above the ceiling is `## Amendments`, added 2026-09-08 — the ceiling
+governed the decision text at acceptance, and amendments accrue afterwards by design, as ADR-0017
+through ADR-0021 all show. **That is a distinction being drawn, not a rule being restated**, so a
+later reader can reject it: what it must not license is deferring a decision *into* an amendment to
+stay under the number. Trimming `## Alternatives considered` to fit was the available alternative
+and is refused — that section is what stops a rejected option being re-proposed.
 
 ## Context
 
@@ -228,6 +236,30 @@ containment, not an enforcement, and it is the honest description.
 
 **Two captures of one target now exist under two plans, in two directories, with one procedure
 between them. → G44.**
+
+## Amendments
+
+- **2026-09-08 (M5.9, commit 1): decision 3's *"satisfied only by a run of the shipped plan"* and
+  decision 1's *"G42 is unaffected and is dischargeable"* are STRUCK on their second halves.** Both
+  imply a shipped-plan capture closes G42; it closes **one** of that entry's two clauses.
+  `ZapAdapter.run` binds `_, stderr = await process.communicate()` and surfaces stderr only on a
+  non-zero exit, so ZAP's console output — the only place an unrecognised job parameter would be
+  reported — is **discarded on every successful run**. So *"decision 5's parameter spellings become
+  verifiable against a plan this repository has run"* is undischargeable **by any capture at all**,
+  not merely by this one: G42's second half has stopped waiting for an artifact and started waiting
+  for an adapter change, which is a different trigger and a different issue. What survives is the
+  first half and the reason the clause was added — the capture *is* driven through the shipped
+  adapter at the pinned digest, ADR-0024's table *is* now re-derivable, and a probe-shaped hand-run
+  still would not have done either.
+  **Why it surfaced only now:** the discard is plainly readable in `zap_adapter.py` and was equally
+  readable when this ADR was written, so stage 2 decided what a run proves without reading what a
+  run produces.
+- **2026-09-08 (M5.9, commit 1): decision 5's third requirement is SATISFIED and its open question
+  answered.** It said *"Which report field carries that attribution is read off the first live run
+  and recorded in the test, not predicted here."* It is **`param`**, carrying `expr`, on the
+  instance — with `nodeName` carrying it a second time in a different shape, so an assertion keyed
+  on `param` is the narrower one. Recorded in
+  `tests/integration/fixtures/active_scan/README.md`; commit 2 writes the assertion.
 
 ## Alternatives considered
 

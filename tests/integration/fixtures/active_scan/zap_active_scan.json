@@ -1,0 +1,418 @@
+{
+  "@programName": "ZAP",
+  "@version": "2.17.0",
+  "@generated": "Tue, 8 Sept 2026 17:04:32",
+  "created": "2026-09-08T17:04:32.996502909Z",
+  "insights": [
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "",
+      "key": "insight.network.failure",
+      "description": "Percentage of network failures",
+      "statistic": "1"
+    },
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "http://target.example:8080",
+      "key": "insight.code.2xx",
+      "description": "Percentage of responses with status code 2xx",
+      "statistic": "71"
+    },
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "http://target.example:8080",
+      "key": "insight.code.4xx",
+      "description": "Percentage of responses with status code 4xx",
+      "statistic": "28"
+    },
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "http://target.example:8080",
+      "key": "insight.endpoint.ctype.text/html",
+      "description": "Percentage of endpoints with content type text/html",
+      "statistic": "100"
+    },
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "http://target.example:8080",
+      "key": "insight.endpoint.method.GET",
+      "description": "Percentage of endpoints with method GET",
+      "statistic": "100"
+    },
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "http://target.example:8080",
+      "key": "insight.endpoint.total",
+      "description": "Count of total endpoints",
+      "statistic": "4"
+    },
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "http://target.example:8080",
+      "key": "insight.response.slow",
+      "description": "Percentage of slow responses",
+      "statistic": "14"
+    },
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "https://target.example:8080",
+      "key": "insight.endpoint.method.GET",
+      "description": "Percentage of endpoints with method GET",
+      "statistic": "100"
+    },
+    {
+      "level": "Info",
+      "reason": "Informational",
+      "site": "https://target.example:8080",
+      "key": "insight.endpoint.total",
+      "description": "Count of total endpoints",
+      "statistic": "1"
+    }
+  ],
+  "site": [
+    {
+      "@name": "https://target.example:8080",
+      "@host": "target.example",
+      "@port": "8080",
+      "@ssl": "true",
+      "alerts": []
+    },
+    {
+      "@name": "http://target.example:8080",
+      "@host": "target.example",
+      "@port": "8080",
+      "@ssl": "false",
+      "alerts": [
+        {
+          "pluginid": "6",
+          "alertRef": "6-5",
+          "alert": "Path Traversal",
+          "name": "Path Traversal",
+          "riskcode": "3",
+          "confidence": "1",
+          "riskdesc": "High (Low)",
+          "desc": "<p>The Path Traversal attack technique allows an attacker access to files, directories, and commands that potentially reside outside the web document root directory. An attacker may manipulate a URL in such a way that the web site will execute or reveal the contents of arbitrary files anywhere on the web server. Any device that exposes an HTTP-based interface is potentially vulnerable to Path Traversal.</p><p></p><p>Most web sites restrict user access to a specific portion of the file-system, typically called the \"web document root\" or \"CGI root\" directory. These directories contain the files intended for user access and the executable necessary to drive web application functionality. To access files or execute commands anywhere on the file-system, Path Traversal attacks will utilize the ability of special-characters sequences.</p><p></p><p>The most basic Path Traversal attack uses the \"../\" special-character sequence to alter the resource location requested in the URL. Although most popular web servers will prevent this technique from escaping the web document root, alternate encodings of the \"../\" sequence may help bypass the security filters. These method variations include valid and invalid Unicode-encoding (\"..%u2216\" or \"..%c0%af\") of the forward slash character, backslash characters (\"..\\\") on Windows-based servers, URL encoded characters \"%2e%2e%2f\"), and double URL encoding (\"..%255c\") of the backslash character.</p><p></p><p>Even if the web server properly restricts Path Traversal attempts in the URL path, a web application itself may still be vulnerable due to improper handling of user-supplied input. This is a common problem of web applications that use template mechanisms or load static text from files. In variations of the attack, the original URL parameter value is substituted with the file name of one of the web application's dynamic scripts. Consequently, the results can reveal source code because the file is interpreted as text instead of an executable script. These techniques often employ additional special characters such as the dot (\".\") to reveal the listing of the current working directory, or \"%00\" NULL characters in order to bypass rudimentary file extension checks.</p>",
+          "instances": [
+            {
+              "id": "18",
+              "uri": "http://target.example:8080/calculate?expr=calculate",
+              "nodeName": "http://target.example:8080/calculate (expr)",
+              "method": "GET",
+              "param": "expr",
+              "attack": "calculate",
+              "evidence": "",
+              "otherinfo": ""
+            }
+          ],
+          "count": "1",
+          "systemic": false,
+          "solution": "<p>Assume all input is malicious. Use an \"accept known good\" input validation strategy, i.e., use an allow list of acceptable inputs that strictly conform to specifications. Reject any input that does not strictly conform to specifications, or transform it into something that does. Do not rely exclusively on looking for malicious or malformed inputs (i.e., do not rely on a deny list). However, deny lists can be useful for detecting potential attacks or determining which inputs are so malformed that they should be rejected outright.</p><p></p><p>When performing input validation, consider all potentially relevant properties, including length, type of input, the full range of acceptable values, missing or extra inputs, syntax, consistency across related fields, and conformance to business rules. As an example of business rule logic, \"boat\" may be syntactically valid because it only contains alphanumeric characters, but it is not valid if you are expecting colors such as \"red\" or \"blue.\"</p><p></p><p>For filenames, use stringent allow lists that limit the character set to be used. If feasible, only allow a single \".\" character in the filename to avoid weaknesses, and exclude directory separators such as \"/\". Use an allow list of allowable file extensions.</p><p></p><p>Warning: if you attempt to cleanse your data, then do so that the end result is not in the form that can be dangerous. A sanitizing mechanism can remove characters such as '.' and ';' which may be required for some exploits. An attacker can try to fool the sanitizing mechanism into \"cleaning\" data into a dangerous form. Suppose the attacker injects a '.' inside a filename (e.g. \"sensi.tiveFile\") and the sanitizing mechanism removes the character resulting in the valid filename, \"sensitiveFile\". If the input data are now assumed to be safe, then the file may be compromised. </p><p></p><p>Inputs should be decoded and canonicalized to the application's current internal representation before being validated. Make sure that your application does not decode the same input twice. Such errors could be used to bypass allow list schemes by introducing dangerous inputs after they have been checked.</p><p></p><p>Use a built-in path canonicalization function (such as realpath() in C) that produces the canonical version of the pathname, which effectively removes \"..\" sequences and symbolic links.</p><p></p><p>Run your code using the lowest privileges that are required to accomplish the necessary tasks. If possible, create isolated accounts with limited privileges that are only used for a single task. That way, a successful attack will not immediately give the attacker access to the rest of the software or its environment. For example, database applications rarely need to run as the database administrator, especially in day-to-day operations.</p><p></p><p>When the set of acceptable objects, such as filenames or URLs, is limited or known, create a mapping from a set of fixed input values (such as numeric IDs) to the actual filenames or URLs, and reject all other inputs.</p><p></p><p>Run your code in a \"jail\" or similar sandbox environment that enforces strict boundaries between the process and the operating system. This may effectively restrict which files can be accessed in a particular directory or which commands can be executed by your software.</p><p></p><p>OS-level examples include the Unix chroot jail, AppArmor, and SELinux. In general, managed code may provide some protection. For example, java.io.FilePermission in the Java SecurityManager allows you to specify restrictions on file operations.</p><p></p><p>This may not be a feasible solution, and it only limits the impact to the operating system; the rest of your application may still be subject to compromise.</p><p></p>",
+          "otherinfo": "",
+          "reference": "<p>https://owasp.org/www-community/attacks/Path_Traversal</p><p>https://cwe.mitre.org/data/definitions/22.html</p>",
+          "cweid": "22",
+          "wascid": "33",
+          "sourceid": "11"
+        },
+        {
+          "pluginid": "90036",
+          "alertRef": "90036",
+          "alert": "Server Side Template Injection (Blind)",
+          "name": "Server Side Template Injection (Blind)",
+          "riskcode": "3",
+          "confidence": "3",
+          "riskdesc": "High (High)",
+          "desc": "<p>When the user input is inserted in the template instead of being used as argument in rendering is evaluated by the template engine. Depending on the template engine it can lead to remote code execution.</p>",
+          "instances": [
+            {
+              "id": "19",
+              "uri": "http://target.example:8080/calculate?expr=2*3",
+              "nodeName": "http://target.example:8080/calculate (expr)",
+              "method": "GET",
+              "param": "expr",
+              "attack": "{{__import__(\"subprocess\").check_output(\"sleep 15\", shell=True)}}",
+              "evidence": "",
+              "otherinfo": ""
+            }
+          ],
+          "count": "1",
+          "systemic": false,
+          "solution": "<p>Instead of inserting the user input in the template, use it as rendering argument.</p>",
+          "otherinfo": "",
+          "reference": "<p>https://portswigger.net/research/server-side-template-injection</p>",
+          "cweid": "1336",
+          "wascid": "20",
+          "sourceid": "12"
+        },
+        {
+          "pluginid": "10038",
+          "alertRef": "10038-1",
+          "alert": "Content Security Policy (CSP) Header Not Set",
+          "name": "Content Security Policy (CSP) Header Not Set",
+          "riskcode": "2",
+          "confidence": "3",
+          "riskdesc": "Medium (High)",
+          "desc": "<p>Content Security Policy (CSP) is an added layer of security that helps to detect and mitigate certain types of attacks, including Cross Site Scripting (XSS) and data injection attacks. These attacks are used for everything from data theft to site defacement or distribution of malware. CSP provides a set of standard HTTP headers that allow website owners to declare approved sources of content that browsers should be allowed to load on that page — covered types are JavaScript, CSS, HTML frames, fonts, images and embeddable objects such as Java applets, ActiveX, audio and video files.</p>",
+          "instances": [
+            {
+              "id": "6",
+              "uri": "http://target.example:8080/",
+              "nodeName": "http://target.example:8080/",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": ""
+            },
+            {
+              "id": "5",
+              "uri": "http://target.example:8080/calculate?expr=2*3",
+              "nodeName": "http://target.example:8080/calculate (expr)",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": ""
+            },
+            {
+              "id": "4",
+              "uri": "http://target.example:8080/robots.txt",
+              "nodeName": "http://target.example:8080/robots.txt",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": ""
+            },
+            {
+              "id": "3",
+              "uri": "http://target.example:8080/sitemap.xml",
+              "nodeName": "http://target.example:8080/sitemap.xml",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": ""
+            }
+          ],
+          "count": "4",
+          "systemic": false,
+          "solution": "<p>Ensure that your web server, application server, load balancer, etc. is configured to set the Content-Security-Policy header.</p>",
+          "otherinfo": "",
+          "reference": "<p>https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP</p><p>https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html</p><p>https://www.w3.org/TR/CSP/</p><p>https://w3c.github.io/webappsec-csp/</p><p>https://web.dev/articles/csp</p><p>https://caniuse.com/#feat=contentsecuritypolicy</p><p>https://content-security-policy.com/</p>",
+          "cweid": "693",
+          "wascid": "15",
+          "sourceid": "7"
+        },
+        {
+          "pluginid": "10106",
+          "alertRef": "10106",
+          "alert": "HTTP Only Site",
+          "name": "HTTP Only Site",
+          "riskcode": "2",
+          "confidence": "2",
+          "riskdesc": "Medium (Medium)",
+          "desc": "<p>The site is only served under HTTP and not HTTPS.</p>",
+          "instances": [
+            {
+              "id": "20",
+              "uri": "http://target.example:8080/",
+              "nodeName": "https://target.example:8080/",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": "Failed to connect.\nZAP attempted to connect via: https://target.example:8080/"
+            }
+          ],
+          "count": "1",
+          "systemic": false,
+          "solution": "<p>Configure your web or application server to use SSL (https).</p>",
+          "otherinfo": "<p>Failed to connect.</p><p>ZAP attempted to connect via: https://target.example:8080/</p>",
+          "reference": "<p>https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Protection_Cheat_Sheet.html</p><p>https://letsencrypt.org/</p>",
+          "cweid": "311",
+          "wascid": "4",
+          "sourceid": "13"
+        },
+        {
+          "pluginid": "10020",
+          "alertRef": "10020-1",
+          "alert": "Missing Anti-clickjacking Header",
+          "name": "Missing Anti-clickjacking Header",
+          "riskcode": "2",
+          "confidence": "2",
+          "riskdesc": "Medium (Medium)",
+          "desc": "<p>The response does not protect against 'ClickJacking' attacks. It should include either Content-Security-Policy with 'frame-ancestors' directive or X-Frame-Options.</p>",
+          "instances": [
+            {
+              "id": "0",
+              "uri": "http://target.example:8080/",
+              "nodeName": "http://target.example:8080/",
+              "method": "GET",
+              "param": "x-frame-options",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": ""
+            },
+            {
+              "id": "2",
+              "uri": "http://target.example:8080/calculate?expr=2*3",
+              "nodeName": "http://target.example:8080/calculate (expr)",
+              "method": "GET",
+              "param": "x-frame-options",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": ""
+            }
+          ],
+          "count": "2",
+          "systemic": false,
+          "solution": "<p>Modern Web browsers support the Content-Security-Policy and X-Frame-Options HTTP headers. Ensure one of them is set on all web pages returned by your site/app.</p><p>If you expect the page to be framed only by pages on your server (e.g. it's part of a FRAMESET) then you'll want to use SAMEORIGIN, otherwise if you never expect the page to be framed, you should use DENY. Alternatively consider implementing Content Security Policy's \"frame-ancestors\" directive.</p>",
+          "otherinfo": "",
+          "reference": "<p>https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options</p>",
+          "cweid": "1021",
+          "wascid": "15",
+          "sourceid": "1"
+        },
+        {
+          "pluginid": "10036",
+          "alertRef": "10036-2",
+          "alert": "Server Leaks Version Information via \"Server\" HTTP Response Header Field",
+          "name": "Server Leaks Version Information via \"Server\" HTTP Response Header Field",
+          "riskcode": "1",
+          "confidence": "3",
+          "riskdesc": "Low (High)",
+          "desc": "<p>The web/application server is leaking version information via the \"Server\" HTTP response header. Access to such information may facilitate attackers identifying other vulnerabilities your web/application server is subject to.</p>",
+          "instances": [
+            {
+              "id": "13",
+              "uri": "http://target.example:8080/",
+              "nodeName": "http://target.example:8080/",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "Werkzeug/2.3.8 Python/3.11.5",
+              "otherinfo": ""
+            },
+            {
+              "id": "10",
+              "uri": "http://target.example:8080/calculate?expr=2*3",
+              "nodeName": "http://target.example:8080/calculate (expr)",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "Werkzeug/2.3.8 Python/3.11.5",
+              "otherinfo": ""
+            },
+            {
+              "id": "9",
+              "uri": "http://target.example:8080/robots.txt",
+              "nodeName": "http://target.example:8080/robots.txt",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "Werkzeug/2.3.8 Python/3.11.5",
+              "otherinfo": ""
+            },
+            {
+              "id": "8",
+              "uri": "http://target.example:8080/sitemap.xml",
+              "nodeName": "http://target.example:8080/sitemap.xml",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "Werkzeug/2.3.8 Python/3.11.5",
+              "otherinfo": ""
+            }
+          ],
+          "count": "4",
+          "systemic": false,
+          "solution": "<p>Ensure that your web server, application server, load balancer, etc. is configured to suppress the \"Server\" header or provide generic details.</p>",
+          "otherinfo": "",
+          "reference": "<p>https://httpd.apache.org/docs/current/mod/core.html#servertokens</p><p>https://learn.microsoft.com/en-us/previous-versions/msp-n-p/ff648552(v=pandp.10)</p><p>https://www.troyhunt.com/shhh-dont-let-your-response-headers/</p>",
+          "cweid": "497",
+          "wascid": "13",
+          "sourceid": "7"
+        },
+        {
+          "pluginid": "10021",
+          "alertRef": "10021",
+          "alert": "X-Content-Type-Options Header Missing",
+          "name": "X-Content-Type-Options Header Missing",
+          "riskcode": "1",
+          "confidence": "2",
+          "riskdesc": "Low (Medium)",
+          "desc": "<p>The Anti-MIME-Sniffing header X-Content-Type-Options was not set to 'nosniff'. This allows older versions of Internet Explorer and Chrome to perform MIME-sniffing on the response body, potentially causing the response body to be interpreted and displayed as a content type other than the declared content type. Current (early 2014) and legacy versions of Firefox will use the declared content type (if one is set), rather than performing MIME-sniffing.</p>",
+          "instances": [
+            {
+              "id": "16",
+              "uri": "http://target.example:8080/",
+              "nodeName": "http://target.example:8080/",
+              "method": "GET",
+              "param": "x-content-type-options",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": "This issue still applies to error type pages (401, 403, 500, etc.) as those pages are often still affected by injection issues, in which case there is still concern for browsers sniffing pages away from their actual content type.\nAt \"High\" threshold this scan rule will not alert on client or server error responses."
+            },
+            {
+              "id": "15",
+              "uri": "http://target.example:8080/calculate?expr=2*3",
+              "nodeName": "http://target.example:8080/calculate (expr)",
+              "method": "GET",
+              "param": "x-content-type-options",
+              "attack": "",
+              "evidence": "",
+              "otherinfo": "This issue still applies to error type pages (401, 403, 500, etc.) as those pages are often still affected by injection issues, in which case there is still concern for browsers sniffing pages away from their actual content type.\nAt \"High\" threshold this scan rule will not alert on client or server error responses."
+            }
+          ],
+          "count": "2",
+          "systemic": false,
+          "solution": "<p>Ensure that the application/web server sets the Content-Type header appropriately, and that it sets the X-Content-Type-Options header to 'nosniff' for all web pages.</p><p>If possible, ensure that the end user uses a standards-compliant and modern web browser that does not perform MIME-sniffing at all, or that can be directed by the web application/web server to not perform MIME-sniffing.</p>",
+          "otherinfo": "<p>This issue still applies to error type pages (401, 403, 500, etc.) as those pages are often still affected by injection issues, in which case there is still concern for browsers sniffing pages away from their actual content type.</p><p>At \"High\" threshold this scan rule will not alert on client or server error responses.</p>",
+          "reference": "<p>https://learn.microsoft.com/en-us/previous-versions/windows/internet-explorer/ie-developer/compatibility/gg622941(v=vs.85)</p><p>https://owasp.org/www-community/Security_Headers</p>",
+          "cweid": "693",
+          "wascid": "15",
+          "sourceid": "7"
+        },
+        {
+          "pluginid": "10027",
+          "alertRef": "10027",
+          "alert": "Information Disclosure - Suspicious Comments",
+          "name": "Information Disclosure - Suspicious Comments",
+          "riskcode": "0",
+          "confidence": "2",
+          "riskdesc": "Informational (Medium)",
+          "desc": "<p>The response appears to contain suspicious comments which may help an attacker.</p>",
+          "instances": [
+            {
+              "id": "12",
+              "uri": "http://target.example:8080/",
+              "nodeName": "http://target.example:8080/",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "ME IT, OR STRIP ITS QUERY STRING.\n\n    A base",
+              "otherinfo": "The following pattern was used: \\bQUERY\\b and was detected in likely comment: \"<!--\n    DO NOT REMOVE THIS LINK, RENAME IT, OR STRIP ITS QUERY STRING.\n\n    A baseline DAST crawl starts at \"/\" and discovers r\", see evidence field for the suspicious comment/snippet."
+            }
+          ],
+          "count": "1",
+          "systemic": false,
+          "solution": "<p>Remove all comments that return information that may help an attacker and fix any underlying problems they refer to.</p>",
+          "otherinfo": "<p>The following pattern was used: \\bQUERY\\b and was detected in likely comment: \"<!--</p><p>    DO NOT REMOVE THIS LINK, RENAME IT, OR STRIP ITS QUERY STRING.</p><p></p><p>    A baseline DAST crawl starts at \"/\" and discovers r\", see evidence field for the suspicious comment/snippet.</p>",
+          "reference": "",
+          "cweid": "615",
+          "wascid": "13",
+          "sourceid": "1"
+        }
+      ]
+    }
+  ],
+  "sequences": []
+}
