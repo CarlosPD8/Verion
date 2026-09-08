@@ -563,6 +563,8 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
 
 - **ADR-0024 — Where active-scanning consent lives, what it is bound to, and the bounds on the `activeScan` job.** M5.4. An `activeScan` job ships behind explicit per-project consent, recorded on `ScannerConfig`, granted by the owner and voided whenever the target it was granted against changes; it is read strictly downstream of both ADR-013 gates, which it may not become a path around. The reasoning, the rejected placements and the measured blast radius are in that ADR; it seeds **G42** (its probe figures are not re-derivable from this repository until M5.9 commits a capture) and **G43** (a consent grant leaves no history and no log, and `PRODUCT_SPEC.md` §11.5 does not reach the act).
 
+- **ADR-0027 — How M5.9 stands the demo target up, where the active capture lives, and what a green active-scan run proves.** M5.9. The demo target reaches CI by a **live clone at its pinned SHA with a hard `git rev-parse HEAD` assertion**, served on its own fixed port under Python 3.11; the active capture lives **outside `tests/fixtures/scanners/`** and is a separate artifact from the CI test, which proves liveness, crawl-reach and a finding absent from the passive corpus while asserting none of the probe's alert ids or risk codes. The reasoning, the rejected vendored copy and the rejected container image are in that ADR; it seeds **G44** (two captures of one target under two scan plans, with only one re-capture procedure between them).
+
 `0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created.
 
 ---

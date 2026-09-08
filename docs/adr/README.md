@@ -31,3 +31,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0024](0024-active-scanning-consent-and-scan-policy.md) | Where active-scanning consent lives, what it is bound to, and the bounds on the `activeScan` job | Accepted |
 | [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted |
 | [0026](0026-fixture-shape-conformance-check.md) | Checking a hand-written fixture's shape against the committed corpus | Accepted |
+| [0027](0027-standing-the-demo-target-up-and-what-an-active-scan-run-proves.md) | How M5.9 stands the demo target up, where the active capture lives, and what a green active-scan run proves | Accepted |
