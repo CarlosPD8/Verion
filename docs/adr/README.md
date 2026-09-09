@@ -32,3 +32,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted |
 | [0026](0026-fixture-shape-conformance-check.md) | Checking a hand-written fixture's shape against the committed corpus | Accepted |
 | [0027](0027-standing-the-demo-target-up-and-what-an-active-scan-run-proves.md) | How M5.9 stands the demo target up, where the active capture lives, and what a green active-scan run proves | Accepted |
+| [0028](0028-declaring-that-the-scanned-url-serves-the-scanned-tree.md) | Declaring that the scanned URL serves the scanned tree: where the record lives, what voids it, and what it does not assert | Accepted |
