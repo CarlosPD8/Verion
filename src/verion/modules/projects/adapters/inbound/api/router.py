@@ -5,9 +5,11 @@ from verion.modules.projects.adapters.inbound.api.schemas import (
     ConnectRepositoryRequest,
     ConnectRepositoryViaGitHubRequest,
     CreateProjectRequest,
+    DeclareServingRequest,
     ProjectResponse,
     ScannerConfigResponse,
     SecurityContextResponse,
+    ServingDeclarationResponse,
     UpdateExposureTagsRequest,
     UpdateScannerConfigRequest,
 )
@@ -18,10 +20,13 @@ from verion.modules.projects.domain.exceptions import (
     InvalidScannerConfig,
     ProjectNotFound,
     SecurityContextNotFound,
+    ServingDeclarationMismatch,
+    ServingDeclarationNotFound,
     UnsupportedRepoProvider,
 )
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
+from verion.modules.projects.domain.serving_declaration import ServingDeclaration
 from verion.platform.di import (
     BuildSecurityContextFromGitHubUseCaseDep,
     ConnectRepositoryUseCaseDep,
@@ -29,7 +34,9 @@ from verion.platform.di import (
     CreateProjectUseCaseDep,
     CurrentGitHubAccessTokenDep,
     CurrentUserIdDep,
+    DeclareServingUseCaseDep,
     GetSecurityContextUseCaseDep,
+    GetServingDeclarationUseCaseDep,
     UpdateExposureTagsUseCaseDep,
     UpdateScannerConfigUseCaseDep,
 )
@@ -250,3 +257,84 @@ async def update_scanner_config(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return _scanner_config_response(config)
+
+
+def _serving_declaration_response(
+    declaration: ServingDeclaration, in_force: bool
+) -> ServingDeclarationResponse:
+    return ServingDeclarationResponse(
+        id=declaration.id,
+        project_id=declaration.project_id,
+        in_force=in_force,
+        declared_target_url=declaration.declared_target_url,
+        declared_repo_url=declaration.declared_repo_url,
+        declared_default_branch=declaration.declared_default_branch,
+        declared_at=declaration.declared_at,
+        declared_by=declaration.declared_by,
+    )
+
+
+@router.put(
+    "/{project_id}/serving-declaration",
+    status_code=status.HTTP_200_OK,
+    response_model=ServingDeclarationResponse,
+)
+async def declare_serving(
+    project_id: str,
+    request: DeclareServingRequest,
+    user_id: CurrentUserIdDep,
+    use_case: DeclareServingUseCaseDep,
+) -> ServingDeclarationResponse:
+    """PUT rather than POST, and a compare-and-set rather than a plain write.
+
+    PUT because there is one declaration per project and re-declaring replaces it, which
+    is `update_scanner_config`'s shape one resource over.
+
+    **409 is this router's only one**, and it is the status ADR-0028's 2026-09-09
+    amendment A argues for: the body carries three values the owner was shown, and a
+    mismatch means the resource is not in the state the request presumes — not that the
+    request is malformed, which is what 400 says and what `InvalidScannerConfig` covers
+    here. `identity`'s `EmailAlreadyRegistered` is the existing 409 in this codebase.
+    """
+    try:
+        declaration, in_force = await use_case.execute(
+            project_id=project_id,
+            user_id=user_id,
+            declared_target_url=request.declared_target_url,
+            declared_repo_url=request.declared_repo_url,
+            declared_default_branch=request.declared_default_branch,
+        )
+    except ProjectNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InsufficientPermissions as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ConnectedRepoNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidScannerConfig as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ServingDeclarationMismatch as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return _serving_declaration_response(declaration, in_force)
+
+
+@router.get(
+    "/{project_id}/serving-declaration",
+    status_code=status.HTTP_200_OK,
+    response_model=ServingDeclarationResponse,
+)
+async def get_serving_declaration(
+    project_id: str,
+    user_id: CurrentUserIdDep,
+    use_case: GetServingDeclarationUseCaseDep,
+) -> ServingDeclarationResponse:
+    try:
+        declaration, in_force = await use_case.execute(project_id=project_id, user_id=user_id)
+    except ProjectNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InsufficientPermissions as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ServingDeclarationNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return _serving_declaration_response(declaration, in_force)

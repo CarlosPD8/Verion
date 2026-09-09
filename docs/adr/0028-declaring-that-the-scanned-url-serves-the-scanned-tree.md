@@ -7,8 +7,23 @@ rule and the port shape are chosen by somebody who is not also writing the tests
 make them pass. That ordering is ADR-0023's amendment section 3 applied a second time.
 
 **Size:** a ceiling of **22,000 bytes** was declared before writing, on ADR-0027's precedent.
-The measured size is recorded in the commit message rather than here, where it would be a
-figure describing a file that changes when the figure is added.
+The decision text measured 20,979 bytes at acceptance, inside it.
+
+*(Updated 2026-09-09, M5.5 commit 2: **the file is now past that ceiling, and the overrun is
+disclosed rather than trimmed away** — which is the whole of what ADR-0027's precedent consists
+of, and invoking that precedent while omitting its disclosure would have been the emptier half
+of it. The `## Amendments` section is the entire difference; the decision text is unchanged at
+its accepted size. The ceiling governed the decision text at acceptance, and amendments accrue
+afterwards by design, so trimming a decision to make room for its own amendments would be the
+wrong direction.*
+
+*The current byte count is deliberately **not** written here, and two attempts at writing it in
+this commit are why. Each measurement was falsified by the paragraph that recorded it — 26,282,
+then 29,020, then 29,218 — because a figure describing the size of the file it sits in changes
+the file. The second attempt tried to converge by keeping the replacement digits the same
+length, and failed on the sentence explaining the trick. So the figure goes in the commit
+message, which is what this ADR's own Status said before the disclosure was added, and the
+disclosure keeps the part that is stable: that the ceiling was passed, and by what.)*
 
 ## Context
 
@@ -179,8 +194,11 @@ not**, and the bullet's premise is therefore documentary rather than enforced. �
 `async def url_serves_scanned_tree(*, project_id: str) -> bool`.** A verdict crosses; `projects`
 keeps the rule (rule 3). **Async by rule 7**, which is not decoration here: evaluating the verdict
 reads the declaration row plus `ScannerConfig` and `ConnectedRepo`, so this is an I/O-bound port.
-`ProjectAccessPort.may_read_project` is `async def` and so is every method on all seven existing
-`projects/ports/*.py` files.
+`ProjectAccessPort.may_read_project` is `async def` and so is every method on every existing
+`projects/ports/*.py` file. *(This clause read "all seven" when the decision was accepted,
+which was true then and is dated rather than wrong: commit 1 added
+`serving_declaration_repository.py` as the eighth. Corrected to a form that does not carry a
+count, since the property is what the sentence is for.)*
 
 **Not a method on `ProjectAccessPort`.** That port's docstring argues at length for having exactly
 one method, because a second gives a consumer a vocabulary for *which* reason a call failed and
@@ -263,6 +281,99 @@ two systems — this ADR's subject makes sharper rather than weaker. But the two
 same refusal, and decision 2 is careful about which it invokes: Decision A's own closing paragraph
 names Security Context as the banner's home if it ever needs structure, so a deployment-identity
 read is unbuilt rather than forbidden, and G47's trigger list says so.
+
+## Amendments
+
+- **2026-09-09 (M5.5, commit 2): whether a declaration may be created whose three values
+  do not match the live ones. A decision this ADR did not take, not a correction of one it
+  did.** Decision 2 defines when a declaration is *in force* and says nothing about what the
+  write path accepts, so "void from birth" was expressible and undecided. **Decided: the
+  write path refuses a mismatch, as a compare-and-set precondition rather than as
+  validation** — the owner sends three values they were shown, and the check asserts nothing
+  moved between their read and their write. That framing is what makes the route answer
+  **409** rather than 400: the request is well-formed and the resource is not in the state it
+  presumes.
+
+  Two grounds, each at the width it actually holds:
+
+  1. **The narrow half of M5.4's precedent.** `UpdateScannerConfigUseCase.execute` refuses a
+     void-making combination *present in the request* — *"Granting against nothing is
+     rejected rather than accepted and silently inert … the right answer arrived at by a
+     route that tells the owner nothing."* A declare-with-mismatch is the same kind. **Not
+     stated as "this module rejects void grants"**, which is false: `_resolve_consent` in
+     that same file silently stores a void grant when a *later* act invalidates a *prior*
+     row. Two rules, not one inconsistency.
+  2. **The one that decides it.** A void-from-birth row is an attestation carrying a real
+     name and a real timestamp on a claim the system can show was false at the instant it
+     was made. A stale row is honest about its staleness; a born-false row is not, in a
+     module where authorship is load-bearing (`declared_by`,
+     `active_scan_consent_granted_by`, **G43**).
+
+  **A third ground was considered and dropped, and it is recorded because it is the one that
+  looks strongest.** It ran: a non-matching row can *activate itself* later, when somebody
+  configures the target to a value a dormant declaration already names. It is dropped on two
+  independent counts. It **proves too much** — the identical property ships in ADR-0024's
+  consent, where ADR-0024's own 2026-08-27 amendment measured it (*"editing the target to a
+  trailing slash and back restores the grant"*) and accepted it as a qualification, and the
+  revived claim there authorizes real attack traffic rather than a wrong correlation group.
+  And **the match requirement does not close it**: after a matching declaration is written,
+  changing the target away and back revives it with nobody re-asserting. → **G50**.
+
+  **Rejected alternative, named because it makes the question disappear and somebody will
+  propose it:** a body-less route that copies the live values in, making a mismatch
+  inexpressible rather than checked — the structural analogue of `_resolve_consent`'s "the
+  target in THIS request, never `existing`'s". Rejected on **blind attestation**: it records
+  a claim about values the declarer may never have seen, which empties `declared_by` of the
+  meaning ground 2 rests on.
+
+  **Decision 2's "single place it is evaluated" survives unqualified.** The use case *calls*
+  `declaration_in_force` rather than re-comparing three strings; it only separates the two
+  absences that function folds into `False` by design, because "you have not connected a
+  repository" and "your values are stale" are different answers.
+
+- **2026-09-09 (M5.5, commit 2): the URL check on the declare path, and the exception
+  vocabulary. Also a decision this ADR did not take.** `declared_target_url` is persisted from
+  user input, so it takes `validate_zap_target_url` — well-formedness plus rule 12's refusal
+  of `user:pass@host`, and **not** an SSRF check, which this commit does not turn it into.
+  Two consequences worth recording:
+
+  - **`InvalidScannerConfig` is reused rather than translated.** A dedicated
+    `InvalidServingDeclaration` could only ever carry that validator's output, and the rewrap
+    would reopen the rule-12 message question for no behavioural gain, since both map to 400.
+    `GitHubApiError` already serves two use cases in this router. So this commit adds **two**
+    exceptions, `ServingDeclarationNotFound` (404) and `ServingDeclarationMismatch` (409), and
+    not three.
+  - **Validation runs before the compare-and-set, and that ordering is one of two independent
+    protections rather than the only one.** The second is structural: **no message raised on
+    the declare path interpolates a declared value.** It has to be, because
+    `ConnectedRepo.url` is stored completely unvalidated — `ConnectRepositoryUseCase` takes a
+    `str` and constructs the entity with no parse — so a repo URL carrying userinfo is
+    storable today and quoting `declared_repo_url` would leak it on a field no ordering
+    argument protects.
+  - **The two validators stand in different relations to their live counterparts, and this
+    commit adopts set equality for one pair while knowingly departing from it for the
+    other.** For `declared_target_url` against `zap_target_url`, the same validator runs on
+    both write paths, so the accepted sets are equal by construction and a declarable target
+    is exactly a configurable one. For `declared_repo_url` against `ConnectedRepo.url` they
+    are not: the live side is stored with **no validation at all**, so the declaration's
+    accepted set is **strictly narrower**. The consequence is concrete and is not a corner
+    case — a repository connected with userinfo in its url can never be declared, a
+    permanent 400 rather than a mismatch, and per **G51** there is no update route and a
+    second connect breaks the read, so a project in that state has no way out of it.
+    **The narrowing is deliberate and is the right side to err on**: the alternative is
+    copying a credential into a second table and serving it to every member. But it is a
+    containment rather than a fix, and **the real fix is validating `ConnectedRepo.url` at
+    its own write path**, which would restore equality by raising the live side rather than
+    by lowering this one. That work is not opened as its own entry, because **G51's trigger
+    already fires on it** — *"the first issue that changes `ConnectedRepoRepositoryPort`, or
+    any issue that makes a project's repository re-connectable"* — and a fourth entry would
+    be a second record of one obligation.
+
+  **What a green M5.5 still does not prove, extending decision 5 rather than restating it:**
+  the end-to-end sequence over the API can falsify exactly **one** of the rule's three pairs.
+  `ConnectedRepo` has no update route, so the repo URL and branch pairs cannot be made to
+  differ from live through HTTP at all and are covered by unit tests only. Recorded at the
+  test module too, since that is where somebody reads four green steps and infers more.
 
 ## Alternatives considered
 

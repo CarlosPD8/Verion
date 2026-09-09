@@ -116,6 +116,13 @@ ProjectMembership   # M1.3
  ├── project_id, user_id   # composite natural key, no separate id
  └── role (owner|member)   # per PRODUCT_SPEC.md FR-1: RBAC is project-scoped, not identity-scoped
 
+ServingDeclaration   # M5.5, ADR-0028 — one per project
+ ├── id, project_id
+ ├── declared_target_url, declared_repo_url, declared_default_branch   # both sides BY VALUE
+ └── declared_at, declared_by
+ #  Whether it is still in force is derived at read time by
+ #  projects/domain/serving_declaration.declaration_in_force, never stored.
+
 ConnectedRepo   # named to avoid colliding with the *RepositoryPort persistence-pattern suffix (M1.3)
  ├── id, project_id, provider (github), url, default_branch
 
@@ -309,6 +316,7 @@ erDiagram
 | `ConnectedRepoRepositoryPort` | Persist/query connected repositories | Postgres adapter |
 | `SecurityContextRepositoryPort` | Persist/query a project's Security Context | Postgres adapter (M2.3) |
 | `ScannerConfigRepositoryPort` | Persist/query which scanners a project runs; read by `scanning` (M3.7) | Postgres adapter |
+| `ServingDeclarationRepositoryPort` | Persist/query the per-project declaration that the scanned URL serves the scanned tree (M5.5, ADR-0028) | Postgres adapter |
 | `ScanRepositoryPort` | Persist/query scans | Postgres adapter |
 | `ScanResultRepositoryPort` | Persist per-tool raw output; `get_succeeded_by_scan_id` is **M4's entry point** (M3.7) | Postgres adapter |
 | `NormalizationRunRepositoryPort` | Record that normalization is owed for a scan, and read it back (M4.0); since M4.4 also `claim` (a row-locked `pending`/`running`/`failed` → `running` transition — `completed` is the only terminal state), `update`, and `get_stale` for the sweep; since M4.5 `get_latest_by_project_id` and `count_unfinished_by_project_id`, which are what let a findings response say whether it is complete (G15). Its `request` method takes primitives so `scanning` can call it without importing `normalization`'s domain; the M4.4 methods take the entity, because only `normalization` calls them | Postgres adapter |

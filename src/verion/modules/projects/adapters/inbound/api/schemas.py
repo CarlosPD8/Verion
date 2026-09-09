@@ -87,3 +87,46 @@ class ScannerConfigResponse(BaseModel):
     active_scan_consent_target: str | None
     active_scan_consent_granted_at: datetime | None
     active_scan_consent_granted_by: str | None
+
+
+class DeclareServingRequest(BaseModel):
+    # Plain `str`, never pydantic's HttpUrl or AnyUrl, for UpdateScannerConfigRequest's
+    # reason: the failure should surface as this API's own message out of
+    # `validate_zap_target_url` — which names the scheme it got, or refuses userinfo
+    # without echoing the URL — rather than as a pydantic 422 that names the field and
+    # nothing else.
+    #
+    # All three are required and none defaults. ADR-0028's 2026-09-09 amendment A makes
+    # this request a compare-and-set: the owner is attesting to three values they were
+    # shown, so an omitted one would be the server filling in what the declarer never
+    # saw, which is the blind-attestation shape that amendment rejects.
+    declared_target_url: str
+    declared_repo_url: str
+    declared_default_branch: str
+
+
+class ServingDeclarationResponse(BaseModel):
+    """Dedicated response schema, never the domain ServingDeclaration directly (rule 10)."""
+
+    id: str
+    project_id: str
+    # The verdict alongside the stored values rather than instead of them, exactly as
+    # ScannerConfigResponse does it and for the same reason: an owner whose declaration
+    # has gone out of force needs to see both that it has and what it was declared
+    # against, or the false verdict looks like a bug.
+    #
+    # `declared_by` is a user id, not a credential — rule 12 does not reach it, the same
+    # reading `active_scan_consent_granted_by` already carries, and it is the only actor
+    # this resource records.
+    #
+    # `declared_repo_url` is where rule 12 DOES reach, and it is made safe at the write
+    # path rather than here: this route is member-level, which is a wider audience than
+    # ConnectedRepo.url otherwise has (both routes exposing that are owner-gated writes),
+    # and that value is stored completely unvalidated. `validate_declared_repo_url`
+    # refuses userinfo before any row exists, so no credential can reach this response.
+    in_force: bool
+    declared_target_url: str
+    declared_repo_url: str
+    declared_default_branch: str
+    declared_at: datetime
+    declared_by: str

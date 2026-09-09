@@ -47,6 +47,7 @@ from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresProjectRepository,
     PostgresScannerConfigRepository,
     PostgresSecurityContextRepository,
+    PostgresServingDeclarationRepository,
 )
 from verion.modules.projects.adapters.outbound.vcs.github_adapter import GitHubAdapter
 from verion.modules.projects.application.build_security_context import (
@@ -60,7 +61,11 @@ from verion.modules.projects.application.connect_repository_via_github import (
     ConnectRepositoryViaGitHubUseCase,
 )
 from verion.modules.projects.application.create_project import CreateProjectUseCase
+from verion.modules.projects.application.declare_serving import DeclareServingUseCase
 from verion.modules.projects.application.get_security_context import GetSecurityContextUseCase
+from verion.modules.projects.application.get_serving_declaration import (
+    GetServingDeclarationUseCase,
+)
 from verion.modules.projects.application.update_exposure_tags import UpdateExposureTagsUseCase
 from verion.modules.projects.application.update_scanner_config import UpdateScannerConfigUseCase
 from verion.modules.projects.domain.context_detection import detect_stack
@@ -73,6 +78,9 @@ from verion.modules.projects.ports.project_repository import ProjectRepositoryPo
 from verion.modules.projects.ports.scanner_config_repository import ScannerConfigRepositoryPort
 from verion.modules.projects.ports.security_context_repository import (
     SecurityContextRepositoryPort,
+)
+from verion.modules.projects.ports.serving_declaration_repository import (
+    ServingDeclarationRepositoryPort,
 )
 from verion.modules.projects.ports.vcs_provider import VcsProviderPort
 from verion.modules.scanning.adapters.outbound.db.repository import (
@@ -436,6 +444,67 @@ def get_update_scanner_config_use_case(
 
 UpdateScannerConfigUseCaseDep = Annotated[
     UpdateScannerConfigUseCase, Depends(get_update_scanner_config_use_case)
+]
+
+
+# `projects`' serving-declaration factories (M5.5 commit 2). All three request-scoped,
+# so none is @lru_cache'd — each depends on DbSessionDep transitively and caching one
+# would leak a stale session across requests (rule 15).
+#
+# Note which port is NOT here: ADR-0028 decision 4's cross-module `ServingDeclarationPort`,
+# the one-method verdict `correlation` will read. It ships at M5.6 with its consumer, and
+# **G48** is the register entry that keeps that deliberate gap visible rather than letting
+# it read as an oversight.
+def get_serving_declaration_repository(session: DbSessionDep) -> ServingDeclarationRepositoryPort:
+    return PostgresServingDeclarationRepository(session)
+
+
+ServingDeclarationRepositoryDep = Annotated[
+    ServingDeclarationRepositoryPort, Depends(get_serving_declaration_repository)
+]
+
+
+def get_declare_serving_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    serving_declarations: ServingDeclarationRepositoryDep,
+    scanner_configs: ScannerConfigRepositoryDep,
+    connected_repos: ConnectedRepoRepositoryDep,
+    id_generator: IdGeneratorDep,
+    clock: ClockDep,
+) -> DeclareServingUseCase:
+    return DeclareServingUseCase(
+        projects=projects,
+        memberships=memberships,
+        serving_declarations=serving_declarations,
+        scanner_configs=scanner_configs,
+        connected_repos=connected_repos,
+        id_generator=id_generator,
+        clock=clock,
+    )
+
+
+DeclareServingUseCaseDep = Annotated[DeclareServingUseCase, Depends(get_declare_serving_use_case)]
+
+
+def get_get_serving_declaration_use_case(
+    projects: ProjectRepositoryDep,
+    memberships: ProjectMembershipRepositoryDep,
+    serving_declarations: ServingDeclarationRepositoryDep,
+    scanner_configs: ScannerConfigRepositoryDep,
+    connected_repos: ConnectedRepoRepositoryDep,
+) -> GetServingDeclarationUseCase:
+    return GetServingDeclarationUseCase(
+        projects=projects,
+        memberships=memberships,
+        serving_declarations=serving_declarations,
+        scanner_configs=scanner_configs,
+        connected_repos=connected_repos,
+    )
+
+
+GetServingDeclarationUseCaseDep = Annotated[
+    GetServingDeclarationUseCase, Depends(get_get_serving_declaration_use_case)
 ]
 
 

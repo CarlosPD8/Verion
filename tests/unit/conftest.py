@@ -18,6 +18,7 @@ from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
+from verion.modules.projects.domain.serving_declaration import ServingDeclaration
 from verion.modules.projects.ports.vcs_provider import RepoMetadata
 from verion.modules.scanning.domain.exceptions import RepoCheckoutFailed, ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
@@ -745,3 +746,83 @@ class InMemoryWebhookDeliveryRepository:
 @pytest.fixture
 def webhook_delivery_repository() -> InMemoryWebhookDeliveryRepository:
     return InMemoryWebhookDeliveryRepository()
+
+
+class InMemoryServingDeclarationRepository:
+    """M5.5. One row per project, mirroring the Postgres adapter's upsert-on-project_id."""
+
+    def __init__(self) -> None:
+        self._declarations: dict[str, ServingDeclaration] = {}
+
+    async def get_by_project_id(self, project_id: str) -> ServingDeclaration | None:
+        return self._declarations.get(project_id)
+
+    async def upsert(self, declaration: ServingDeclaration) -> None:
+        self._declarations[declaration.project_id] = declaration
+
+
+class ExplodingServingDeclarationRepository:
+    """Every call raises. `ExplodingFindingRepository`'s pattern, for M5.5's use cases.
+
+    **The bound this fake has and `normalization`'s does not, stated so no test implies
+    more than it proves.** Those use cases authorize through the single-call
+    `ProjectAccessPort`, so nothing at all is read before their gate. Every `projects`
+    use case instead reads `projects.get_by_id` and
+    `memberships.get_by_project_and_user` *before* `require_owner` — that is how the
+    module's 404-then-403 shape works. So an exploding fake here can only cover the
+    **post-gate** ports, which for M5.5 are these three: serving declarations, scanner
+    configs and connected repos. It proves the gate precedes those, not that it precedes
+    everything.
+    """
+
+    async def get_by_project_id(self, *_: object, **__: object) -> ServingDeclaration | None:
+        raise AssertionError("the declaration repository was read before authorization")
+
+    async def upsert(self, *_: object, **__: object) -> None:
+        raise AssertionError("the declaration repository was written before authorization")
+
+
+class ExplodingScannerConfigRepository:
+    """`ExplodingServingDeclarationRepository`'s twin. See its docstring for the bound."""
+
+    async def get_by_project_id(self, *_: object, **__: object) -> ScannerConfig | None:
+        raise AssertionError("the scanner config repository was read before authorization")
+
+    async def upsert(self, *_: object, **__: object) -> None:
+        raise AssertionError("the scanner config repository was written before authorization")
+
+
+class ExplodingConnectedRepoRepository:
+    """`ExplodingServingDeclarationRepository`'s twin. See its docstring for the bound."""
+
+    async def add(self, *_: object, **__: object) -> None:
+        raise AssertionError("the connected repo repository was written before authorization")
+
+    async def get_by_id(self, *_: object, **__: object) -> ConnectedRepo | None:
+        raise AssertionError("the connected repo repository was read before authorization")
+
+    async def get_by_project_id(self, *_: object, **__: object) -> ConnectedRepo | None:
+        raise AssertionError("the connected repo repository was read before authorization")
+
+    async def get_by_url(self, *_: object, **__: object) -> ConnectedRepo | None:
+        raise AssertionError("the connected repo repository was read before authorization")
+
+
+@pytest.fixture
+def serving_declaration_repository() -> InMemoryServingDeclarationRepository:
+    return InMemoryServingDeclarationRepository()
+
+
+@pytest.fixture
+def exploding_serving_declaration_repository() -> ExplodingServingDeclarationRepository:
+    return ExplodingServingDeclarationRepository()
+
+
+@pytest.fixture
+def exploding_scanner_config_repository() -> ExplodingScannerConfigRepository:
+    return ExplodingScannerConfigRepository()
+
+
+@pytest.fixture
+def exploding_connected_repo_repository() -> ExplodingConnectedRepoRepository:
+    return ExplodingConnectedRepoRepository()
