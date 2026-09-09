@@ -239,6 +239,20 @@ between them. → G44.**
 
 ## Amendments
 
+- **2026-09-09 (M5.6, commit 1): decision 4's *"not left OPEN the way M5.6's is"* is DATED, and its
+  argument survives intact.** That sentence reads in the present tense — *"This is deliberately not
+  left OPEN the way M5.6's is, and the difference is what makes M5.6's open question real"* — and
+  M5.6's module is no longer open: **ADR-0029 decision 1 places the route extractor in
+  `projects/`**, on the boundary `ARCHITECTURE.md` §3 and `PRODUCT_SPEC.md` §5 set, after the
+  measurement M5.6's block nominated as deciding came back at two API calls and did not
+  discriminate. **What the sentence was doing is untouched:** it contrasts *kinds* of question, and
+  its claim that M5.6's was a genuine hexagonal-boundary question is confirmed rather than weakened
+  by how it was answered — the boundary is exactly what decided it. Only the tense is stale.
+  Amended rather than left standing because a reader arriving here to check whether M5.6's
+  placement is still open would read that it is. Recorded by the commit that falsified it, which is
+  the treatment `CLAUDE.md`'s working-style bullet asks for and the one G46 exists because earlier
+  commits did not give.
+
 - **2026-09-08 (M5.9, commit 1): decision 3's *"satisfied only by a run of the shipped plan"* and
   decision 1's *"G42 is unaffected and is dischargeable"* are STRUCK on their second halves.** Both
   imply a shipped-plan capture closes G42; it closes **one** of that entry's two clauses.
