@@ -77,3 +77,28 @@ class ScannerConfigModel(Base):
         DateTime(timezone=True), nullable=True
     )
     active_scan_consent_granted_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class ServingDeclarationModel(Base):
+    __tablename__ = "serving_declarations"
+    # Named explicitly, same idiom as ScannerConfigModel above, so the repository's
+    # ON CONFLICT can target it by name — and so the one-row-per-project shape is
+    # enforced at the storage layer rather than by convention. ADR-0028 decision 1.
+    __table_args__ = (UniqueConstraint("project_id", name="uq_serving_declarations_project_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    # All three sides stored by value and all three NOT NULL: ADR-0028 decision 2's
+    # rule compares each against its live counterpart, and a nullable column here
+    # would introduce a fourth state — "declared, but not about this field" — that
+    # the rule has no answer for.
+    declared_target_url: Mapped[str] = mapped_column(String, nullable=False)
+    declared_repo_url: Mapped[str] = mapped_column(String, nullable=False)
+    declared_default_branch: Mapped[str] = mapped_column(String, nullable=False)
+    declared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # No FK on declared_by, for the reason ProjectModel.owner_id and
+    # ScannerConfigModel.active_scan_consent_granted_by both already give: `users`
+    # is identity's table, and module independence holds at the persistence layer
+    # too. The project_id FK above is the other side of that same rule — inside the
+    # module, so it stays.
+    declared_by: Mapped[str] = mapped_column(String(36), nullable=False)

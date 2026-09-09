@@ -8,12 +8,14 @@ from verion.modules.projects.adapters.outbound.db.models import (
     ProjectModel,
     ScannerConfigModel,
     SecurityContextModel,
+    ServingDeclarationModel,
 )
 from verion.modules.projects.domain.authorization import may_read
 from verion.modules.projects.domain.exceptions import SecurityContextNotFound
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
+from verion.modules.projects.domain.serving_declaration import ServingDeclaration
 from verion.shared_kernel.scanner_tools import ScannerTool
 
 
@@ -262,6 +264,82 @@ class PostgresScannerConfigRepository:
                     "active_scan_consent_target": config.active_scan_consent_target,
                     "active_scan_consent_granted_at": config.active_scan_consent_granted_at,
                     "active_scan_consent_granted_by": config.active_scan_consent_granted_by,
+                },
+            )
+        )
+        await self._session.execute(statement)
+        await self._session.flush()
+
+
+def _serving_declaration_to_domain(model: ServingDeclarationModel) -> ServingDeclaration:
+    return ServingDeclaration(
+        id=model.id,
+        project_id=model.project_id,
+        declared_target_url=model.declared_target_url,
+        declared_repo_url=model.declared_repo_url,
+        declared_default_branch=model.declared_default_branch,
+        declared_at=model.declared_at,
+        declared_by=model.declared_by,
+    )
+
+
+class PostgresServingDeclarationRepository:
+    """`ServingDeclarationRepositoryPort` over `serving_declarations`.
+
+    No mapping of values in either direction beyond the field copy: ADR-0028
+    decision 2 compares the stored strings verbatim, so anything this adapter
+    normalized on the way in or out would be a second place for the two sides to
+    disagree — the exact failure that decision's non-normalization rules out.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_by_project_id(self, project_id: str) -> ServingDeclaration | None:
+        result = await self._session.execute(
+            select(ServingDeclarationModel).where(ServingDeclarationModel.project_id == project_id)
+        )
+        model = result.scalar_one_or_none()
+        return _serving_declaration_to_domain(model) if model is not None else None
+
+    async def upsert(self, declaration: ServingDeclaration) -> None:
+        # ON CONFLICT DO UPDATE on the project_id unique constraint, the same idiom
+        # as PostgresScannerConfigRepository.upsert above. All FIVE columns in
+        # `set_` move together and none conditionally: a re-declaration replaces the
+        # whole claim, and leaving one of the three declared values behind would
+        # produce a row asserting a pair nobody ever declared.
+        #
+        # `id` is deliberately NOT in `set_`, so the row keeps its original identity
+        # across re-declarations even though the caller mints a fresh
+        # IdGeneratorPort.new_id() for each. The same is true of
+        # PostgresScannerConfigRepository.upsert above. It is the right way round:
+        # `project_id` is the conflict key and there is one row per project, so a
+        # stable surrogate is what anything that ever references this row would
+        # want, and a caller cannot learn the winning id from a `-> None` method in
+        # any case. Pinned by test_re_declaring_replaces_the_row_but_keeps_its_id.
+        statement = (
+            insert(ServingDeclarationModel)
+            .values(
+                id=declaration.id,
+                project_id=declaration.project_id,
+                declared_target_url=declaration.declared_target_url,
+                declared_repo_url=declaration.declared_repo_url,
+                declared_default_branch=declaration.declared_default_branch,
+                declared_at=declaration.declared_at,
+                declared_by=declaration.declared_by,
+            )
+            .on_conflict_do_update(
+                constraint="uq_serving_declarations_project_id",
+                set_={
+                    "declared_target_url": declaration.declared_target_url,
+                    "declared_repo_url": declaration.declared_repo_url,
+                    "declared_default_branch": declaration.declared_default_branch,
+                    # Refreshed on every re-declaration, both of them: a new claim
+                    # is a new assertion by a person at a time, and carrying the
+                    # first declaration's author and timestamp forward would
+                    # attribute the current claim to somebody who did not make it.
+                    "declared_at": declaration.declared_at,
+                    "declared_by": declaration.declared_by,
                 },
             )
         )
