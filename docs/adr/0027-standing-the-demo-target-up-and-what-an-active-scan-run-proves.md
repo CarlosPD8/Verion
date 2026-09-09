@@ -260,6 +260,22 @@ between them. → G44.**
   instance — with `nodeName` carrying it a second time in a different shape, so an assertion keyed
   on `param` is the narrower one. Recorded in
   `tests/integration/fixtures/active_scan/README.md`; commit 2 writes the assertion.
+- **2026-09-09 (M5.9, measurement commit): the Consequences paragraph beginning *"The suite's
+  runtime is expected to cross 120s and M5.9 must report the measured step"* carries an obligation
+  that is now DISCHARGED.** Named as discharged rather than struck or qualified, which this project
+  treats differently, and the word applies to the **obligation**, not to every clause around it: it
+  stated a thing that had to be measured, and it has been. *(One clause of the same paragraph is
+  separately wrong and is not covered by that word — its closing *"M5.9 says which happened"* is
+  false as to which commit says it, since the reading did not exist until after M5.9 landed. That is
+  recorded against `ROADMAP.md`'s M5.7 bullet, which is where the conditional it belongs to lives.)*
+  The measurement: the tracked `Tests (pytest — unit + integration)` step reads **136s** at
+  `a745975` (CI run `34265788717`, job `102194682801`), against **73s** at `25488a6` (run
+  `34258943559`), the preceding commit, which committed the capture but ran no such test — a **63s**
+  delta attributable to `tests/integration/test_active_scan_finds_the_sink.py`. The paragraph's own
+  two figures hold: **72s** at `ccc73f4` is confirmed from the same jobs API, and the **48s** of
+  headroom it derived from it was correct. Its expectation is met — 120s is crossed — and the other
+  threshold it names is not: **300s is not reached**, so the M5.7 dependency does not invert.
+  Recorded here and not inline; the Consequences section is unedited.
 
 ## Alternatives considered
 
