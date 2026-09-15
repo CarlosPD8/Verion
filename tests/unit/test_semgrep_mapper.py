@@ -30,7 +30,9 @@ def test_maps_the_real_captured_output(scanner_fixture, id_generator, clock):
     assert finding.severity is Severity.HIGH
     assert finding.native_severity == "ERROR"
     assert finding.title == "dangerous-eval"
-    # The G23 target's own source file, not M4.1's two-line `vulnerable.py`.
+    # The G23 target's own source file, not M4.1's `vulnerable.py`. *(That file was
+    # two lines until M5.6 commit 2 gave it a note naming its two consumers, so the
+    # word is dropped rather than left to describe a length it no longer has.)*
     assert finding.location.file_path == "app.py"
     assert finding.location.start_line == 28
     assert finding.location.end_line == 28

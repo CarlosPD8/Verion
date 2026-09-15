@@ -15,6 +15,12 @@ bytes**, inside the ceiling — and the LF blob is smaller still, so the conclus
 ADR-0027's file carries no CRLF at all, so its stated 19,163 is convention-free; ADR-0028's stated
 20,979 is its LF blob at the accepting commit.
 
+*(Updated 2026-09-10, M5.6 commit 2: the decision text was inside the ceiling at acceptance, at the
+figure recorded above, and everything the file has gained since is this note and `## Amendments`.
+The ceiling does not govern that growth, on ADR-0028's Status: "The ceiling governed the decision
+text at acceptance, and amendments accrue afterwards by design, so trimming a decision to make room
+for its own amendments would be the wrong direction.")*
+
 ## Context
 
 ADR-0023 Decision C defers the SAST↔DAST derivation behind two triggers. **G24** was resolved at
@@ -318,6 +324,56 @@ note says so at the entry, so a reader arriving between commits need not infer i
 
 **Commit 2 is bounded by this ADR and can start:** the pure extractor in `projects/domain/`, keyed
 on framework, with fixture tests for the miss case the demo target cannot supply, no migration.
+
+## Amendments
+
+- **2026-09-10 (M5.6, commit 2): decision 5's bullets are QUALIFIED, not struck, and the
+  qualification is enumerated because the implementation breaks one half of several of them at
+  once.** Decision 5's structure conflates two claims — *the demo target cannot express this* and
+  *no test checks this* — and constructed fixtures in `tests/unit/test_route_extraction.py` falsify
+  the second in several places while leaving the first untouched everywhere. **Every real-tree bound
+  in decision 5 stands**: the only Flask tree this project owns is still a two-route app, and none
+  of the shapes below appears in it.
+
+  **The unit of the count is stated, because "four bullets" would be wrong.** Decision 5 has five
+  bullets, and its second is a list of eight shapes. What this commit reaches is **one bullet (the
+  span boundary) plus five of the eight shapes inside the second**, and two of those five only in
+  part. Left untouched in that second bullet: `add_url_rule`, class-based views, and routes spread
+  across modules.
+
+  | decision 5's bullet or shape | what changed | what stands |
+  |---|---|---|
+  | *"whichever the extractor picks is a choice no test checks"* (span boundary) | **falsified** — `test_the_span_starts_at_the_route_decorator_and_not_at_the_def` checks it | *"indistinguishable **here**"*, scoped to the demo target, is true and is why the fixture had to be constructed |
+  | *"any path that is not a decorator literal"* | now fixtured, and named in `RouteMap.unresolved_routes` | the real tree has none |
+  | *"variable path converters"* | now fixtured, emitted verbatim | the real tree has none; and see **G54**, which upgrades this from untested to structurally unable to correlate |
+  | *"multiple decorators on one view"* | now fixtured, with overlapping spans asserted | the real tree has none |
+  | *"methods"* | now fixtured in **both** senses the word carries — `methods=["GET"]` as a decorator argument, and Flask 2's `@app.get`/`@app.post` shortcuts | the real tree has neither |
+  | *"blueprints"* | **partly** — a `@bp.route` decorator is matched and fixtured, so the decorator half is no longer untested | the **`url_prefix` half is untouched and is worse than untested**: the prefix lives at `register_blueprint`, this module reads decorators, so `/nested` is emitted where `/api/nested` is served. Recorded in **G54**, whose structure it shares |
+  | *"No miss case from the real tree"* | **not falsified** — that bullet already named `semgrep_target/vulnerable.py` as *"a fixture obligation that is already half-supplied"*, and this commit supplies it | unchanged |
+
+  **The delegated span choice is recorded here, because decision 5 delegated it and never said
+  which was taken.** It is **this route's own decorator line**, not the `def` and not the lowest
+  decorator on the view. Decorator-inclusive, because a finding on `@app.route("/calculate")` is on
+  the code serving that route. Not the lowest, because with stacked route decorators a shared span
+  puts a finding on `/a`'s own decorator inside `/b`'s span as well, asserting a relation that does
+  not exist — the fabrication side of ADR-0019 decision 3, whose preference for the under-counting
+  failure is what rules it out. **Stacked routes therefore produce overlapping spans, which is the
+  correct answer and not an ambiguity**: a line in a shared body serves both routes, a query for a
+  line returns every route whose span contains it, and no tie-break exists or belongs in a
+  consumer. If one ever looks necessary, the query's return type was wrong.
+
+  **Decision 2's line numbers are `ast`'s and are not the extractor's output.** It reads
+  *"`app.route('/')` → `index`, lines 10–11, and `app.route('/calculate')` → `calculate`, lines
+  15–31, from decorators at lines 9 and 14"*. Every one of those remains a true statement about
+  `ast`. Under the span rule above the extractor emits **9–11** and **14–31**, and a reader would
+  otherwise take the ADR's figures for what this module returns.
+
+  **One thing the extractor does that decision 2 did not measure**, recorded as additive rather
+  than as a contradiction: it matches Flask 2's method shortcuts (`@app.get` and the four beside
+  it) as well as `@app.route`, which is all decision 2's measurement covers. Left unmatched they
+  would produce no route **and** no residue entry, making a file of them indistinguishable from a
+  file with no routes — the ambiguity decisions 2 and 3 of this ADR exist to refuse. The cost is in
+  the module docstring: `get` is a common attribute name, bounded only by the framework key.
 
 ## Alternatives considered
 
