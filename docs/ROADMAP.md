@@ -705,6 +705,7 @@ Rules, enforced by `scripts/check_claims.py`:
 - Add a milestone to `Confirmed:` each time the gap is re-encountered and deferred again.
 - **At three or more confirmations**, an entry must carry either `Status: assigned → <issue>` or an explicit `Deferral rationale:`. Re-noting it a fourth time with neither fails CI. Three is the threshold because three is where this one broke: M3.4 and M3.5 were reasonable deferrals, but by M3.6 the repetition had become information nobody was acting on.
 - Resolved entries stay here with `Status: resolved → <issue>`, as the record of how long it took and what it was blocking.
+- An assignment is written `assigned → M<n>.<n>` at the start of the `Status:` value, and the id must be an issue heading in one of the milestones above. Leading bold, backticks or italics, a trailing qualifier such as `commit 4`, and a trailing full stop are accepted. A value that begins with the assignment keyword in any other form fails CI; it is not skipped.
 
 ### G1 — Multi-scanner orchestration
 Confirmed: M3.4, M3.5, M3.6 · Status: resolved → M3.7
@@ -1419,6 +1420,32 @@ Nothing raises in any of the three. The window is the duration of the manifest r
 
 Deferral rationale: **the fix is named and is a scope refusal, not a quality one.** One archive read would feed both the manifests `detect_stack` reads and the source `extract_routes` parses. That removes this gap, makes the stored SHA describe the whole context, and costs one read instead of 1+k. `GitHubAdapter`'s member allowlist is written as a list so that the change reads as a list change: reading a manifest as text is not parsing it as code. It is not taken in M5.6 commit 4 because it rewrites M2.3's working, tested detection path inside the commit that must also resolve G27 end to end. Trigger: **any change to `BuildSecurityContextFromGitHubUseCase`'s fetch path**, or **the first observed mismatch between a stored route map's `framework` and its source**.
 Note: **distinct from G52 and G25.** **G52** is *which tree the route map came from, relative to the tree a scanner read*. **G25** is *which tree the scanner read*. **This** is *whether the map's framework key and its source are the same tree*. It is inside one context build, and exists only because the build makes two reads.
+
+### G58 — `check_deferred_gaps_are_escalated` cannot read a bold assignment, while `check_assignments_name_real_issues`, added beside it in the same file, can
+Confirmed: M5→M6 boundary review commit 1 · Status: open
+Blocks-if-unresolved: **the escalation guard, at the third confirmation of any entry whose assignment is written in bold.** The guard matches `Status:\s*(assigned|resolved)\s*→` over the entry. In a bold value, `**` sits where the keyword is expected, so the assigned branch never fires and `Deferral rationale:` alone decides the entry. That has two outcomes, and neither is the right one:
+- **With a rationale, the guard passes it on the wrong clause and reports nothing.** Measured on a temporary copy with G19 raised to three confirmations: **0** findings.
+- **Without a rationale, a correct assignment fails CI.** Same copy with the rationale removed: **1** finding. Removing it is the natural tidy-up once a gap is assigned, because a rationale explains why no issue had the work. The control: unbolding that same value, rationale still removed, gives **0** findings. The bold is the only difference.
+
+This is the guard G28's 2026-08-25 note already measured, *"the input that would break it has not arrived, not that the register conforms"*, arriving a second time in the same guard.
+
+**The subject of this entry is a disagreement between two checks in one file, not the guard's blindness alone.** `scripts/check_claims.py` now holds two checks that read the same `Status:` field and disagree about what an assignment looks like:
+- `check_assignments_name_real_issues` strips a leading `*`, backtick or `_`, and reads `**assigned → M5.3**` as an assignment to M5.3.
+- `check_deferred_gaps_are_escalated` does not read it as an assignment at all.
+
+Re-pointing G19's bold value at M5.10 on a copy shows it directly: the assignment check reports it, and the escalation guard reports nothing. **The rules list at the head of this register, amended in the same commit, now says leading bold is accepted.** That is true of one check and false of the other, so an author who follows the rules can write exactly the form one guard cannot see. The blindness predates this commit. The disagreement is what this commit creates, and why the entry is seeded here.
+Evidence: measured in the tree this commit produces, before this entry existed, so over 56 entries.
+- **Exactly one entry writes an assignment in bold: G19**, `**assigned → M5.3**`, at two confirmations (M4.5, post-M4). It is one confirmation from the threshold, so the blindness is real but not currently reachable.
+- The guard is blind to **seven** bold `Status:` values in all. Only G19's is this entry's:
+  - G3 and G12 read `**resolved → M5.0**`, at two confirmations each. That is the same mechanism on the other branch, but the assignment check does not read `resolved →` either, so there the two checks agree: both are silent.
+  - G6 and G8 are bold `open` and claim nothing.
+  - G9 and G10 are `**RESOLVED (M4.4)**`, a different grammar with no arrow.
+  - G28's note records five of the seven as unreadable: G3, G9, G10, G12 and G19. It leaves out G6 and G8, which claim neither an assignment nor a resolution.
+- Entries at three or more confirmations: G1 and G8. Neither carries a bold assignment.
+
+Deferral rationale: **the fix is to make the guard reuse the tolerant reading the assignment check already implements, so the file has one definition of an assignment.** That is a change to a guard whose subject is not this commit's. It would also mean re-running the escalation guard's own verification, which no mutation in this commit covers: the three outcomes above as a mutation set, plus the bolded-G1 injection G28's note records. Trigger: **G19 reaching a third confirmation**, or **any entry at two confirmations whose `Status:` gains a bold assignment**, or **any change to `check_deferred_gaps_are_escalated`**. The second trigger names an assignment deliberately. G3 and G12 are already bold at two confirmations, but they are resolved, so a trigger worded "a bold Status" would have fired the day it was written.
+Note: **G57 is skipped deliberately, not lost.** `2318d87`'s commit message names a G57 that was retracted before it was registered. A commit message cannot be corrected, so reusing the number would give that id two subjects in `git log`.
+Note: **distinct from G28, and the second instance of what its 2026-08-25 note measured rather than a restatement of it.** That note recorded the guard's blindness as a coverage finding inside an entry about review scope. This entry records that a sibling check now reads the same field differently.
 
 ## V2 Backlog (explicitly out of this roadmap)
 

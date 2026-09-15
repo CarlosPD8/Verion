@@ -87,8 +87,9 @@ jobs:
         run: uv run lint-imports
 
       # Re-derives documentation claims from the artifacts that make them true
-      # (this file, CLAUDE.md's Tier 1 table, the agent definitions) rather than
-      # trusting a second copy of the description. See the script's docstring.
+      # rather than trusting a second copy of the description. What it reads is
+      # listed by the script's CHECKS tuple, not here, so this comment cannot
+      # drift from it. See the script's docstring.
       - name: Documentation claims (check_claims)
         run: uv run python scripts/check_claims.py
 
