@@ -12,6 +12,24 @@ class RepoMetadata:
     description: str
 
 
+@dataclass(frozen=True)
+class SourceArchive:
+    """A repository's source files as read from ONE archive of one commit.
+
+    **`commit_sha` is the commit this archive was cut from, and nothing more.** It says
+    which tree these `files` came from. It does not describe anything read through the
+    other methods on this port, which make their own separate requests — see **G56**.
+
+    `files` maps a repo-relative path to its UTF-8 text, for the members the adapter's
+    allowlist admits. `undecodable_files` names allowlisted members that were not valid
+    UTF-8, so a caller can report them instead of losing them silently.
+    """
+
+    commit_sha: str
+    files: dict[str, str]
+    undecodable_files: tuple[str, ...]
+
+
 class VcsProviderPort(Protocol):
     async def fetch_repo_metadata(
         self, access_token: str, owner: str, repo: str
@@ -22,6 +40,19 @@ class VcsProviderPort(Protocol):
     async def get_file_content(
         self, access_token: str, owner: str, repo: str, path: str
     ) -> str | None: ...
+
+    async def fetch_source_archive(self, access_token: str, owner: str, repo: str) -> SourceArchive:
+        """The default branch's source as one archive. M5.6 commit 4, ADR-0029.
+
+        Raises `GitHubApiError` when the archive cannot be fetched,
+        `SourceArchiveTooLarge` when it exceeds a size cap, and `SourceArchiveMalformed`
+        when it is not the shape GitHub serves. All three are projects-domain exceptions.
+
+        **There is deliberately no `ref` parameter.** The adapter asks for `HEAD`, the
+        same tip `list_repo_files` reads, so **G52**'s trigger — *"any change giving
+        `VcsProviderPort` a `ref` parameter"* — does not fire here.
+        """
+        ...
 
     async def register_webhook(self, access_token: str, owner: str, repo: str) -> None:
         """Registers (idempotently) this app's push webhook on the given

@@ -11,18 +11,20 @@ class RouteMapPort(Protocol):
     Decision rests on — and calls `RouteMap.paths_serving` on it, so the span-containment
     rule stays in `projects` (rule 3).
 
-    **Production returns an EMPTY map until M5.6 commit 4.** Commit 3 ships this port, its
-    consumer and the gate in front of it; commit 4 populates the map at Security Context
-    build time and replaces the placeholder adapter. Between the two, production derives no
-    route path for any finding, so no derived SAST↔DAST group exists outside the unit suite.
-    ADR-0029's 2026-09-15 amendment records the decision and **G27** stays assigned to
-    commit 4 on that ground.
+    **Populated since M5.6 commit 4**, at Security Context build time
+    (`BuildSecurityContextFromGitHubUseCase`). A project with no stored map reads as
+    `RouteMap.not_read(UnreadTree.NOT_BUILT)`, which is empty, so `paths_serving` derives
+    nothing for it, and it stays distinguishable from a built map with no routes.
+    *(Until commit 4 this port's only adapter was `EmptyRouteMapReader`, and production
+    derived no route path at all.)*
+
+    **The map is effectively written once per project** — see `RouteMapRecord` and **G55**.
 
     **Whatever tree the map came from is not the tree a scanner read** — ADR-0029 decision 3,
     **G52**. A caller must not present a route derived from this map as a fact about the
     scanned revision.
 
-    Async by rule 7: the populated adapter reads storage.
+    Async by rule 7: the adapter reads storage.
     """
 
     async def route_map_for(self, *, project_id: str) -> RouteMap: ...

@@ -17,9 +17,11 @@ Four things here are not ordinary coverage:
   because this is the file that runs the real ZAP mapper.
 
 **What none of this proves about production**, stated because the derivation tests are green:
-until M5.6 commit 4 the production `RouteMapPort` returns an empty map, so production derives
-no route path and produces no cross-tool group. These tests exercise the gate and the
-derivation against a populated fake; they are not evidence of a product capability.
+these tests exercise the gate and the derivation against a populated fake, and are not
+evidence of a product capability. *(Until M5.6 commit 4 production's `RouteMapPort` returned
+an empty map and produced no cross-tool group at all. Since commit 4 it reads a map stored at
+Security Context build, and the evidence that production produces the group is
+`tests/integration/test_derived_group_end_to_end.py`, not this file.)*
 """
 
 from collections import Counter
@@ -98,6 +100,7 @@ def _route_map(*spans: tuple[str, str, int, int]) -> RouteMap:
         ),
         unparsed_files=(),
         unresolved_routes=(),
+        unread_tree=None,
     )
 
 

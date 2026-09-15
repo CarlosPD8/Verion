@@ -6,6 +6,7 @@ from verion.modules.projects.adapters.outbound.db.models import (
     ConnectedRepoModel,
     ProjectMembershipModel,
     ProjectModel,
+    RouteMapModel,
     ScannerConfigModel,
     SecurityContextModel,
     ServingDeclarationModel,
@@ -13,7 +14,13 @@ from verion.modules.projects.adapters.outbound.db.models import (
 from verion.modules.projects.domain.authorization import may_read
 from verion.modules.projects.domain.exceptions import SecurityContextNotFound
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
-from verion.modules.projects.domain.route_extraction import RouteMap
+from verion.modules.projects.domain.route_extraction import (
+    RouteMap,
+    RouteSpan,
+    UnreadTree,
+    UnresolvedRoute,
+)
+from verion.modules.projects.domain.route_map_record import RouteMapRecord
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.domain.serving_declaration import (
@@ -388,22 +395,163 @@ class PostgresServingDeclarationVerdictReader:
         )
 
 
-class EmptyRouteMapReader:
-    """`RouteMapPort`'s placeholder until M5.6 commit 4. **Production derives nothing.**
+def _json_str(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("A route_maps row holds a non-string where a string belongs")
+    return value
 
-    Every project reads as having no routes, so `CorrelateFindingsUseCase` never derives a
-    route path and no SAST↔DAST group is produced in production — whatever the declaration
-    says. The gate, the port and the derivation are real and are exercised by the unit suite
-    against a populated fake; what does not exist yet is anything that populates a map.
-    Commit 4 replaces this with a reader over a map persisted at Security Context build time
-    (ADR-0029's 2026-09-15 amendment), which is why **G27** stays assigned to that commit
-    rather than resolved here.
 
-    Deliberately an empty `RouteMap` and not a raise: a raise would take down the Risk listing
-    of every project with a declaration in force — the use case reads the map only then —
-    while an empty map is the truthful answer to "which routes does this module know about"
-    today.
+def _json_int(value: object) -> int:
+    # `bool` is an `int` subclass, and JSON `true` would otherwise pass as line 1.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("A route_maps row holds a non-integer where a line number belongs")
+    return value
+
+
+def _route_map_record_to_domain(model: RouteMapModel) -> RouteMapRecord:
+    """Parse the JSONB back into domain types, and RAISE on a malformed element.
+
+    The database does not type a span's fields, so this is where a bad row is caught — the
+    `ScannerTool(name)` parse-back precedent in `_scanner_config_to_domain`. Raising rather
+    than skipping is ADR-0021 decision 4's other side: a stored row is state this project
+    wrote and controls, not upstream data, so a malformed one is a defect to surface.
+    """
+    return RouteMapRecord(
+        id=model.id,
+        project_id=model.project_id,
+        framework=model.framework,
+        source_archive_commit_sha=model.source_archive_commit_sha,
+        derived_at=model.derived_at,
+        route_map=RouteMap(
+            routes=tuple(
+                RouteSpan(
+                    path=_json_str(route["path"]),
+                    file_path=_json_str(route["file_path"]),
+                    start_line=_json_int(route["start_line"]),
+                    end_line=_json_int(route["end_line"]),
+                )
+                for route in model.routes
+            ),
+            unparsed_files=tuple(model.unparsed_files),
+            unresolved_routes=tuple(
+                UnresolvedRoute(
+                    file_path=_json_str(route["file_path"]),
+                    function_name=_json_str(route["function_name"]),
+                    decorator_line=_json_int(route["decorator_line"]),
+                )
+                for route in model.unresolved_routes
+            ),
+            unread_tree=UnreadTree(model.unread_tree) if model.unread_tree is not None else None,
+        ),
+    )
+
+
+def _routes_to_json(route_map: RouteMap) -> list[dict[str, str | int]]:
+    return [
+        {
+            "path": route.path,
+            "file_path": route.file_path,
+            "start_line": route.start_line,
+            "end_line": route.end_line,
+        }
+        for route in route_map.routes
+    ]
+
+
+def _unresolved_routes_to_json(route_map: RouteMap) -> list[dict[str, str | int]]:
+    return [
+        {
+            "file_path": route.file_path,
+            "function_name": route.function_name,
+            "decorator_line": route.decorator_line,
+        }
+        for route in route_map.unresolved_routes
+    ]
+
+
+class PostgresRouteMapRepository:
+    """`RouteMapRepositoryPort` over `route_maps`. One row per project. M5.6 commit 4.
+
+    **Effectively written once per project today, because of G55 and not because of anything
+    here.** `upsert` replaces a map faithfully. But the only writer is Security Context build,
+    and a second build also writes a duplicate `security_contexts` row, after which that
+    project's context reads raise. So a map cannot be refreshed without breaking the project,
+    and a stored `UnreadTree` failure is in practice permanent.
     """
 
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_by_project_id(self, project_id: str) -> RouteMapRecord | None:
+        result = await self._session.execute(
+            select(RouteMapModel).where(RouteMapModel.project_id == project_id)
+        )
+        model = result.scalar_one_or_none()
+        return _route_map_record_to_domain(model) if model is not None else None
+
+    async def upsert(self, record: RouteMapRecord) -> None:
+        # ON CONFLICT DO UPDATE on the project_id constraint, the ServingDeclaration idiom.
+        # **Every column but `id` and `project_id` moves in `set_`, none conditionally**: the map
+        # is a snapshot of one tree, and keeping any column from the previous row would pair
+        # an old tree's value with a new one's — the SHA with the wrong routes, say. `id` stays,
+        # as it does for the two upserts above, so the row keeps a stable identity.
+        routes = _routes_to_json(record.route_map)
+        unresolved_routes = _unresolved_routes_to_json(record.route_map)
+        unparsed_files = list(record.route_map.unparsed_files)
+        unread_tree = (
+            str(record.route_map.unread_tree) if record.route_map.unread_tree is not None else None
+        )
+        statement = (
+            insert(RouteMapModel)
+            .values(
+                id=record.id,
+                project_id=record.project_id,
+                framework=record.framework,
+                source_archive_commit_sha=record.source_archive_commit_sha,
+                unread_tree=unread_tree,
+                routes=routes,
+                unresolved_routes=unresolved_routes,
+                unparsed_files=unparsed_files,
+                derived_at=record.derived_at,
+            )
+            .on_conflict_do_update(
+                constraint="uq_route_maps_project_id",
+                set_={
+                    "framework": record.framework,
+                    "source_archive_commit_sha": record.source_archive_commit_sha,
+                    "unread_tree": unread_tree,
+                    "routes": routes,
+                    "unresolved_routes": unresolved_routes,
+                    "unparsed_files": unparsed_files,
+                    "derived_at": record.derived_at,
+                },
+            )
+        )
+        await self._session.execute(statement)
+        await self._session.flush()
+
+
+class PostgresRouteMapReader:
+    """`RouteMapPort` — the stored map, or `NOT_BUILT` for a project that has none. M5.6 commit 4.
+
+    `PostgresServingDeclarationVerdictReader`'s shape: it composes the repository above rather
+    than re-querying, so the JSONB parse-back has one copy.
+
+    **A missing row answers `RouteMap.not_read(UnreadTree.NOT_BUILT)`, not a raise and not a
+    plain empty map.** Not a raise, because this sits on `GET /projects/{id}/risks`, a
+    member-level read, and every project detected before this commit has no row. Not a plain
+    empty map, because that would read as "built, and no routes" — the ambiguity the residue
+    fields exist to refuse.
+
+    **Every project that ran detect before this commit reads `NOT_BUILT` indefinitely**, because
+    obtaining a map needs a second detect, and G55 makes that break its context reads.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
     async def route_map_for(self, *, project_id: str) -> RouteMap:
-        return RouteMap(routes=(), unparsed_files=(), unresolved_routes=())
+        record = await PostgresRouteMapRepository(self._session).get_by_project_id(project_id)
+        if record is None:
+            return RouteMap.not_read(UnreadTree.NOT_BUILT)
+        return record.route_map

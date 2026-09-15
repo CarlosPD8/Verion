@@ -27,10 +27,10 @@ from verion.modules.normalization.adapters.outbound.db.repository import (
 )
 from verion.modules.normalization.domain.finding import Evidence, Finding, Location
 from verion.modules.projects.adapters.outbound.db.repository import (
-    EmptyRouteMapReader,
     PostgresConnectedRepoRepository,
     PostgresProjectMembershipRepository,
     PostgresProjectRepository,
+    PostgresRouteMapReader,
     PostgresScannerConfigRepository,
     PostgresServingDeclarationRepository,
 )
@@ -40,7 +40,7 @@ from verion.modules.projects.domain.project import (
     ProjectMembership,
     Role,
 )
-from verion.modules.projects.domain.route_extraction import RouteMap
+from verion.modules.projects.domain.route_extraction import RouteMap, UnreadTree
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.serving_declaration import ServingDeclaration
 from verion.platform.app import app
@@ -162,15 +162,16 @@ async def test_a_member_gets_the_project_s_risks(client, db_session):
     assert sorted(by_package["urllib3"]["finding_ids"]) == ["f-1", "f-2"]
 
 
-class _RecordingEmptyRouteMap:
-    """`EmptyRouteMapReader`'s answer, plus a record of being asked."""
+class _RecordingUnbuiltRouteMap:
+    """`PostgresRouteMapReader`'s answer for a project with no stored map, plus a record of
+    being asked."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
 
     async def route_map_for(self, *, project_id: str) -> RouteMap:
         self.calls.append(project_id)
-        return RouteMap(routes=(), unparsed_files=(), unresolved_routes=())
+        return RouteMap.not_read(UnreadTree.NOT_BUILT)
 
 
 def _located_finding(*, finding_id: str, source: ScannerTool, location: Location) -> Finding:
@@ -194,23 +195,28 @@ def _located_finding(*, finding_id: str, source: ScannerTool, location: Location
     )
 
 
-async def test_a_declared_project_gets_no_derived_group_until_the_route_map_is_populated(
-    client, db_session
-):
-    """**Production's state between M5.6 commits 3 and 4, pinned through the real wiring.**
+async def test_a_declared_project_with_no_built_route_map_gets_no_derived_group(client, db_session):
+    """**A declared project that never built its route map derives nothing**, through the real
+    wiring.
 
     Every precondition for a derived SAST↔DAST group is met except one: the declaration is
     in force against real rows, a ZAP alert is at `/calculate`, and a Semgrep finding sits
-    at the line that serves it. The one missing is the route map — `get_route_map_port`
-    wires `EmptyRouteMapReader` — so the Semgrep finding stays a singleton. **Commit 4 is
-    expected to flip the last assertion**, and must do so deliberately.
+    at the line that serves it. The one missing is a stored route map — no detect has run — so
+    the Semgrep finding stays a singleton.
 
-    The map port is overridden with a recorder that gives production's empty answer, so the
-    test can assert the map WAS consulted — which the gate allows only when the real verdict
-    reader returned True. That the unoverridden factory is `EmptyRouteMapReader` is asserted
-    directly.
+    *(Until M5.6 commit 4 this was `..._until_the_route_map_is_populated`, pinning production's
+    state between commits 3 and 4, when `get_route_map_port` wired `EmptyRouteMapReader` for
+    EVERY project. G27's note asked commit 4 to flip it deliberately. The flip is
+    `test_derived_group_end_to_end.py`'s first test, where a detect runs and the group appears.
+    What stays true here, and is kept, is the narrower case: a project with no map, which
+    since commit 4 reads `NOT_BUILT` rather than a plain empty map.)*
 
-    It also pins the half that IS live in production: the ZAP key is the url's path.
+    The map port is overridden with a recorder giving the real reader's answer, so the test can
+    assert the map WAS consulted — which the gate allows only when the real verdict reader
+    returned True. That the unoverridden factory is `PostgresRouteMapReader`, and that it
+    answers `NOT_BUILT` here, is asserted directly.
+
+    It also pins that the ZAP key is the url's path.
     """
     await _seed_project(db_session)
     await PostgresScannerConfigRepository(db_session).upsert(
@@ -260,9 +266,12 @@ async def test_a_declared_project_gets_no_derived_group_until_the_route_map_is_p
         ),
     )
 
-    # Production wires the placeholder — asserted, since the test below swaps it for a recorder.
-    assert isinstance(get_route_map_port(), EmptyRouteMapReader)
-    route_maps = _RecordingEmptyRouteMap()
+    # Production wires the Postgres reader, and it answers NOT_BUILT for this project —
+    # both asserted, since the request below swaps the port for a recorder.
+    assert isinstance(get_route_map_port(db_session), PostgresRouteMapReader)
+    unbuilt = await PostgresRouteMapReader(db_session).route_map_for(project_id=_PROJECT)
+    assert unbuilt == RouteMap.not_read(UnreadTree.NOT_BUILT)
+    route_maps = _RecordingUnbuiltRouteMap()
     app.dependency_overrides[get_route_map_port] = lambda: route_maps
     try:
         response = await client.get(f"/projects/{_PROJECT}/risks", headers=_auth_headers(_MEMBER))

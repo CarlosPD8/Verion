@@ -1,5 +1,6 @@
 import ast
 from dataclasses import dataclass
+from enum import StrEnum
 
 # The framework this extractor understands, compared against what `detect_stack`
 # reports. Verbatim, no case-folding, on `declaration_in_force`'s ground: a
@@ -90,14 +91,34 @@ class UnresolvedRoute:
     decorator_line: int
 
 
+class UnreadTree(StrEnum):
+    """Why a route map is empty because its tree was never READ. M5.6 commit 4.
+
+    The third residue, and a different granularity from the other two: `unparsed_files` is
+    per file and `unresolved_routes` per route inside a file that parsed, while this is the
+    whole tree. Without it a project whose archive fetch failed would read exactly like a
+    project with no routes — the first silently loses correlation and nothing would say so.
+
+    **`NOT_BUILT` is never stored.** The route-map reader synthesizes it for a project with
+    no stored map, `RouteMapRecord` refuses it, and the `route_maps` table's CHECK refuses it
+    again, so the three places that know the value agree about where it may appear.
+    """
+
+    NOT_BUILT = "not_built"
+    FETCH_FAILED = "fetch_failed"
+    TOO_LARGE = "too_large"
+    MALFORMED = "malformed"
+
+
 @dataclass(frozen=True)
 class RouteMap:
     """What a tree's routes are, plus what this module could not tell you about it.
 
-    **The two residue tuples are what stop a silent loss.** A swallowed parse failure
+    **The residue fields are what stop a silent loss.** A swallowed parse failure
     yielding an empty map would be indistinguishable from a tree that genuinely has
     no routes, and a group missing over such a file would look like evidence of
-    absence. Both tuples exist so it is not.
+    absence. The two tuples exist so it is not, and `unread_tree` does the same one
+    level up, for a tree that was never read at all.
 
     **They are split rather than merged, and `_persist` is the precedent for
     splitting rather than against it.** That function returns one list of skipped
@@ -119,6 +140,20 @@ class RouteMap:
     routes: tuple[RouteSpan, ...]
     unparsed_files: tuple[str, ...]
     unresolved_routes: tuple[UnresolvedRoute, ...]
+    unread_tree: UnreadTree | None
+
+    def __post_init__(self) -> None:
+        # A tree that was not read cannot have yielded anything. Refusing the combination
+        # keeps the three states — no routes, not fully mapped, not read — disjoint values
+        # rather than a convention a caller might break.
+        if self.unread_tree is not None and (
+            self.routes or self.unparsed_files or self.unresolved_routes
+        ):
+            raise ValueError("A route map whose tree was not read cannot carry routes or residue")
+
+    @classmethod
+    def not_read(cls, reason: UnreadTree) -> "RouteMap":
+        return cls(routes=(), unparsed_files=(), unresolved_routes=(), unread_tree=reason)
 
     def paths_serving(self, *, file_path: str, line: int) -> tuple[str, ...]:
         """Every distinct route path whose span contains this line, in `routes` order.
@@ -148,6 +183,17 @@ class RouteMap:
                 if route.file_path == file_path and route.start_line <= line <= route.end_line
             )
         )
+
+
+def extracts_routes_for(framework: str | None) -> bool:
+    """Whether `extract_routes` reads anything for this framework.
+
+    Public so a caller can decide whether fetching source is worth a request at all —
+    M5.6 commit 4's use case does not fetch an archive for a non-Flask tree — while the
+    comparison itself stays here, at the one site `extract_routes` also uses. A caller
+    comparing against `"flask"` itself would be a second place for the two to disagree.
+    """
+    return framework == _ROUTE_FRAMEWORK
 
 
 def extract_routes(*, framework: str | None, files: dict[str, str]) -> RouteMap:
@@ -242,8 +288,8 @@ def extract_routes(*, framework: str | None, files: dict[str, str]) -> RouteMap:
     Keys that do not end in `.py` are ignored entirely and never reported, so a
     caller handing in a `README.md` cannot pollute `unparsed_files`.
     """
-    if framework != _ROUTE_FRAMEWORK:
-        return RouteMap(routes=(), unparsed_files=(), unresolved_routes=())
+    if not extracts_routes_for(framework):
+        return RouteMap(routes=(), unparsed_files=(), unresolved_routes=(), unread_tree=None)
 
     routes: list[RouteSpan] = []
     unparsed_files: list[str] = []
@@ -263,6 +309,7 @@ def extract_routes(*, framework: str | None, files: dict[str, str]) -> RouteMap:
         routes=tuple(sorted(routes, key=_route_order)),
         unparsed_files=tuple(sorted(unparsed_files)),
         unresolved_routes=tuple(sorted(unresolved_routes, key=_unresolved_order)),
+        unread_tree=None,
     )
 
 

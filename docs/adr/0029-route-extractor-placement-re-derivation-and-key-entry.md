@@ -418,7 +418,10 @@ on framework, with fixture tests for the miss case the demo target cannot supply
     issue whose module is `projects`.
 
   **The archive fetch is priced and viable, and it is what makes commit 4 small.** One request
-  replaces 203, the compressed size at this repository's scale is about 150 KB, and the archive's
+  replaces 203, ~~the compressed size at this repository's scale is about 150 KB~~ *(struck
+  2026-09-15, M5.6 commit 4: the tarball endpoint takes no path filter, so the archive is the whole
+  tree — 922,736 bytes at this scale by the table above, not `src/`'s 149,594; see that date's
+  amendment)*, and the archive's
   top-level directory names the resolved commit — `CarlosPD8-verion-demo-target-c68caa7/` — which is
   the first observation of a map's revision anything in this system could make. Its design
   questions are named here and answered in commit 4, not assumed: a compressed and a decompressed
@@ -469,6 +472,151 @@ on framework, with fixture tests for the miss case the demo target cannot supply
   corrected ground.
 
   **Consequences' G48 paragraph is discharged**: the port ships with its consumer in commit 3.
+
+- **2026-09-15 (M5.6, commit 4): the archive questions are ANSWERED, persistence is SHAPED, and
+  the residue PERSISTS with a third field.** Four sentences of the commit-3 amendment change, and
+  each is named with its treatment: one STRUCK in place as falsified, two QUALIFIED as incomplete,
+  and one DATED as true when written and no longer true. One sentence of the Context is DATED too.
+
+  **Storage: one `route_maps` row per project, spans in JSONB.** This is the first JSONB column in
+  `src/`, so it is argued rather than inherited. Two of the three candidates are refused on
+  grounds, not on fit:
+
+  - **A normalized route table.** The access pattern gives it nothing to do. The map is written
+    whole at context build and read whole by `correlation`. SQL never filters or joins it, because
+    span containment is `RouteMap.paths_serving` in `projects/domain/`. It also costs atomicity: a
+    header upsert plus DELETE and INSERT across child tables, where one missed delete leaves an
+    older tree's routes under a newer SHA. That is G52's mixed-tree failure, made reachable by
+    schema shape.
+  - **ARRAY(String).** It cannot carry a span without a hand-rolled string encoding.
+
+  **The price, stated.** The database no longer types a span's fields. `PostgresRouteMapRepository`
+  parses every element back into `RouteSpan` / `UnresolvedRoute` and raises on a malformed one,
+  which is the ADR-0021 decision 4 raise side, since a stored row is this project's own state.
+  JSONB rather than JSON, because nothing queries inside it.
+
+  **The residue PERSISTS, both tuples, still split**, so commit 2's per-file / per-route distinction
+  survives the storage boundary. `unparsed_files` stays ARRAY(String) on `exposure_tags`'
+  precedent.
+
+  **A third residue field is added: `RouteMap.unread_tree`.** Its values are `NOT_BUILT`,
+  `FETCH_FAILED`, `TOO_LARGE` and `MALFORMED`. It makes three states disjoint values: no routes,
+  not fully mapped, and not read. `NOT_BUILT` is policed in three places that agree: the reader
+  synthesizes it, `RouteMapRecord` refuses it, and `ck_route_maps_unread_tree_values` refuses it.
+
+  **The archive questions, answered.** The commit-3 amendment named six. The table has seven rows
+  because path traversal and links are separate answers. Each answer is pinned by a test in
+  `tests/integration/test_github_adapter.py`:
+
+  | question | answer | pinned by |
+  |---|---|---|
+  | compressed cap | **10 MiB**, counted on the wire while streaming. Codeload sends chunked with no `Content-Length` (measured), so there is no header to trust. The value is chosen, not measured against a population | over-cap test |
+  | decompressed cap | **50 MiB**, via `zlib.decompressobj(wbits=31)` with `max_length`, so at most cap+1 bytes are ever produced. At the measured 2.7–3.8 ratio it binds only on bombs. **It bounds zlib's output, not what a read returns**: a sparse member expands on read past it (measured, a 283-byte gzip returned a 209,715,200-byte member), so sparse members are refused — see *links*. No single peak-memory figure is claimed; an earlier draft's "at most 60 MiB" omitted transient copies, and the guardian caught both | bomb test, sparse tests |
+  | path traversal | **Members are read in memory and never extracted**: no `extract`, no `extractall`. Member names with `..`, `.` or empty components, a name outside the root, and duplicate names are all refused as `MALFORMED` | non-canonical and duplicate tests |
+  | links, and sparse members | **`isreg()` only**, and it is load-bearing: `extractfile` on a link member *resolves* the link. **`isreg()` is also True for a sparse member**, so sparse members are refused separately, before the check | symlink/hardlink test, sparse tests |
+  | which members | an **allowlist**, `(".py",)`, written as a list so the one-read follow-up (G56) is a list change with its own reasoning, not a weakened rule | real-capture keys test, the only possible killer of a non-`.py` member being read |
+  | prefix and SHA | the `owner-repo-sha7/` prefix is stripped, so keys are repo-relative. **The full SHA comes from the pax global header's `comment`**, and the abbreviated directory suffix is only a cross-check | full-SHA and disagreement tests |
+  | five-minute expiry | the codeload link is used **once, immediately, inside a 60-second overall deadline** (httpx's timeout is per operation), and is never stored, returned or retried, so expiry is unreachable in the flow. The link is treated as a credential: the codeload request carries no `Authorization`, and a transport error is re-raised outside its handler with neither `__cause__` nor `__context__` (rule 12) | deadline test, rule-12 tests |
+
+  **Three further bounds.**
+
+  - The request asks for `Accept-Encoding: identity`, and a response that encodes anyway is
+    refused, so no transfer decoding happens outside the caps.
+  - A gzip stream that is truncated or has trailing bytes is `MALFORMED`. Measured: a cut 8-byte
+    trailer and appended bytes both still parse as a valid tar.
+  - **The port's three-exception contract is enforced, not assumed.** Three bare `ValueError`s
+    were measured, and the guardian found the first two:
+    - `tarfile` raises one on a malformed sparse header. It maps to `MALFORMED`.
+    - `urlsplit` raises one on a malformed IPv6 `Location` host. It maps to `MALFORMED`.
+    - `.port` raises one on a non-numeric port, but **that one never reaches this adapter**:
+      httpx2 validates a redirect's `Location` itself, even with `follow_redirects=False`, and
+      raises `RemoteProtocolError` inside the request. So it surfaces as `GitHubApiError` and is
+      stored as `FETCH_FAILED`. It stays inside the contract, classified as a fetch failure rather
+      than as malformed input — recorded, not corrected, because telling the two apart would mean
+      matching on httpx's message text.
+
+    A 4,000-archive fuzz of the real capture's headers raised nothing outside the contract, so the
+    tests are the crafted cases and the fuzz is recorded only as that negative result.
+
+  **Nothing was unworkable, so the per-file fetch is not needed.**
+
+  **Every archive failure degrades, and not on one ground.** `TOO_LARGE` and `MALFORMED` are about
+  a tree from somebody else's repository, which is ADR-0021 decision 4's degrade side.
+  `FETCH_FAILED` is network or rate limit, which is not upstream data. It degrades because the
+  context is already built and the failure has a representation. The manifest fetch still raises,
+  because nothing exists yet to degrade to. **No request is made for a non-Flask framework**, so
+  such a build costs what it did before.
+
+  **What it costs, measured, and where the commit-3 pricing was wrong.** The table below was taken
+  2026-09-15, unauthenticated, against public repositories. One build per run, timed at the start
+  of the archive fetch, splits the pre-existing work from what this commit adds.
+
+  | tree | runs | total, median | before (trees + manifests) | added (archive + extract) | archive | REST calls per build |
+  |---|---|---|---|---|---|---|
+  | `verion-demo-target` | 5 | 716 ms (656–1,514) | 287 ms | 431 ms | 5,458 B, 1 `.py` | 2 → 3 |
+  | `pallets/flask` | 3 | 2,016 ms (1,984–3,680) | 1,114 ms | 909 ms: download 728, parse 18, `extract_routes` ≈132 for 83 files and 304 routes | 764,941 B | 7 → 8 |
+
+  Three corrections follow from it:
+
+  - **STRUCK in place: "the compressed size at this repository's scale is about 150 KB".** The
+    tarball endpoint takes no path filter, so the archive is always the whole tree. At this
+    repository's scale that is 922,736 bytes by the commit-3 amendment's own table, about 6× the
+    `src/` figure the prose used. The size prediction was worse than reported, and it is recorded
+    as worse.
+  - **QUALIFIED: "One request replaces 203".** It is one archive, and two HTTP round trips: the
+    REST call answering 302, then codeload. One further observation, not a documented fact: across
+    the run, the unauthenticated core budget fell by exactly 31, the number of non-archive calls
+    (5 × 2 + 3 × 7). None of the 9 archive requests appeared to decrement it — one per build, 8,
+    plus one more fetched only to time `extract_routes` on its own.
+  - **QUALIFIED: "the archive's top-level directory names the resolved commit —
+    `CarlosPD8-verion-demo-target-c68caa7/`".** It names a **seven-character abbreviation**. The
+    full commit is the pax global header's `comment`, confirmed on two repositories, and that is
+    what is stored.
+
+  **The stored SHA, at its exact width.** `route_maps.source_archive_commit_sha` is the commit **the
+  route map's archive** was cut from, and nothing else:
+
+  - it is not the tree the framework was detected from, which is a separate read (**G56**,
+    measured at 287 ms to 1.1 s apart);
+  - it is not the tree a scanner read (**G25**);
+  - nothing compares it with anything, so it makes G52's distance measurable once G25 lands and
+    **does not resolve G52**;
+  - G52's trigger did not fire, because `fetch_source_archive` takes no `ref` parameter.
+
+  **What commit 4 actually delivers is narrower than the commit-3 amendment implied, because of
+  G55.** The decision to persist at build time assumed a rebuild refreshes the map. It cannot
+  without breaking the project: `security_contexts` has no unique constraint, both of its writers
+  `add`, and after a second detect that project's context reads raise. So:
+
+  - the map is written at a project's **first** detect;
+  - a stored failure is **effectively permanent**;
+  - a project detected before this commit **has no map and cannot obtain one** without that
+    breakage;
+  - the commit-3 amendment's "older in expectation" is really **frozen until G55 is fixed**.
+
+  G52's register entry is corrected to match. **G55** carries the defect itself, and it is
+  deliberately not fixed here: it is G51's mechanism on a second entity, and one behaviour decision
+  covers both.
+
+  **DATED, not struck: "Production derives no route path between commits 3 and 4."** It was true
+  between the commits. Since this one, production reads a stored map, and **G27 is resolved** on
+  `tests/integration/test_derived_group_end_to_end.py`: a built context produces the `/calculate`
+  group while the declaration is in force, and produces no group once it is out of force. That
+  module serves the committed capture through `MockTransport`, so it proves the pipeline; the
+  archive format is the adapter test's claim alone.
+
+  **The Context's "There is no committed FLASK tree in this repository" is DATED, not struck.** It
+  was true when written. `tests/integration/fixtures/github_tarball/` now commits GitHub's real
+  archive of the demo target at `c68caa7`, as the format contract for the parser. **Decision 5's
+  bounds are untouched, and so is its amendment's table above.** It is the same two-route app, so
+  blueprints, `add_url_rule`, converters, class-based views, stacked decorators and the miss case
+  are exactly as tested, or as untested, as before. Decision 5's "the only real Flask tree
+  available is a two-route app" still holds word for word.
+
+  **Named follow-up, recorded as not taken.** One archive read could feed both the manifests and
+  the routes. That closes G56, makes the stored SHA describe the whole context, and costs one read
+  instead of 1+k. It is refused here on scope, not quality: it rewrites M2.3's working, tested
+  detection path inside the commit that must resolve G27 end to end.
 
 ## Alternatives considered
 

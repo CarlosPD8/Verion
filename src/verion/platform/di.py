@@ -41,11 +41,12 @@ from verion.modules.normalization.ports.normalization_run_repository import (
     NormalizationRunRepositoryPort,
 )
 from verion.modules.projects.adapters.outbound.db.repository import (
-    EmptyRouteMapReader,
     PostgresConnectedRepoRepository,
     PostgresProjectAccessReader,
     PostgresProjectMembershipRepository,
     PostgresProjectRepository,
+    PostgresRouteMapReader,
+    PostgresRouteMapRepository,
     PostgresScannerConfigRepository,
     PostgresSecurityContextRepository,
     PostgresServingDeclarationRepository,
@@ -78,6 +79,7 @@ from verion.modules.projects.ports.project_membership_repository import (
 )
 from verion.modules.projects.ports.project_repository import ProjectRepositoryPort
 from verion.modules.projects.ports.route_map import RouteMapPort
+from verion.modules.projects.ports.route_map_repository import RouteMapRepositoryPort
 from verion.modules.projects.ports.scanner_config_repository import ScannerConfigRepositoryPort
 from verion.modules.projects.ports.security_context_repository import (
     SecurityContextRepositoryPort,
@@ -342,6 +344,14 @@ SecurityContextRepositoryDep = Annotated[
 ]
 
 
+# M5.6 commit 4. Request-scoped — it depends on DbSessionDep — so not @lru_cache'd (rule 15).
+def get_route_map_repository(session: DbSessionDep) -> RouteMapRepositoryPort:
+    return PostgresRouteMapRepository(session)
+
+
+RouteMapRepositoryDep = Annotated[RouteMapRepositoryPort, Depends(get_route_map_repository)]
+
+
 def get_build_security_context_use_case(
     projects: ProjectRepositoryDep,
     memberships: ProjectMembershipRepositoryDep,
@@ -370,6 +380,9 @@ def get_build_security_context_from_github_use_case(
     connected_repos: ConnectedRepoRepositoryDep,
     vcs_provider: VcsProviderDep,
     build_security_context: BuildSecurityContextUseCaseDep,
+    route_maps: RouteMapRepositoryDep,
+    id_generator: IdGeneratorDep,
+    clock: ClockDep,
 ) -> BuildSecurityContextFromGitHubUseCase:
     return BuildSecurityContextFromGitHubUseCase(
         projects=projects,
@@ -377,6 +390,9 @@ def get_build_security_context_from_github_use_case(
         connected_repos=connected_repos,
         vcs_provider=vcs_provider,
         build_security_context=build_security_context,
+        route_maps=route_maps,
+        id_generator=id_generator,
+        clock=clock,
     )
 
 
@@ -648,11 +664,11 @@ GetFindingEvidenceUseCaseDep = Annotated[
 ]
 
 
-# The two `projects` ports `correlation` reads for the derivation gate (M5.6 commit 3).
-# Neither is @lru_cache'd. The verdict reader depends on DbSessionDep, so caching it would
-# leak a stale session across requests (rule 15). The route-map placeholder has no
-# dependency today and could be cached, and is deliberately not: commit 4 replaces it with a
-# session-bound reader, and a cache added now would be the one line that change forgets.
+# The two `projects` ports `correlation` reads for the derivation gate (M5.6 commits 3 and 4).
+# Neither is @lru_cache'd: both depend on DbSessionDep, so caching either would leak a stale
+# session across requests (rule 15). Until commit 4 the route-map factory took no argument
+# and wired a placeholder; it was left uncached then precisely so this change would not
+# have a cache to forget.
 def get_serving_declaration_port(session: DbSessionDep) -> ServingDeclarationPort:
     return PostgresServingDeclarationVerdictReader(session)
 
@@ -660,10 +676,8 @@ def get_serving_declaration_port(session: DbSessionDep) -> ServingDeclarationPor
 ServingDeclarationPortDep = Annotated[ServingDeclarationPort, Depends(get_serving_declaration_port)]
 
 
-def get_route_map_port() -> RouteMapPort:
-    # EMPTY until M5.6 commit 4: production derives no route path, so produces no derived
-    # SAST↔DAST group. See EmptyRouteMapReader's docstring.
-    return EmptyRouteMapReader()
+def get_route_map_port(session: DbSessionDep) -> RouteMapPort:
+    return PostgresRouteMapReader(session)
 
 
 RouteMapPortDep = Annotated[RouteMapPort, Depends(get_route_map_port)]

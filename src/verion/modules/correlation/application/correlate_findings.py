@@ -108,8 +108,11 @@ class CorrelateFindingsUseCase:
         two findings are about one system. Acceptance is that a group is WITHHELD without a
         declaration, not that an admitted group is true.
 
-        **Until M5.6 commit 4, production's route map is empty**, so this gate opens onto
-        nothing outside the unit suite — see `RouteMapPort`.
+        *(Until M5.6 commit 4 production's route map was empty, so this gate opened onto
+        nothing outside the unit suite. Since commit 4 the map is stored at Security Context
+        build and read through `PostgresRouteMapReader`, so the gate opens onto a real map in
+        production; `tests/integration/test_derived_group_end_to_end.py` is the evidence. See
+        `RouteMapPort`.)*
         """
         if not await self._project_access.may_read_project(project_id=project_id, user_id=user_id):
             # One message for both "no such project" and "not a member". The port cannot

@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 
 import pytest
@@ -16,11 +17,12 @@ from verion.modules.normalization.domain.normalization_run import (
 )
 from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
-from verion.modules.projects.domain.route_extraction import RouteMap
+from verion.modules.projects.domain.route_extraction import RouteMap, UnreadTree
+from verion.modules.projects.domain.route_map_record import RouteMapRecord
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.domain.serving_declaration import ServingDeclaration
-from verion.modules.projects.ports.vcs_provider import RepoMetadata
+from verion.modules.projects.ports.vcs_provider import RepoMetadata, SourceArchive
 from verion.modules.scanning.domain.exceptions import RepoCheckoutFailed, ScannerExecutionFailed
 from verion.modules.scanning.domain.raw_scan_result import RawScanResult
 from verion.modules.scanning.domain.scan import Scan
@@ -214,12 +216,17 @@ class FakeVcsProvider:
         description: str = "",
         files: dict[str, str] | None = None,
         fail: bool = False,
+        archive: SourceArchive | None = None,
+        archive_error: Exception | None = None,
     ) -> None:
         self._default_branch = default_branch
         self._description = description
         self._files = files or {}
         self._fail = fail
+        self._archive = archive
+        self._archive_error = archive_error
         self.registered_webhooks: list[tuple[str, str]] = []
+        self.archive_requests: list[tuple[str, str]] = []
 
     async def fetch_repo_metadata(self, access_token: str, owner: str, repo: str) -> RepoMetadata:
         if self._fail:
@@ -237,6 +244,22 @@ class FakeVcsProvider:
         if self._fail:
             raise GitHubApiError("simulated GitHub API failure")
         return self._files.get(path)
+
+    async def fetch_source_archive(self, access_token: str, owner: str, repo: str) -> SourceArchive:
+        """Returns the configured archive, or raises the configured error.
+
+        **Given neither, it raises `AssertionError`** rather than returning an empty archive,
+        so a test that configures no archive also proves none was requested — which is how
+        the non-Flask tests pin that no fetch happens at all.
+        """
+        self.archive_requests.append((owner, repo))
+        if self._fail:
+            raise GitHubApiError("simulated GitHub API failure")
+        if self._archive_error is not None:
+            raise self._archive_error
+        if self._archive is None:
+            raise AssertionError("fetch_source_archive was called but this fake has no archive")
+        return self._archive
 
     async def register_webhook(self, access_token: str, owner: str, repo: str) -> None:
         if self._fail:
@@ -851,8 +874,37 @@ class InMemoryServingDeclarationPort:
         return project_id in self._in_force
 
 
+class InMemoryRouteMapRepository:
+    """`RouteMapRepositoryPort` (M5.6 commit 4). One record per project, like the Postgres upsert.
+
+    Including that a re-upsert keeps the FIRST record's id, which is what
+    `PostgresRouteMapRepository.upsert` does by leaving `id` out of its `set_`.
+    """
+
+    def __init__(self) -> None:
+        self._records: dict[str, RouteMapRecord] = {}
+
+    async def get_by_project_id(self, project_id: str) -> RouteMapRecord | None:
+        return self._records.get(project_id)
+
+    async def upsert(self, record: RouteMapRecord) -> None:
+        existing = self._records.get(record.project_id)
+        self._records[record.project_id] = (
+            record if existing is None else dataclasses.replace(record, id=existing.id)
+        )
+
+
+@pytest.fixture
+def route_map_repository() -> InMemoryRouteMapRepository:
+    return InMemoryRouteMapRepository()
+
+
 class InMemoryRouteMapPort:
-    """`RouteMapPort` — a `RouteMap` per project, empty unless one was set. Records every read."""
+    """`RouteMapPort` — a `RouteMap` per project, `NOT_BUILT` unless one was set. Records reads.
+
+    The default is what `PostgresRouteMapReader` answers for a project with no stored map, so a
+    test that sets nothing sees production's answer rather than a plain empty map.
+    """
 
     def __init__(self) -> None:
         self._maps: dict[str, RouteMap] = {}
@@ -863,9 +915,7 @@ class InMemoryRouteMapPort:
 
     async def route_map_for(self, *, project_id: str) -> RouteMap:
         self.calls.append(project_id)
-        return self._maps.get(
-            project_id, RouteMap(routes=(), unparsed_files=(), unresolved_routes=())
-        )
+        return self._maps.get(project_id, RouteMap.not_read(UnreadTree.NOT_BUILT))
 
 
 class ExplodingRouteMapPort:

@@ -30,6 +30,19 @@ class ServingDeclarationNotFound(Exception):
     pass
 
 
+class SourceArchiveTooLarge(Exception):
+    """A repository archive exceeded a compressed or decompressed size cap.
+
+    Distinct from `SourceArchiveMalformed` because the two are different facts about a
+    tree — one that is too big to read here and one whose shape is not what GitHub
+    serves — and M5.6 commit 4 stores them as different `UnreadTree` values.
+    """
+
+
+class SourceArchiveMalformed(Exception):
+    """A repository archive did not have the shape `fetch_source_archive` reads."""
+
+
 class ServingDeclarationMismatch(Exception):
     """The declared values are not the ones currently configured.
 

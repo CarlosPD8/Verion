@@ -28,7 +28,11 @@ import pytest
 
 from verion.modules.projects.domain.route_extraction import (
     RouteMap,
+    RouteSpan,
+    UnreadTree,
+    UnresolvedRoute,
     extract_routes,
+    extracts_routes_for,
 )
 
 # The only file this suite reads from disk, and the first unit test to read one from
@@ -330,13 +334,62 @@ def test_a_tree_that_is_not_flask_returns_an_empty_map_rather_than_a_guess(frame
     """
     result = extract_routes(framework=framework, files={"app.py": _TWO_ROUTES})
 
-    assert result == RouteMap(routes=(), unparsed_files=(), unresolved_routes=())
+    assert result == RouteMap(routes=(), unparsed_files=(), unresolved_routes=(), unread_tree=None)
 
 
 def test_a_non_flask_tree_is_not_even_parsed_so_a_broken_file_is_not_reported():
     result = extract_routes(framework="django", files={"broken.py": _BROKEN})
 
     assert result.unparsed_files == ()
+
+
+# ---------------------------------------------------------------------------
+# M5.6 commit 4: the third residue, and the framework predicate a caller gates a fetch on
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("framework", "expected"),
+    [("flask", True), ("Flask", False), ("django", False), (None, False)],
+)
+def test_extracts_routes_for_is_the_same_verbatim_key_extract_routes_uses(framework, expected):
+    """One comparison site. `"Flask"` is False here for the reason it yields an empty map above."""
+    assert extracts_routes_for(framework) is expected
+    reads_anything = extract_routes(framework=framework, files={"broken.py": _BROKEN}) != RouteMap(
+        routes=(), unparsed_files=(), unresolved_routes=(), unread_tree=None
+    )
+    assert reads_anything is expected
+
+
+@pytest.mark.parametrize(
+    "residue",
+    [
+        {"routes": (RouteSpan(path="/", file_path="app.py", start_line=1, end_line=2),)},
+        {"unparsed_files": ("broken.py",)},
+        {
+            "unresolved_routes": (
+                UnresolvedRoute(file_path="app.py", function_name="f", decorator_line=1),
+            )
+        },
+    ],
+    ids=["routes", "unparsed_files", "unresolved_routes"],
+)
+def test_a_map_whose_tree_was_not_read_cannot_carry_routes_or_residue(residue):
+    fields = {"routes": (), "unparsed_files": (), "unresolved_routes": (), **residue}
+
+    with pytest.raises(ValueError):
+        RouteMap(**fields, unread_tree=UnreadTree.FETCH_FAILED)
+
+
+def test_a_map_that_was_not_read_is_distinguishable_from_a_map_with_no_routes():
+    """The ambiguity `unread_tree` exists to refuse: both derive nothing, and they are not equal."""
+    not_read = RouteMap.not_read(UnreadTree.FETCH_FAILED)
+    no_routes = _flask({"app.py": "x = 1\n"})
+
+    assert not_read.paths_serving(file_path="app.py", line=1) == ()
+    assert no_routes.paths_serving(file_path="app.py", line=1) == ()
+    assert not_read != no_routes
+    assert no_routes.unread_tree is None
 
 
 # ---------------------------------------------------------------------------

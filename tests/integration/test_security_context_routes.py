@@ -51,6 +51,12 @@ class _FakeVcsProvider:
             raise GitHubApiError("simulated GitHub API failure")
         return self._files.get(path)
 
+    async def fetch_source_archive(self, access_token: str, owner: str, repo: str):
+        # No tree this fake serves is Flask, so the use case never asks. Raising rather than
+        # returning an empty archive keeps it that way: a Flask route test belongs in
+        # test_derived_group_end_to_end.py, against the real adapter.
+        raise AssertionError("this module's fake serves no Flask tree")
+
 
 @pytest.fixture(autouse=True)
 def _clear_dependency_overrides():
