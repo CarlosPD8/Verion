@@ -375,6 +375,8 @@ read is unbuilt rather than forbidden, and G47's trigger list says so.
   differ from live through HTTP at all and are covered by unit tests only. Recorded at the
   test module too, since that is where somebody reads four green steps and infers more.
 
+- **2026-09-15 (M5→M6 boundary review): three statements in the amendment above are dated by the rule-12 fix that landed in its own commit immediately before this one.** *"`ConnectedRepo.url` is stored completely unvalidated … storable today"* and *"the live side is stored with **no validation at all**, so the declaration's accepted set is **strictly narrower**"* were true when written. `ConnectRepositoryUseCase` now refuses userinfo through `validate_connected_repo_url`, and both repository validators share one definition of it (`url_carries_userinfo`), so for new writes the two accepted sets are equal — the relation the target pair already had. The amendment's closing sentences name validating `ConnectedRepo.url` at its own write path as the real fix and say G51's trigger fires on it. That fix is the one taken, and it was taken without touching `ConnectedRepoRepositoryPort` or making a repository re-connectable, so G51's trigger did not fire and G51 stands. What remains is rows written before the fix, registered as **G60**.
+
 ## Alternatives considered
 
 **A column on `ScannerConfig`, beside the consent triple.** The cheapest option and the one the

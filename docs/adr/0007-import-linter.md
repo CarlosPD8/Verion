@@ -24,6 +24,10 @@ This turns ADR-002's architecture rules from something a reviewer has to notice 
 
 It costs real config verbosity — 17 largely repetitive contract blocks, since import-linter's TOML config has no loop or template construct, and each of the 8 modules needs its own near-identical layers and forbidden-cross-module blocks. Adding a 9th module later means hand-adding 2 more contract blocks (one layers, one forbidden), not a one-line change. It also only catches what's expressed as a contract — a new kind of violation not anticipated by the current 17 (e.g., a future rule about `shared_kernel` purity) would need its own new contract, not something the existing set generalizes to automatically.
 
+## Amendments
+
+- **2026-09-15 (M5→M6 boundary review): the Decision's framework list is qualified, and the contract is not.** It names four packages — `fastapi`, `sqlalchemy`, `redis`, `uvicorn` — while `pyproject.toml`'s framework-isolation contract forbids five. `arq` was added to that contract at M3.1 (`421b64b`), the day after this ADR was written (`4236543`), and this sentence was never updated. The contract is the list; read the sentence as its M0.2 state.
+
 ## Alternatives considered
 
 **dependency-cruiser.** Rejected: it's a mature, capable tool, but it's a Node.js/JS-ecosystem tool — adopting it would mean pulling an entire JS toolchain (npm, node_modules) into a pure-Python project for a single tool's sake, adding install/CI complexity with no corresponding benefit over a native Python tool that does the same job.

@@ -116,7 +116,9 @@ def validate_zap_target_url(url: str) -> None:
 
     **This is deliberately not an SSRF check, and it does not pre-approve the
     target.** ADR-013's gate — including the resolved-IP DNS-rebinding check —
-    runs as the first lines of `ZapAdapter.run()`, at scan time, every time.
+    runs inside `ZapAdapter.run()`, before the target is contacted and before any subprocess
+    is spawned (ADR-0013's 2026-08-27 restatement), at scan time, on every scan production
+    wiring runs — only the test-only `allow_private_targets` skips it.
 
     The restraint is the point. A write-time check that rejected private and
     loopback targets would make the stored URL *look* pre-approved, which is
