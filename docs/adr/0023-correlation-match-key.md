@@ -432,7 +432,7 @@ be validated" — is discharged as to what is out.)*
 
     | | condition on | what its absence means |
     |---|---|---|
-    | **G24** | **existence** — that a shared finding exists at all | the shipped scan plan is passive-only **while it is**, so DAST reports nothing about the `eval()` sink. The SAST half exists; the DAST half does not. Measured satisfiable by the probe above and still open — no `activeScan` job has shipped. |
+    | **G24** | **existence** — that a shared finding exists at all | the shipped scan plan is passive-only **while it is**, so DAST reports nothing about the `eval()` sink. The SAST half exists; the DAST half does not. ~~Measured satisfiable by the probe above and still open — no `activeScan` job has shipped.~~ *(STRUCK 2026-09-15 as falsified: M5.4 shipped the `activeScan` job behind consent and M5.9 resolved G24. See this ADR's 2026-09-15 amendment.)* |
     | **G27** | **validity** — that comparing them is well-founded | nothing asserts the crawled URL serves the tree Semgrep read, and the derivation's route-path-to-view-function stage assumes exactly that. |
 
     Resolving **G24 alone** yields a real SAST↔DAST pair whose correlation is still unfounded,
@@ -443,8 +443,9 @@ be validated" — is discharged as to what is out.)*
     dependence on the same coupling is betrayed by nothing at all.
 
 - **2026-08-25 (active-scan probe): Decision C's measured basis is FALSIFIED. The decision stands,
-  and it stands behind BOTH triggers exactly as before — what changed is that G24 is now measured
-  *satisfiable*, which is not the same as satisfied.** A hand-run of `ZapAdapter`'s plan shape with an `activeScan` job added, against
+  ~~and it stands behind BOTH triggers exactly as before~~ — what changed is that G24 is now measured
+  *satisfiable*, which is not the same as satisfied.** *(Clause STRUCK 2026-09-15 as falsified: G24
+  is resolved, and G27's conditioning ships at M5.6. See the 2026-09-15 amendment.)* A hand-run of `ZapAdapter`'s plan shape with an `activeScan` job added, against
   the same target at the same commit. **Which half died and which survived**, stated as a split
   because a decision whose basis is retracted wholesale is one nobody can rely on:
 
@@ -473,20 +474,22 @@ be validated" — is discharged as to what is out.)*
   coupling holds by construction, so the probe is silent on that question by the same accident the
   G23 capture was. The two-trigger table is **unchanged in substance and changed in balance**, and
   the distinction has to be stated exactly because the loose version is wrong: **G24 is measured
-  *satisfiable*, which is not the same as *satisfied*.** Its `Status:` is `assigned → M5.4` — open.
+  *satisfiable*, which is not the same as *satisfied*.** ~~Its `Status:` is `assigned → M5.4` — open.
   Nothing has shipped an `activeScan` job, so no DAST finding about the sink exists in any
-  production scan today, and **both triggers remain open**. What changed is their *character*: G24
+  production scan today, and **both triggers remain open**.~~ *(STRUCK 2026-09-15 as falsified:
+  M5.4 shipped the job and M5.9 resolved G24. See the 2026-09-15 amendment.)* What changed is their *character*: G24
   was an open question about whether the finding was obtainable at all, and is now a decision about
   scan policy with a measured answer behind it, while G27 is unchanged and is now the harder of the
   two. Read the table's G24 row as *"the scan plan is passive-only **while it is**"* rather than as
   a permanent bound; the register entry's title carries the same correction.
 
   **What this does NOT change is the deferral.** The derivation is still deferred; what changed is
-  the reason, and it is deferred behind **both** triggers exactly as before. It was deferred
+  the reason, ~~and it is deferred behind **both** triggers exactly as before~~ *(struck
+  2026-09-15 as falsified; see the 2026-09-15 amendment)*. It was deferred
   because it *would produce a group with no information in it*. It is now deferred because
   **the group would be well-formed and possibly about two different systems** — a worse failure,
   and a stronger reason to wait for G27 rather than a weaker one. `ROADMAP.md`
-  schedules the three pieces as **M5.4** (existence, behind consent), **M5.5** (validity, G27) and
+  schedules the three pieces as **M5.4** (existence, behind consent), ~~**M5.5** (validity, G27)~~ *(STRUCK 2026-09-15 as falsified: ADR-0028 split G27 into M5.5's declaration and M5.6's conditioning)* and
   **M5.6** (the derivation itself) — three issues, where this decision's table implies two.
 
   **Still deferred, so the discharge is not read as wider than it is: the key's own field list.**
@@ -681,10 +684,13 @@ be validated" — is discharged as to what is out.)*
     findings → 4 groups.
   - Under the active plan **M5.4** enables, `url` splits `/calculate` into two groups and separates
     exactly the two alerts with discriminating power.
-  - **The key is not changed to a path here.** No measurement of a path-keyed *grouping* exists —
+  - **The key is not changed to a path here.** ~~No measurement of a path-keyed *grouping* exists —
     Decision C's table is per-path alert sets, not a grouping of `Finding`s — and nothing in this
     repo normalizes URLs, so a path derivation would be unmeasured design inside the commit that
-    exists to avoid exactly that.
+    exists to avoid exactly that.~~ *(Ground STRUCK 2026-09-15 as falsified in both clauses: M5.9's
+    active capture is the path-keyed measurement, and `build_match_key` now normalizes a URL. The
+    decision itself was never false — it deferred behind the trigger below, and ADR-0029 decision 4
+    is that trigger firing. See this ADR's 2026-09-15 amendment.)*
   - **Re-entry trigger: M5.4**, seeded as **G31** in this same commit.
 
   **7. The conformance-test constraint, which section (b) does not reach as written.** That section
@@ -700,7 +706,9 @@ be validated" — is discharged as to what is out.)*
   6, `Flask` 2) and ZAP 4, whose key values are the **full URLs** section 6 insists on:
   `http://target.example:8080/` 5, `…/calculate?expr=2*3` 4, `…/robots.txt` 2, `…/sitemap.xml` 2 —
   with **33 of 34 findings in groups**, **one no-signal singleton** (Semgrep), and **no group
-  spanning two tools**.
+  spanning two tools**. *(DATED RECORD, 2026-09-15, and deliberately not struck: a correct
+  prediction for the key as it then was, which M5.6 commit 3 changed by decision. The clause-by-clause
+  divergence is this ADR's 2026-09-15 amendment.)*
 
   **What a divergence obliges, stated precisely because the obvious formulation is wrong.** It does
   *not* establish that the key is wrong. Three things can fail — the key, the matcher, or the corpus
@@ -709,6 +717,79 @@ be validated" — is discharged as to what is out.)*
   **which** of the three failed and **recording which**, in this ADR's Amendments if it is the key.
   A divergence explained away as "the prediction was approximate" is the one outcome this section
   exists to prevent.
+
+- **2026-09-15 (M5.6, commit 3): section 8's prediction DIVERGES because the key changed,
+  deliberately, and three stale sites are struck. Two treatments in one entry, named at each
+  item, because this project treats them differently.** A measurement that was right when taken
+  becomes a **dated record**. A sentence that later work made false is **struck**.
+
+  **1. Section 8 — a DATED RECORD, not struck.** Section 8's own rule obliges this entry: *"a
+  divergence obliges deciding which of the three failed and recording which, in this ADR's
+  Amendments if it is the key."*
+  - **Which of the three failed: the key, by decision.** ADR-0029 decision 4 keys `url` on its
+    path, which is **G31**'s first out. The same decision gives a finding with no signal a derived
+    route path, but only while ServingDeclarationPort says the project's declaration is in force.
+  - **Not the matcher:** `matches` and `group_by_match_key` are unmodified.
+  - **Not the corpus:** the same three files, still 34 findings.
+
+  Every clause, re-measured through the real mappers and the shipped use case. Pinned by the two
+  corpus tests in `tests/unit/test_correlate_findings.py`.
+
+  | section 8's clause | declaration **not** in force (production until M5.6 commit 4, and every undeclared project) | declaration in force, demo-target route map |
+  |---|---|---|
+  | "7 groups" | **holds** — 7, and path-keying merges nothing because the passive plan yields one query string per route | **7, by a different route**: Semgrep's singleton joins `/calculate` while nothing merges |
+  | ZAP's key values are "the full URLs section 6 insists on" | **falsified** — `/` 5, `/calculate` 4, `/robots.txt` 2, `/sitemap.xml` 2 | **falsified** — `/calculate` is 5 |
+  | "33 of 34 findings in groups" | **holds** | **changed** — 34 of 34 |
+  | "one no-signal singleton" (Semgrep) | **holds** | **changed** — zero |
+  | "no group spanning two tools" | **holds** | **falsified** — exactly one: `/calculate`, `{semgrep, zap}`, n = 5 |
+
+  **An unchanged total reached by a different route is not the prediction holding**, and the
+  right-hand "7" must not be read as confirmation. Over Semgrep plus M5.9's active capture, the
+  path key gives 4 signal groups where the full URL gave 5 (5 and 6 counting Semgrep's singleton). With the declaration in force, `/calculate`
+  is n = 7 across `{semgrep, zap}`.
+
+  **2. Sites STRUCK as falsified, each marked in place.** These are the three **G46** listed,
+  plus present-tense statements of the trigger state beside them that G46 did not list:
+  - **Decision C's G24 row**, *"still open — no `activeScan` job has shipped"*. M5.4 shipped the
+    job and M5.9 resolved G24.
+  - **The 2026-08-25 amendment's** *"M5.5 (validity, G27)"*. ADR-0028 split G27 into M5.5's
+    declaration and M5.6's conditioning.
+  - **Section 6's ground**, both clauses. M5.9's capture is the path-keyed measurement it said did
+    not exist, and `build_match_key` is the URL normalization it said nothing performed. **Section
+    6's decision is not struck**: it said *"not changed to a path here"*, deferred to a named
+    trigger, and the trigger fired.
+  - **The 2026-08-25 amendment's own present tense**, found in review rather than listed by G46.
+    Four statements:
+    - its heading's *"stands behind BOTH triggers exactly as before"*;
+    - *"Its `Status:` is `assigned → M5.4` — open"*;
+    - *"Nothing has shipped an `activeScan` job … and both triggers remain open"*;
+    - *"deferred behind both triggers exactly as before"*.
+
+    They are struck for the same reason as `ARCHITECTURE.md`'s copy of the clause. Striking the
+    copy while leaving the original would leave the two disagreeing.
+
+  **3. What this does NOT change, stated because a reader seeing the key change will assume
+  otherwise.**
+  - **Section 2's matching rule is untouched.** Matching is still equality on every field, and a
+    no-signal key still matches no other finding.
+  - **Section 3's three frozen fields, the scope/signal partition, and the conformance test are
+    unchanged.**
+  - **Section 4's preference for a fourth field stays engaged and not followed** (ADR-0029
+    decision 4).
+  - **What ADR-0029 decision 4 does enter deliberately:** a Semgrep finding's `url` can now carry a
+    value that did not come off `Location.url`. That is section (c)'s *"semantic changes behind an
+    unchanged signature"* class, registered as **G53**.
+
+  **Decision C's deferral is lifted in code, not yet in production.**
+  - G24 is resolved.
+  - G27's conditioning — the gate — ships at M5.6 commit 3. Production's route map is empty until
+    commit 4, so no derived group is produced until then.
+  - So **G27 stays assigned to commit 4**.
+
+  **G46 is resolved by this entry, and not by its own trigger.** Its trigger reads *"M5.6 resolving
+  the conditioning half of G27"*, and that has not happened. This amendment happened because
+  section 8 required it. G46's non-ADR site, `ARCHITECTURE.md`'s ADR-0023 summary bullet,
+  is corrected in the same commit.
 
 ## Alternatives considered
 

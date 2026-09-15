@@ -375,6 +375,101 @@ on framework, with fixture tests for the miss case the demo target cannot supply
   file with no routes — the ambiguity decisions 2 and 3 of this ADR exist to refuse. The cost is in
   the module docstring: `get` is a common attribute name, bounded only by the framework key.
 
+- **2026-09-15 (M5.6, commit 3): decision 2's deferred persistence is DECIDED, M5.6 becomes FOUR
+  commits, and three things commit 3 does that decisions 2 and 4 did not say are recorded.** Decision
+  2 deferred persistence to commit 3 because it turned on *when* the derived value is computed. That
+  clause is discharged here. The treatment of each earlier sentence this changes is named at the
+  sentence.
+
+  **The measurement came first**, the ordering M5.2 set by benchmarking before deciding persistence,
+  because decision 4 places the derived path inside `CorrelateFindingsUseCase.execute`, which
+  `ListProjectRisksUseCase` calls on every `GET /projects/{id}/risks`:
+
+  | what | measured, 2026-09-15 |
+  |---|---|
+  | `execute`, in process, fake ports, the 34-finding committed corpus | median 0.044 ms |
+  | the same at 2,000 findings | median 2.46–2.56 ms |
+  | ADR-0025's figure, re-read there | two plans, 10.974–12.050 ms and 26.293–30.271 ms, of the SQL `get_by_project_id` — not of `execute` |
+  | `list_repo_files` / `get_file_content`, demo target | 0.31–0.58 s / 0.30–0.52 s per call |
+  | this repository's tracked `src/**/*.py` at `5a3b9f1` (`git ls-tree -r 5a3b9f1 --name-only src`) | 202, so 203 calls, about 61 s serially |
+  | GitHub REST limits, from docs.github.com per ADR-009 | 60/h unauthenticated, 5,000/h per user token, 100 concurrent |
+  | `GET /repos/{o}/{r}/tarball/HEAD` | one request, a 302 to `codeload.github.com`, 0.77–0.85 s, 5,458 bytes for the demo target |
+  | this repository at `5a3b9f1` as a tarball (`git archive --format=tar.gz`, git 2.39.2) | 922,736 bytes; `src/` alone 149,594. Gzip output depends on the compressor, so another tool gives different bytes at the same commit |
+
+  **Decided: the map is persisted in `projects` and populated at Security Context build time, in
+  commit 4.** Three options, priced rather than ranked:
+
+  - **Derive on demand at correlation time — rejected on two independent grounds.** Cost: roughly 61 s
+    of fetching against 2.5 ms of grouping, and at 5,000 requests an hour about 24 Risk listings per
+    token. And the ground that decides it at any file count: `VcsProviderPort` takes a user's
+    `access_token`, `GET /risks` is member-level and holds none, and the only tokens in the system
+    belong to individual users — so the read would either borrow one user's credential on another's
+    request or fail for every member with no GitHub connection.
+  - **Persist at context build — taken.** `BuildSecurityContextFromGitHubUseCase` is owner-triggered,
+    already holds a token and already lists the tree. **ADR-0019 decision 1 does not reach it**: that
+    decision refuses to store a value computable from stored data, and a route map is not one, since
+    source is never stored. `SecurityContext.framework` is the precedent for persisting a tree-derived
+    fact. **On G52, at the width it holds:** this adds no new class of wrongness — decision 3 already
+    accepts a map from a tree no scanner read — and makes that accepted residue *older in
+    expectation*. A dated note on G52, not a new entry.
+  - **Derive at scan time from scanning's checkout — recorded as G52's eventual fix, not taken.** It
+    is the only option that shrinks G52, and it touches `scanning`, the worker and the scan
+    transaction, which is a cross-module change needing its own ADR rather than a fourth commit of an
+    issue whose module is `projects`.
+
+  **The archive fetch is priced and viable, and it is what makes commit 4 small.** One request
+  replaces 203, the compressed size at this repository's scale is about 150 KB, and the archive's
+  top-level directory names the resolved commit — `CarlosPD8-verion-demo-target-c68caa7/` — which is
+  the first observation of a map's revision anything in this system could make. Its design
+  questions are named here and answered in commit 4, not assumed: a compressed and a decompressed
+  size cap; members read in memory and never extracted, so path traversal cannot arise; regular `.py`
+  members only, no links followed; the `owner-repo-sha/` prefix stripped; and codeload links for
+  private repositories expiring after five minutes. If commit 4 finds it unworkable it says why, and
+  the per-file fetch stands.
+
+  **Production derives no route path between commits 3 and 4.** Commit 3 wires
+  `EmptyRouteMapReader`, so the gate opens onto an empty map and no derived group exists outside the
+  unit suite. **G27 is therefore assigned to commit 4, not resolved at commit 3** — resolving it on a
+  unit suite would let the register assert a capability the product does not have. `M5.6`'s block,
+  which said three commits, is qualified to four.
+
+  **Three things commit 3 decided that decisions 2 and 4 left open:**
+
+  1. **The gate is not-attempted rather than produced-and-dropped.** Without a declaration in force
+     `RouteMapPort` is not called, which spends no tree read on an undeclared project and is the only
+     shape an exploding fake can pin. The ZAP path re-key is **unconditional**: a property of the
+     key, not of whether a cross-tool comparison is founded.
+  2. **A derived path is set only when exactly one route serves the line.** Decision 5's amendment
+     above makes overlapping spans correct and forbids a tie-break; a key carries one `url`; so zero
+     or several routes derive nothing. This records the **rule**. What it costs — a stacked view's
+     findings silently excluded from correlation — is **G54**'s third member, where it has a trigger.
+     `RouteMap.paths_serving` returns distinct paths, since two routes sharing a path are no
+     ambiguity at the key.
+  3. **An empty URL path is read as `/`**, HTTP's own reading of `http://host`. Nothing else is
+     normalized — no trailing slash, no case, no percent-escape — and `build_match_key` remains the
+     single normalization site.
+
+  **Decision 4's builder bullet is extended, not contradicted.** `build_match_key` takes `file_path`
+  and `start_line` as the bullet says, plus `paths_serving`, annotated as correlation's own
+  `PathsServing` protocol. Passing `RouteMap.paths_serving` into it makes that call a second site
+  where `mypy` compares correlation's description against `projects`' real signature.
+
+  **Decision 4's host bullet is QUALIFIED, not struck** — its conclusion holds and its ground does
+  not follow. *"`ScannerConfig` carries a single `zap_target_url`, so every ZAP URL in a project
+  shares a host"*: one configured target does not imply one scheme, host and port in the findings, all three of
+  which `urlsplit(url).path` drops, because a crawl
+  can leave it. What bounds it is the scan plan, and only in part. `_build_plan_yaml` declares one
+  context whose `urls` is `[target]`; `activeScan` names it, and `spider`'s documented context default
+  is the first context. But `report` passes no `sites`, whose documented default is all sites ZAP
+  encountered. That gap has already been observed, not only documented: the committed active
+  capture reports an empty `https://target.example:8080` site beside the `http` one. And ZAP's
+  documentation does not say whether a spider requests robots or sitemap URLs
+  outside its context. Both committed corpora are single-host — 13 of 13 passive and 16 of 16 active
+  instances at `target.example:8080` — which is evidence, not the guarantee. **G53** carries the
+  corrected ground.
+
+  **Consequences' G48 paragraph is discharged**: the port ships with its consumer in commit 3.
+
 ## Alternatives considered
 
 **Placement in `correlation/`, argued on the fetch.** This is what M5.6's block set up, and it

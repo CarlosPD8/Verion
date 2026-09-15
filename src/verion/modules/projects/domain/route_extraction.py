@@ -120,6 +120,35 @@ class RouteMap:
     unparsed_files: tuple[str, ...]
     unresolved_routes: tuple[UnresolvedRoute, ...]
 
+    def paths_serving(self, *, file_path: str, line: int) -> tuple[str, ...]:
+        """Every distinct route path whose span contains this line, in `routes` order.
+
+        **A set of answers, never one**, which is what `extract_routes`'s docstring commits
+        this query to: stacked route decorators produce overlapping spans, a line in their
+        shared body serves both, and no tie-break exists here. A consumer that needs a
+        single path decides what to do with two — M5.6 commit 3's decides to derive nothing,
+        and **G54** records what that costs.
+
+        **Distinct PATHS rather than routes**, because `@app.get("/x")` stacked over
+        `@app.post("/x")` is two routes and one path, and reporting it twice would make a
+        consumer see an ambiguity that does not exist in the value it keys on.
+
+        Both span ends inclusive, as `RouteSpan` declares. `file_path` is compared verbatim:
+        it meets `Finding.location.file_path`, which is repo-relative only because G9 was
+        resolved, and this method cannot check that precondition either.
+
+        A method on the value rather than a module-level function, so that `correlation`
+        can call it on the map it receives without importing anything from `projects/domain/`
+        — which `cross-module-correlation` forbids — while the rule stays here.
+        """
+        return tuple(
+            dict.fromkeys(
+                route.path
+                for route in self.routes
+                if route.file_path == file_path and route.start_line <= line <= route.end_line
+            )
+        )
+
 
 def extract_routes(*, framework: str | None, files: dict[str, str]) -> RouteMap:
     """Map a tree's Flask routes to the source spans that serve them. Pure: no I/O.

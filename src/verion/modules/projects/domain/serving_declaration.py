@@ -77,11 +77,12 @@ def declaration_in_force(
     or case-folding here would make this function quietly disagree with the strings the
     rest of the system stores and compares.
 
-    **A verdict rather than the data behind it**, which is what will let `correlation`
-    consume it without holding a copy of this module's rule (rule 3). The port that
-    crosses that verdict is ADR-0028 decision 4's and ships at M5.6 with its consumer —
-    **G48** is the entry that records the gap deliberately, so writing it here would be
-    the thing that entry exists to make visible.
+    **A verdict rather than the data behind it**, which is what lets `correlation` consume
+    it without holding a copy of this module's rule (rule 3). The port that crosses that
+    verdict is ADR-0028 decision 4's `ServingDeclarationPort`, shipped at M5.6 commit 3 with
+    its consumer; its adapter calls this function rather than re-comparing, so this stays
+    the single evaluation site. *(This paragraph said the port "ships at M5.6" and cited
+    **G48** for the gap until that commit resolved it.)*
 
     **Keyword-only, and that is a safety property rather than a style.** Three arguments
     of three different types, two of them optional, is precisely the call site where a

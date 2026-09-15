@@ -27,12 +27,25 @@ from verion.modules.normalization.adapters.outbound.db.repository import (
 )
 from verion.modules.normalization.domain.finding import Evidence, Finding, Location
 from verion.modules.projects.adapters.outbound.db.repository import (
+    EmptyRouteMapReader,
+    PostgresConnectedRepoRepository,
     PostgresProjectMembershipRepository,
     PostgresProjectRepository,
+    PostgresScannerConfigRepository,
+    PostgresServingDeclarationRepository,
 )
-from verion.modules.projects.domain.project import Project, ProjectMembership, Role
+from verion.modules.projects.domain.project import (
+    ConnectedRepo,
+    Project,
+    ProjectMembership,
+    Role,
+)
+from verion.modules.projects.domain.route_extraction import RouteMap
+from verion.modules.projects.domain.scanner_config import ScannerConfig
+from verion.modules.projects.domain.serving_declaration import ServingDeclaration
 from verion.platform.app import app
 from verion.platform.clock import SystemClock
+from verion.platform.di import get_route_map_port
 from verion.platform.settings import get_settings
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
@@ -147,6 +160,124 @@ async def test_a_member_gets_the_project_s_risks(client, db_session):
     # Three findings, two Risks: the grouping is what this route exists to show.
     assert by_package["urllib3"]["finding_count"] == 2
     assert sorted(by_package["urllib3"]["finding_ids"]) == ["f-1", "f-2"]
+
+
+class _RecordingEmptyRouteMap:
+    """`EmptyRouteMapReader`'s answer, plus a record of being asked."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def route_map_for(self, *, project_id: str) -> RouteMap:
+        self.calls.append(project_id)
+        return RouteMap(routes=(), unparsed_files=(), unresolved_routes=())
+
+
+def _located_finding(*, finding_id: str, source: ScannerTool, location: Location) -> Finding:
+    return Finding(
+        id=finding_id,
+        project_id=_PROJECT,
+        source=source,
+        rule_id=f"rule-{finding_id}",
+        severity=Severity.HIGH,
+        native_severity="HIGH",
+        title=f"title {finding_id}",
+        location=location,
+        evidence=Evidence(
+            id=f"evidence-{finding_id}",
+            finding_id=finding_id,
+            scan_id=_SCAN,
+            raw_payload="{}",
+            source_tool=source,
+            captured_at=_AT,
+        ),
+    )
+
+
+async def test_a_declared_project_gets_no_derived_group_until_the_route_map_is_populated(
+    client, db_session
+):
+    """**Production's state between M5.6 commits 3 and 4, pinned through the real wiring.**
+
+    Every precondition for a derived SAST↔DAST group is met except one: the declaration is
+    in force against real rows, a ZAP alert is at `/calculate`, and a Semgrep finding sits
+    at the line that serves it. The one missing is the route map — `get_route_map_port`
+    wires `EmptyRouteMapReader` — so the Semgrep finding stays a singleton. **Commit 4 is
+    expected to flip the last assertion**, and must do so deliberately.
+
+    The map port is overridden with a recorder that gives production's empty answer, so the
+    test can assert the map WAS consulted — which the gate allows only when the real verdict
+    reader returned True. That the unoverridden factory is `EmptyRouteMapReader` is asserted
+    directly.
+
+    It also pins the half that IS live in production: the ZAP key is the url's path.
+    """
+    await _seed_project(db_session)
+    await PostgresScannerConfigRepository(db_session).upsert(
+        ScannerConfig(
+            id="config-1",
+            project_id=_PROJECT,
+            enabled_tools=(ScannerTool.SEMGREP, ScannerTool.ZAP),
+            zap_target_url="http://target.example:8080/",
+            updated_at=_AT,
+        )
+    )
+    await PostgresConnectedRepoRepository(db_session).add(
+        ConnectedRepo(
+            id="repo-1",
+            project_id=_PROJECT,
+            provider="github",
+            url="https://github.com/CarlosPD8/verion-demo-target",
+            default_branch="main",
+        )
+    )
+    await PostgresServingDeclarationRepository(db_session).upsert(
+        ServingDeclaration(
+            id="declaration-1",
+            project_id=_PROJECT,
+            declared_target_url="http://target.example:8080/",
+            declared_repo_url="https://github.com/CarlosPD8/verion-demo-target",
+            declared_default_branch="main",
+            declared_at=_AT,
+            declared_by=_MEMBER,
+        )
+    )
+    await db_session.commit()
+    await _seed_finding(
+        db_session,
+        _located_finding(
+            finding_id="dast",
+            source=ScannerTool.ZAP,
+            location=Location(url="http://target.example:8080/calculate?expr=2*3"),
+        ),
+    )
+    await _seed_finding(
+        db_session,
+        _located_finding(
+            finding_id="sast",
+            source=ScannerTool.SEMGREP,
+            location=Location(file_path="app.py", start_line=28, end_line=28),
+        ),
+    )
+
+    # Production wires the placeholder — asserted, since the test below swaps it for a recorder.
+    assert isinstance(get_route_map_port(), EmptyRouteMapReader)
+    route_maps = _RecordingEmptyRouteMap()
+    app.dependency_overrides[get_route_map_port] = lambda: route_maps
+    try:
+        response = await client.get(f"/projects/{_PROJECT}/risks", headers=_auth_headers(_MEMBER))
+    finally:
+        app.dependency_overrides.pop(get_route_map_port, None)
+
+    assert response.status_code == 200
+    # The declaration is IN FORCE through the real verdict reader and the real wiring: the
+    # use case reads the map only when the verdict is True. Without this the test also passes
+    # with the verdict silently False — a trailing-slash mismatch, say — and commit 4's flip
+    # would then prove nothing.
+    assert route_maps.calls == [_PROJECT]
+    by_ids = {tuple(item["finding_ids"]): item["match"] for item in response.json()["items"]}
+    assert by_ids[("dast",)] == {"package": None, "url": "/calculate"}
+    assert by_ids[("sast",)] == {"package": None, "url": None}
 
 
 async def test_a_non_member_and_an_absent_project_are_indistinguishable(client, db_session):

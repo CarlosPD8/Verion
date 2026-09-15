@@ -86,9 +86,29 @@ def _run(status: NormalizationRunStatus, *, scan_id: str = _SCAN) -> Normalizati
     )
 
 
+class _NothingDeclared:
+    """`ServingDeclarationPort` answering False. This file's subject is the envelope, not the
+    derivation gate, which `test_correlate_findings.py` owns — so the gate is held shut here."""
+
+    async def url_serves_scanned_tree(self, *, project_id: str) -> bool:
+        return False
+
+
+class _UnreadRouteMap:
+    """Raises if read: with nothing declared, the gate must not reach it."""
+
+    async def route_map_for(self, *_: object, **__: object) -> None:
+        raise AssertionError("the route map was read with no declaration in force")
+
+
 def _use_case(project_access, findings, runs) -> ListProjectRisksUseCase:
     return ListProjectRisksUseCase(
-        correlate=CorrelateFindingsUseCase(project_access=project_access, findings=findings),
+        correlate=CorrelateFindingsUseCase(
+            project_access=project_access,
+            findings=findings,
+            serving=_NothingDeclared(),
+            route_maps=_UnreadRouteMap(),
+        ),
         normalization_runs=runs,
     )
 

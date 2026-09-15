@@ -17,6 +17,14 @@ from verion.modules.normalization.ports.finding_repository import FindingReposit
 # the same choice ListProjectFindingsUseCase made for the same reason.
 from verion.modules.projects.ports.project_access import ProjectAccessPort
 
+# Two more of `projects`' PORTS (M5.6 commit 3), and the same choice again: verdict and value,
+# never the persistence ports behind them. `ServingDeclarationPort` crosses a bool, so the
+# in-force rule stays `projects`' (ADR-0028 decision 4). `RouteMapPort` crosses a map whose
+# type this module never names, and whose containment query is a method on that map, so the
+# span rule stays `projects`' too (ADR-0029 decision 1).
+from verion.modules.projects.ports.route_map import RouteMapPort
+from verion.modules.projects.ports.serving_declaration import ServingDeclarationPort
+
 
 class CorrelateFindingsUseCase:
     """Group a project's findings into candidate Risks.
@@ -54,12 +62,20 @@ class CorrelateFindingsUseCase:
     issue that would persist, until that issue decided not to.)*
     """
 
-    def __init__(self, project_access: ProjectAccessPort, findings: FindingRepositoryPort) -> None:
+    def __init__(
+        self,
+        project_access: ProjectAccessPort,
+        findings: FindingRepositoryPort,
+        serving: ServingDeclarationPort,
+        route_maps: RouteMapPort,
+    ) -> None:
         self._project_access = project_access
         self._findings = findings
+        self._serving = serving
+        self._route_maps = route_maps
 
     async def execute(self, *, project_id: str, user_id: str) -> list[MatchGroup]:
-        """Authorize first, then read. The order is the security property.
+        """Authorize first, then read, then gate the derivation. Both orders are properties.
 
         The access check is the first statement, before any repository is touched — the
         gate placement ADR-0013 established for the SSRF validators and for the same
@@ -72,6 +88,28 @@ class CorrelateFindingsUseCase:
         M4.5's display policy — a severity rank order, a filter vocabulary and a page
         bound, none of which correlation should inherit. It also does not require the
         sighting invariant, so nothing here depends on the read path's join.
+
+        **The derivation gate — M5.6's acceptance criterion, moved there from M5.5 by
+        ADR-0028 decision 0: a derived SAST↔DAST group is not produced when the project's
+        serving declaration is absent or out of force.** The route map is not even READ in
+        that case — the derivation is not attempted, rather than produced and discarded — so
+        an undeclared project spends no tree read, and a route map that raises when touched
+        pins the order. The ZAP path re-key in `build_match_key` is NOT behind this gate: it
+        is a property of the key, not of whether comparing two tools is founded.
+
+        **What a group this gate admits means, and it is narrower than it looks** (ADR-0029
+        decision 3, ADR-0028 decision 2). It means: a person declared that the scanned URL
+        serves the connected repository and branch, and none of those three values has been
+        edited since; and the route path exists in the route map's tree, with the finding's
+        line inside that route's span there. It does **not** mean the deployment runs the
+        code Semgrep read — the declaration voids on reconfiguration and never on drift,
+        **G47** — and it does **not** mean the tree Semgrep scanned defined this route,
+        because the map is derived from a tree no scanner read, **G52**. It never means the
+        two findings are about one system. Acceptance is that a group is WITHHELD without a
+        declaration, not that an admitted group is true.
+
+        **Until M5.6 commit 4, production's route map is empty**, so this gate opens onto
+        nothing outside the unit suite — see `RouteMapPort`.
         """
         if not await self._project_access.may_read_project(project_id=project_id, user_id=user_id):
             # One message for both "no such project" and "not a member". The port cannot
@@ -79,6 +117,14 @@ class CorrelateFindingsUseCase:
             raise ProjectAccessDenied(f"No readable project with id '{project_id}'")
 
         findings = await self._findings.get_by_project_id(project_id)
+
+        paths_serving = None
+        if await self._serving.url_serves_scanned_tree(project_id=project_id):
+            route_map = await self._route_maps.route_map_for(project_id=project_id)
+            # The bound method, typed by inference off the port's return annotation and
+            # checked against `PathsServing` at this assignment's use below.
+            paths_serving = route_map.paths_serving
+
         return group_by_match_key(
             [
                 (
@@ -87,6 +133,9 @@ class CorrelateFindingsUseCase:
                         project_id=finding.project_id,
                         package=finding.location.package,
                         url=finding.location.url,
+                        file_path=finding.location.file_path,
+                        start_line=finding.location.start_line,
+                        paths_serving=paths_serving,
                     ),
                 )
                 for finding in findings

@@ -67,6 +67,9 @@ class MatchKey:
         cost — every Semgrep finding carries `package` `None` and `url` `None`, because
         the only location fields `mappers/semgrep.py` populates are `file_path`,
         `start_line` and `end_line`, and the key carries none of the three. M5.6 is the
-        named exit.
+        named exit, and since its commit 3 it is taken in code: `build_match_key` gives
+        such a finding a derived `url` when the project's declaration is in force and
+        exactly one route serves its line. Production's route map stays empty until
+        commit 4, so every production Semgrep finding is still a singleton until then.
         """
         return self.package is not None or self.url is not None

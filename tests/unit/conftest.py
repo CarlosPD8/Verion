@@ -16,6 +16,7 @@ from verion.modules.normalization.domain.normalization_run import (
 )
 from verion.modules.projects.domain.exceptions import GitHubApiError
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership
+from verion.modules.projects.domain.route_extraction import RouteMap
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
 from verion.modules.projects.domain.serving_declaration import ServingDeclaration
@@ -826,3 +827,70 @@ def exploding_scanner_config_repository() -> ExplodingScannerConfigRepository:
 @pytest.fixture
 def exploding_connected_repo_repository() -> ExplodingConnectedRepoRepository:
     return ExplodingConnectedRepoRepository()
+
+
+class InMemoryServingDeclarationPort:
+    """`ServingDeclarationPort` (M5.6 commit 3) — a set of projects whose declaration is in force.
+
+    A set rather than a declaration store, on `InMemoryProjectAccess`'s ground: the port returns
+    a verdict and cannot say why it is `False`, so a fake modelling declarations, targets and
+    repositories would be modelling more than the port exposes. The voiding rule itself is
+    `declaration_in_force`'s, tested in `test_serving_declaration.py`, and the adapter that
+    feeds it real rows is tested against Postgres.
+    """
+
+    def __init__(self) -> None:
+        self._in_force: set[str] = set()
+        self.calls: list[str] = []
+
+    def declare(self, project_id: str) -> None:
+        self._in_force.add(project_id)
+
+    async def url_serves_scanned_tree(self, *, project_id: str) -> bool:
+        self.calls.append(project_id)
+        return project_id in self._in_force
+
+
+class InMemoryRouteMapPort:
+    """`RouteMapPort` — a `RouteMap` per project, empty unless one was set. Records every read."""
+
+    def __init__(self) -> None:
+        self._maps: dict[str, RouteMap] = {}
+        self.calls: list[str] = []
+
+    def set_map(self, project_id: str, route_map: RouteMap) -> None:
+        self._maps[project_id] = route_map
+
+    async def route_map_for(self, *, project_id: str) -> RouteMap:
+        self.calls.append(project_id)
+        return self._maps.get(
+            project_id, RouteMap(routes=(), unparsed_files=(), unresolved_routes=())
+        )
+
+
+class ExplodingRouteMapPort:
+    """Every read raises. Proves the derivation is NOT ATTEMPTED without a declaration in force.
+
+    `ExplodingFindingRepository`'s pattern applied to M5.6's gate, and the reason the gate was
+    built as not-attempted rather than produced-and-dropped: only the first admits this test.
+    A refactor that read the map first and discarded its answer would leave every grouping
+    assertion green and fail here.
+    """
+
+    async def route_map_for(self, *_: object, **__: object) -> RouteMap:
+        raise AssertionError("the route map was read while the declaration was not in force")
+
+
+@pytest.fixture
+def serving_declaration_port() -> InMemoryServingDeclarationPort:
+    return InMemoryServingDeclarationPort()
+
+
+@pytest.fixture
+def route_map_port() -> InMemoryRouteMapPort:
+    return InMemoryRouteMapPort()
+
+
+@pytest.fixture
+def exploding_route_map_port() -> ExplodingRouteMapPort:
+    return ExplodingRouteMapPort()

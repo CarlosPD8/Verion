@@ -12,11 +12,16 @@ from sqlalchemy.exc import IntegrityError
 
 from verion.modules.projects.adapters.outbound.db.models import ServingDeclarationModel
 from verion.modules.projects.adapters.outbound.db.repository import (
+    PostgresConnectedRepoRepository,
     PostgresProjectRepository,
+    PostgresScannerConfigRepository,
     PostgresServingDeclarationRepository,
+    PostgresServingDeclarationVerdictReader,
 )
-from verion.modules.projects.domain.project import Project
+from verion.modules.projects.domain.project import ConnectedRepo, Project
+from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.serving_declaration import ServingDeclaration
+from verion.shared_kernel.scanner_tools import ScannerTool
 
 _AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -166,3 +171,117 @@ async def test_declarations_are_scoped_to_their_own_project(db_session):
     assert second is not None
     assert first.declared_target_url == "https://staging.example.com"
     assert second.declared_target_url == "https://two.example.com"
+
+
+# ---------------------------------------------------------------------------
+# `PostgresServingDeclarationVerdictReader` — ADR-0028 decision 4's port (M5.6 commit 3)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_live_configuration(
+    db_session,
+    *,
+    zap_target_url: str = "https://staging.example.com",
+    repo_id: str = "repo-1",
+) -> None:
+    await PostgresScannerConfigRepository(db_session).upsert(
+        ScannerConfig(
+            id="config-1",
+            project_id="project-1",
+            enabled_tools=(ScannerTool.ZAP,),
+            zap_target_url=zap_target_url,
+            updated_at=_AT,
+        )
+    )
+    await PostgresConnectedRepoRepository(db_session).add(
+        ConnectedRepo(
+            id=repo_id,
+            project_id="project-1",
+            provider="github",
+            url="https://github.com/example/repo",
+            default_branch="main",
+        )
+    )
+
+
+async def test_the_verdict_is_true_when_the_declaration_matches_the_live_rows(db_session):
+    """The adapter reads the three rows the rule needs and returns the rule's answer."""
+    await PostgresProjectRepository(db_session).add(_project())
+    await _seed_live_configuration(db_session)
+    await PostgresServingDeclarationRepository(db_session).upsert(_declaration())
+
+    verdict = await PostgresServingDeclarationVerdictReader(db_session).url_serves_scanned_tree(
+        project_id="project-1"
+    )
+
+    assert verdict is True
+
+
+async def test_the_verdict_is_false_for_a_project_that_never_declared(db_session):
+    await PostgresProjectRepository(db_session).add(_project())
+    await _seed_live_configuration(db_session)
+
+    assert (
+        await PostgresServingDeclarationVerdictReader(db_session).url_serves_scanned_tree(
+            project_id="project-1"
+        )
+        is False
+    )
+
+
+async def test_repointing_the_target_voids_the_verdict_through_real_rows(db_session):
+    """ADR-0028 decision 2's reconfiguration voiding, reached through the adapter.
+
+    The pair the HTTP sequence in M5.5's acceptance test can also falsify; here it is the
+    port `correlation` actually reads.
+    """
+    await PostgresProjectRepository(db_session).add(_project())
+    await _seed_live_configuration(db_session, zap_target_url="https://staging.example.com")
+    await PostgresServingDeclarationRepository(db_session).upsert(_declaration())
+    await PostgresScannerConfigRepository(db_session).upsert(
+        ScannerConfig(
+            id="config-1",
+            project_id="project-1",
+            enabled_tools=(ScannerTool.ZAP,),
+            zap_target_url="https://prod.example.com",
+            updated_at=_AT,
+        )
+    )
+
+    assert (
+        await PostgresServingDeclarationVerdictReader(db_session).url_serves_scanned_tree(
+            project_id="project-1"
+        )
+        is False
+    )
+
+
+async def test_an_undeclared_project_with_two_connected_repos_reads_false_without_raising(
+    db_session,
+):
+    """The short-circuit, and why it is not just a saved query — **G51**.
+
+    `PostgresConnectedRepoRepository.get_by_project_id` raises `MultipleResultsFound` on a
+    project holding two connected repositories, and this adapter sits on the member-level
+    Risk listing. Reading the declaration first and stopping when there is none keeps that
+    exposure away from every project that never declared. Reordering the three reads turns
+    this red.
+    """
+    await PostgresProjectRepository(db_session).add(_project())
+    await _seed_live_configuration(db_session, repo_id="repo-1")
+    await PostgresConnectedRepoRepository(db_session).add(
+        ConnectedRepo(
+            id="repo-2",
+            project_id="project-1",
+            provider="github",
+            url="https://github.com/example/second",
+            default_branch="main",
+        )
+    )
+
+    assert (
+        await PostgresServingDeclarationVerdictReader(db_session).url_serves_scanned_tree(
+            project_id="project-1"
+        )
+        is False
+    )

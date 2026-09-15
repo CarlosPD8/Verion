@@ -41,6 +41,7 @@ from verion.modules.normalization.ports.normalization_run_repository import (
     NormalizationRunRepositoryPort,
 )
 from verion.modules.projects.adapters.outbound.db.repository import (
+    EmptyRouteMapReader,
     PostgresConnectedRepoRepository,
     PostgresProjectAccessReader,
     PostgresProjectMembershipRepository,
@@ -48,6 +49,7 @@ from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresScannerConfigRepository,
     PostgresSecurityContextRepository,
     PostgresServingDeclarationRepository,
+    PostgresServingDeclarationVerdictReader,
 )
 from verion.modules.projects.adapters.outbound.vcs.github_adapter import GitHubAdapter
 from verion.modules.projects.application.build_security_context import (
@@ -75,10 +77,12 @@ from verion.modules.projects.ports.project_membership_repository import (
     ProjectMembershipRepositoryPort,
 )
 from verion.modules.projects.ports.project_repository import ProjectRepositoryPort
+from verion.modules.projects.ports.route_map import RouteMapPort
 from verion.modules.projects.ports.scanner_config_repository import ScannerConfigRepositoryPort
 from verion.modules.projects.ports.security_context_repository import (
     SecurityContextRepositoryPort,
 )
+from verion.modules.projects.ports.serving_declaration import ServingDeclarationPort
 from verion.modules.projects.ports.serving_declaration_repository import (
     ServingDeclarationRepositoryPort,
 )
@@ -451,10 +455,10 @@ UpdateScannerConfigUseCaseDep = Annotated[
 # so none is @lru_cache'd — each depends on DbSessionDep transitively and caching one
 # would leak a stale session across requests (rule 15).
 #
-# Note which port is NOT here: ADR-0028 decision 4's cross-module `ServingDeclarationPort`,
-# the one-method verdict `correlation` will read. It ships at M5.6 with its consumer, and
-# **G48** is the register entry that keeps that deliberate gap visible rather than letting
-# it read as an oversight.
+# ADR-0028 decision 4's cross-module `ServingDeclarationPort` is NOT among these: it is a
+# verdict port for `correlation`, not part of `projects`' own read surface, and it is wired
+# beside `correlation`'s factories below. It shipped at M5.6 commit 3 with its consumer,
+# which is what resolved **G48**.
 def get_serving_declaration_repository(session: DbSessionDep) -> ServingDeclarationRepositoryPort:
     return PostgresServingDeclarationRepository(session)
 
@@ -644,13 +648,39 @@ GetFindingEvidenceUseCaseDep = Annotated[
 ]
 
 
+# The two `projects` ports `correlation` reads for the derivation gate (M5.6 commit 3).
+# Neither is @lru_cache'd. The verdict reader depends on DbSessionDep, so caching it would
+# leak a stale session across requests (rule 15). The route-map placeholder has no
+# dependency today and could be cached, and is deliberately not: commit 4 replaces it with a
+# session-bound reader, and a cache added now would be the one line that change forgets.
+def get_serving_declaration_port(session: DbSessionDep) -> ServingDeclarationPort:
+    return PostgresServingDeclarationVerdictReader(session)
+
+
+ServingDeclarationPortDep = Annotated[ServingDeclarationPort, Depends(get_serving_declaration_port)]
+
+
+def get_route_map_port() -> RouteMapPort:
+    # EMPTY until M5.6 commit 4: production derives no route path, so produces no derived
+    # SAST↔DAST group. See EmptyRouteMapReader's docstring.
+    return EmptyRouteMapReader()
+
+
+RouteMapPortDep = Annotated[RouteMapPort, Depends(get_route_map_port)]
+
+
 # `correlation`'s first two factories (M5.2). Both request-scoped, so neither is
 # @lru_cache'd — rule 15. The grouping use case is wired separately from the
 # listing because M6 consumes it without an envelope; ADR-0025 decision 4.
 def get_correlate_findings_use_case(
-    project_access: ProjectAccessDep, findings: FindingRepositoryDep
+    project_access: ProjectAccessDep,
+    findings: FindingRepositoryDep,
+    serving: ServingDeclarationPortDep,
+    route_maps: RouteMapPortDep,
 ) -> CorrelateFindingsUseCase:
-    return CorrelateFindingsUseCase(project_access=project_access, findings=findings)
+    return CorrelateFindingsUseCase(
+        project_access=project_access, findings=findings, serving=serving, route_maps=route_maps
+    )
 
 
 CorrelateFindingsUseCaseDep = Annotated[

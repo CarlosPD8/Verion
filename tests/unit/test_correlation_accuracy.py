@@ -263,8 +263,12 @@ def _semgrep(
 # parametrizes over for the same reason.
 #
 # Three things this set may not contain, each with its own ground:
-#   - a group spanning two tools, and no derived-location group at all: M5.5 and M5.6 do
-#     not exist, and M5.3's entry forbids showing what the system does not do;
+#   - a group spanning two tools, and no derived-location group at all: the only route to
+#     one is M5.6's derivation, which needs a serving declaration in force and a route map,
+#     and this suite's grouping path supplies neither (`_grouped` passes no map). A derived
+#     group belongs where the gate in front of it is under test — `test_correlate_findings.py`
+#     — and M5.3's entry forbids showing one here as though it were field equality.
+#     *(This read "M5.5 and M5.6 do not exist" until M5.6 commit 3.)*;
 #   - the CWE the register records as the one measured cross-tool pair and a FALSE match:
 #     no CWE value appears on both a Trivy and a ZAP fixture here;
 #   - a CWE, OWASP category or CVSS on a Semgrep finding — see `_semgrep`.
@@ -373,7 +377,7 @@ _CURATED: tuple[CuratedFinding, ...] = (
     ),
     _zap(
         "zap-calculate-expr-2x3",
-        "zap-calculate-expr-2x3",
+        "zap-calculate",
         rule_id="10038-1",
         url="http://target.example:8080/calculate?expr=2*3",
         cwe="CWE-693",
@@ -381,13 +385,14 @@ _CURATED: tuple[CuratedFinding, ...] = (
         native_severity="Medium",
         title="Content Security Policy (CSP) Header Not Set",
     ),
-    # Same PATH as the one above, a different query string. Two groups, because the key is
-    # the full `Location.url`. ADR-0023 amendment section 6 argues that choice and names
-    # **G31** as the trigger to revisit it at M5.4; ADR-0026's Consequences records that
-    # fixtures written now bake the pre-M5.4 grouping in. This is that, written down.
+    # Same PATH as the one above, a different query string: ONE group, because the key is the
+    # url's path. **G31**'s first out, taken at M5.6 commit 3 (ADR-0029 decision 4). *(Until
+    # that commit this entry expected its own group — the full-`Location.url` key ADR-0023's
+    # amendment section 6 chose, which ADR-0026's Consequences recorded these fixtures baking
+    # in. That split is the over-split G31 measured on M5.9's active capture.)*
     _zap(
         "zap-calculate-expr-calculate",
-        "zap-calculate-expr-calculate",
+        "zap-calculate",
         rule_id="10038-1",
         url="http://target.example:8080/calculate?expr=calculate",
         cwe="CWE-693",
@@ -692,6 +697,11 @@ def _grouped(curated: list[CuratedFinding] | tuple[CuratedFinding, ...]) -> list
     Labels rather than ids, so a failure reads as names. Both are pure functions, so this
     exercises the matcher without the repository read and authorization gate
     `test_correlate_findings.py` covers.
+
+    **No route map is passed**, so this path can derive no route and the only cross-tool
+    route is closed by construction here — which is what `test_no_group_spans_two_tools`
+    rests on. The gate that decides whether a map is passed is `CorrelateFindingsUseCase`'s,
+    and is tested there.
     """
     label_of = {item.finding.id: item.label for item in curated}
     groups = group_by_match_key(
@@ -702,6 +712,9 @@ def _grouped(curated: list[CuratedFinding] | tuple[CuratedFinding, ...]) -> list
                     project_id=item.finding.project_id,
                     package=item.finding.location.package,
                     url=item.finding.location.url,
+                    file_path=item.finding.location.file_path,
+                    start_line=item.finding.location.start_line,
+                    paths_serving=None,
                 ),
             )
             for item in curated
@@ -772,16 +785,22 @@ def test_two_different_packages_do_not_correlate():
     ]
 
 
-def test_two_urls_that_differ_only_in_their_query_string_do_not_correlate():
-    """The key is the FULL url, so one path with two query strings is two groups.
+def test_two_urls_that_differ_only_in_their_query_string_correlate_on_their_path():
+    """One endpoint, two query strings, ONE group — the key is the url's path.
 
-    This is the pre-M5.4 grouping, and the fixture set bakes it in deliberately rather than
-    by accident: ADR-0023's amendment section 6 records the choice and **G31** is the trigger
-    to revisit it when M5.4's active plan makes `url` split `/calculate` in production.
+    **This test asserted the opposite until M5.6 commit 3, and the flip is the point, not
+    a weakening.** It pinned the full-`Location.url` key ADR-0023's amendment section 6
+    chose, with **G31** named as the trigger to revisit it; M5.9's active capture then
+    measured that key splitting `/calculate` so that `6-5` and `90036` — the two alerts with
+    discriminating power — landed in different Risks. ADR-0029 decision 4 takes G31's first
+    out. It sits in the should-correlate half now, because that is what it asserts.
+
+    It is not vacuous in the other direction either: two different paths still do not
+    correlate, which the registry-wide partition test checks for `zap-root` against
+    `zap-calculate`.
     """
     assert _grouped(_by_label("zap-calculate-expr-2x3", "zap-calculate-expr-calculate")) == [
-        ("zap-calculate-expr-2x3",),
-        ("zap-calculate-expr-calculate",),
+        ("zap-calculate-expr-2x3", "zap-calculate-expr-calculate"),
     ]
 
 
@@ -813,10 +832,22 @@ def test_no_group_spans_two_tools():
     """Asserted from the fixtures' own `source` values, never read off the key.
 
     Reading tool-disjointness off the key would be circular — the key cannot carry a
-    `source`, so it would restate the field list. What actually prevents a cross-tool match
-    is the mappers, and M5.3 may not exhibit a cross-tool group in any case: M5.5 and M5.6 do
-    not exist, so a group spanning two tools here would be showing something the system does
-    not do.
+    `source`, so it would restate the field list.
+
+    **What holds this, stated at its actual width since M5.6 commit 3.** Before that commit
+    the docstring said "M5.5 and M5.6 do not exist". Both now do, and a cross-tool group is
+    reachable: a Semgrep finding gets a derived route path when a serving declaration is in
+    force and exactly one route serves its line. **This suite passes no route map**
+    (`_grouped`), so that route is closed here by construction, and this assertion is what
+    notices if a fixture or a builder change opens a second one — field equality producing a
+    cross-tool group. The derived group, and the gate withholding it, are asserted in
+    `test_correlate_findings.py`, where the gate is under test.
+
+    **What it does NOT guard, which an earlier reading credited it with:** ADR-0023 Decision
+    A, the `Server` banner never populating `Location.package` on a ZAP finding. Every ZAP
+    `Location` here is hand-built by `_zap`, so a mapper change would never reach this file.
+    That guard is the corpus assertion in `test_correlate_findings.py`, which runs the real
+    ZAP mapper.
     """
     source_of = {curated.label: str(curated.finding.source) for curated in _CURATED}
 

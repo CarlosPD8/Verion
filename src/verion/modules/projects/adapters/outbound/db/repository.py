@@ -13,9 +13,13 @@ from verion.modules.projects.adapters.outbound.db.models import (
 from verion.modules.projects.domain.authorization import may_read
 from verion.modules.projects.domain.exceptions import SecurityContextNotFound
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
+from verion.modules.projects.domain.route_extraction import RouteMap
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 from verion.modules.projects.domain.security_context import SecurityContext
-from verion.modules.projects.domain.serving_declaration import ServingDeclaration
+from verion.modules.projects.domain.serving_declaration import (
+    ServingDeclaration,
+    declaration_in_force,
+)
 from verion.shared_kernel.scanner_tools import ScannerTool
 
 
@@ -345,3 +349,61 @@ class PostgresServingDeclarationRepository:
         )
         await self._session.execute(statement)
         await self._session.flush()
+
+
+class PostgresServingDeclarationVerdictReader:
+    """`ServingDeclarationPort` — fetches what `declaration_in_force` needs and asks it.
+
+    `PostgresProjectAccessReader`'s shape: this adapter only reads, and the rule stays the
+    domain function ADR-0028 decision 2 makes the single evaluation site. It composes the
+    three repositories above rather than re-querying, so the row-to-entity mapping has one
+    copy and ADR-0028's verbatim comparison meets exactly the strings those adapters return.
+
+    **The declaration is read first and a missing one short-circuits**, before either live
+    row is touched. That is not only a saved query. `PostgresConnectedRepoRepository.
+    get_by_project_id` raises on a project holding two connected repositories (**G51**), and
+    this adapter sits on `GET /projects/{id}/risks`, a member-level read — so reading the
+    repository row first would turn that exposure into a failing dashboard for every such
+    project. With the short-circuit it reaches only projects that have declared, which the
+    declare path could not have written while two repositories existed.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def url_serves_scanned_tree(self, *, project_id: str) -> bool:
+        declaration = await PostgresServingDeclarationRepository(self._session).get_by_project_id(
+            project_id
+        )
+        if declaration is None:
+            return False
+        return declaration_in_force(
+            declaration=declaration,
+            scanner_config=await PostgresScannerConfigRepository(self._session).get_by_project_id(
+                project_id
+            ),
+            connected_repo=await PostgresConnectedRepoRepository(self._session).get_by_project_id(
+                project_id
+            ),
+        )
+
+
+class EmptyRouteMapReader:
+    """`RouteMapPort`'s placeholder until M5.6 commit 4. **Production derives nothing.**
+
+    Every project reads as having no routes, so `CorrelateFindingsUseCase` never derives a
+    route path and no SAST↔DAST group is produced in production — whatever the declaration
+    says. The gate, the port and the derivation are real and are exercised by the unit suite
+    against a populated fake; what does not exist yet is anything that populates a map.
+    Commit 4 replaces this with a reader over a map persisted at Security Context build time
+    (ADR-0029's 2026-09-15 amendment), which is why **G27** stays assigned to that commit
+    rather than resolved here.
+
+    Deliberately an empty `RouteMap` and not a raise: a raise would take down the Risk listing
+    of every project with a declaration in force — the use case reads the map only then —
+    while an empty map is the truthful answer to "which routes does this module know about"
+    today.
+    """
+
+    async def route_map_for(self, *, project_id: str) -> RouteMap:
+        return RouteMap(routes=(), unparsed_files=(), unresolved_routes=())

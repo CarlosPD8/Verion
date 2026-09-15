@@ -30,8 +30,8 @@ class GetServingDeclarationUseCase:
     one boundary over.
 
     **This is `projects` publishing its own answer, not ADR-0028 decision 4's
-    cross-module port.** That one ships at M5.6 with its consumer; **G48** is the entry
-    that keeps the gap visible.
+    cross-module port.** That one is `ServingDeclarationPort`, shipped at M5.6 commit 3
+    with its consumer. Both reach `declaration_in_force` and neither re-compares.
     """
 
     def __init__(

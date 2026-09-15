@@ -358,6 +358,64 @@ def test_the_result_does_not_depend_on_the_order_the_files_arrive_in():
     ]
 
 
+_SAME_PATH_TWO_METHODS = """\
+@app.get("/x")
+@app.post("/x")
+def x():
+    return 1
+"""
+
+
+# ---------------------------------------------------------------------------
+# The containment query `correlation` calls — `RouteMap.paths_serving` (M5.6 commit 3)
+# ---------------------------------------------------------------------------
+
+
+def test_paths_serving_holds_both_span_ends_and_nothing_either_side_of_them():
+    """Inclusive at both ends, and the blank lines between two views belong to neither.
+
+    `_TWO_ROUTES` spans `/` over 1–3 and `/calculate` over 6–8, so lines 4 and 5 are the
+    gap and line 9 is past the end of the file's last span. An off-by-one at either end of
+    the comparison turns one of these red.
+    """
+    route_map = _flask({"app.py": _TWO_ROUTES})
+
+    def serving(line: int) -> tuple[str, ...]:
+        return route_map.paths_serving(file_path="app.py", line=line)
+
+    assert serving(1) == ("/",)
+    assert serving(3) == ("/",)
+    assert serving(4) == ()
+    assert serving(5) == ()
+    assert serving(6) == ("/calculate",)
+    assert serving(8) == ("/calculate",)
+    assert serving(9) == ()
+
+
+def test_paths_serving_answers_every_stacked_route_for_a_shared_body_line():
+    """A SET of answers, never one picked from it. The consumer decides what two means."""
+    route_map = _flask({"app.py": _STACKED})
+
+    assert route_map.paths_serving(file_path="app.py", line=4) == ("/a", "/b")
+    assert route_map.paths_serving(file_path="app.py", line=1) == ("/a",)
+
+
+def test_paths_serving_reports_a_path_once_when_two_routes_share_it():
+    """Two routes, one path. The key compares paths, so this is not an ambiguity, and
+    reporting `/x` twice would make a consumer that derives only from exactly one path
+    discard a line it could have keyed."""
+    route_map = _flask({"app.py": _SAME_PATH_TWO_METHODS})
+
+    assert len(route_map.routes) == 2
+    assert route_map.paths_serving(file_path="app.py", line=4) == ("/x",)
+
+
+def test_paths_serving_never_answers_for_a_line_in_another_file():
+    route_map = _flask({"app.py": _TWO_ROUTES})
+
+    assert route_map.paths_serving(file_path="other.py", line=6) == ()
+
+
 def test_routes_inside_one_file_come_back_in_line_order_not_in_walk_order():
     """`ast.walk` reaches the module-level `top` before the nested `nested`, even
     though `nested` is declared first in the source. The sort is what makes this

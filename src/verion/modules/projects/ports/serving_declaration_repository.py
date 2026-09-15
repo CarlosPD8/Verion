@@ -7,10 +7,10 @@ class ServingDeclarationRepositoryPort(Protocol):
     """Persistence for ADR-0028 decision 1's declaration. One row per project.
 
     **This is a persistence port and deliberately not the verdict port.** ADR-0028
-    decision 4's `ServingDeclarationPort` — the one-method `bool` that lets
-    `correlation` read the rule's answer without holding a copy of the rule — is a
-    different port that ships at M5.6 with its consumer, and **G48** records that
-    gap on purpose. A consumer in another module must not reach this one instead:
+    decision 4's `ServingDeclarationPort` (`ports/serving_declaration.py`) — the
+    one-method `bool` that lets `correlation` read the rule's answer without holding a
+    copy of the rule — is a different port, shipped at M5.6 commit 3 with its consumer.
+    A consumer in another module must not reach this one instead:
     it returns the entity, so reading it would put the comparison in the consuming
     module, which is exactly what `ProjectAccessPort`'s docstring argues against for
     `ProjectMembershipRepositoryPort`.
