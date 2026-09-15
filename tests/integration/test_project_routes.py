@@ -82,6 +82,31 @@ async def test_connect_repository_as_owner_returns_201(client):
     assert response.json()["project_id"] == project_id
 
 
+async def test_connect_repository_with_a_credential_in_the_url_returns_400_without_echoing_it(
+    client,
+):
+    """Rule 12 through the real router: a 400 whose body does not carry the credential.
+
+    That no row is stored is asserted by the unit test, not here."""
+    create_response = await client.post(
+        "/projects/", json={"name": "Verion"}, headers=_auth_headers("owner-1")
+    )
+    project_id = create_response.json()["id"]
+
+    response = await client.post(
+        f"/projects/{project_id}/repositories",
+        json={
+            "provider": "github",
+            "url": "https://octocat:ghp_s3cret@github.com/example/repo",
+            "default_branch": "main",
+        },
+        headers=_auth_headers("owner-1"),
+    )
+
+    assert response.status_code == 400
+    assert "ghp_s3cret" not in response.text
+
+
 async def test_connect_repository_as_non_owner_member_returns_403(client, db_session):
     create_response = await client.post(
         "/projects/", json={"name": "Verion"}, headers=_auth_headers("owner-1")

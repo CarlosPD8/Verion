@@ -89,8 +89,8 @@ class DeclareServingUseCase:
         thing that surfaces for a credential-bearing URL. The second protection is
         structural and does not depend on this order: **no message raised on this path
         interpolates a declared value.** `validate_declared_repo_url` exists because
-        `ConnectedRepo.url` is stored completely unvalidated (`ConnectRepositoryUseCase`
-        takes a `str` and constructs the entity with no parse) and this row's value is
+        `ConnectedRepo.url` was stored completely unvalidated until 2026-09-15 (a row written
+        before `validate_connected_repo_url` can still carry userinfo) and this row's value is
         returned to any member, which is a wider audience than that field otherwise
         reaches.
 

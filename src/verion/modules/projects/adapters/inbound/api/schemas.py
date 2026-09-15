@@ -122,7 +122,8 @@ class ServingDeclarationResponse(BaseModel):
     # `declared_repo_url` is where rule 12 DOES reach, and it is made safe at the write
     # path rather than here: this route is member-level, which is a wider audience than
     # ConnectedRepo.url otherwise has (both routes exposing that are owner-gated writes),
-    # and that value is stored completely unvalidated. `validate_declared_repo_url`
+    # and that value was stored unvalidated until 2026-09-15, which a row written earlier
+    # can still show. `validate_declared_repo_url`
     # refuses userinfo before any row exists, so no credential can reach this response.
     in_force: bool
     declared_target_url: str

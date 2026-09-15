@@ -1,6 +1,6 @@
 from verion.modules.projects.domain.authorization import require_owner
 from verion.modules.projects.domain.exceptions import ProjectNotFound
-from verion.modules.projects.domain.project import ConnectedRepo
+from verion.modules.projects.domain.project import ConnectedRepo, validate_connected_repo_url
 from verion.modules.projects.ports.connected_repo_repository import ConnectedRepoRepositoryPort
 from verion.modules.projects.ports.project_membership_repository import (
     ProjectMembershipRepositoryPort,
@@ -31,6 +31,9 @@ class ConnectRepositoryUseCase:
 
         membership = await self._memberships.get_by_project_and_user(project_id, user_id)
         require_owner(membership)
+        # Only this write path can carry userinfo. ConnectRepositoryViaGitHubUseCase builds
+        # `https://github.com/{owner}/{repo}` itself, whose netloc is always github.com.
+        validate_connected_repo_url(url)
 
         connected_repo = ConnectedRepo(
             id=self._id_generator.new_id(),

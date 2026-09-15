@@ -164,8 +164,10 @@ def _parse_github_owner_repo(connected_repo: ConnectedRepo) -> tuple[str, str]:
     parsed = urlparse(connected_repo.url)
     path_parts = [part for part in parsed.path.split("/") if part]
     if parsed.netloc != "github.com" or len(path_parts) != 2:
+        # Never quotes the URL: the route returns this message, and a row written before
+        # `validate_connected_repo_url` existed can carry userinfo (rule 12).
         raise UnsupportedRepoProvider(
-            f"Connected repo url '{connected_repo.url}' is not a valid "
+            f"Connected repo url for project '{connected_repo.project_id}' is not a valid "
             f"github.com/{{owner}}/{{repo}} URL"
         )
     owner, repo = path_parts

@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import urlparse
 
 from verion.modules.projects.domain.exceptions import InvalidScannerConfig
-from verion.modules.projects.domain.project import ConnectedRepo
+from verion.modules.projects.domain.project import ConnectedRepo, url_carries_userinfo
 from verion.modules.projects.domain.scanner_config import ScannerConfig
 
 
@@ -113,31 +112,34 @@ def validate_declared_repo_url(url: str) -> None:
     **Added at M5.5 commit 2 for a reason that only exists once this value is stored and
     returned.** `declared_target_url` inherits `validate_zap_target_url`, whose first
     branch makes the same refusal for the same reason. `declared_repo_url` had no
-    counterpart, and it needs one more urgently rather than less: `ConnectedRepo.url` is
-    stored **completely unvalidated** — `ConnectRepositoryUseCase` takes a `str` and
-    constructs the entity with no parse — so a credential-bearing repository URL is
-    storable today, and a declaration copies that string into a second table which
+    counterpart, and it needs one more urgently rather than less: `ConnectedRepo.url` was
+    stored **completely unvalidated** until 2026-09-15 — `ConnectRepositoryUseCase` took a
+    `str` and constructed the entity with no parse — so a row written before then can carry
+    a credential-bearing repository URL, and a declaration copies that string into a second
+    table which
     `GET /projects/{id}/serving-declaration` returns to any **member**. That is a wider
     audience than `ConnectedRepo.url` itself reaches, since both routes exposing it are
     owner-gated writes.
 
     **Only the userinfo branch, deliberately.** No scheme check and no hostname check:
     this value is compare-and-set against `ConnectedRepo.url`, which this module accepts
-    in any shape, so a well-formedness check here would refuse declarations for
-    repositories the system is otherwise happy to hold and scan. The one thing that is
+    in any shape except one carrying userinfo (refused since 2026-09-15), so a
+    well-formedness check here would refuse declarations for repositories the system is
+    otherwise happy to hold and scan. The one thing that is
     refused is the one thing rule 12 is about.
 
     **The residue, stated rather than discovered:** a project whose connected repository
     URL already carries userinfo cannot declare at all, because the value it would have
     to declare is the value this refuses. That is the safe direction and it surfaces a
     real defect rather than hiding one — but it is a refusal the owner cannot resolve
-    from this route, since nothing lets them edit a connected repository (**G51**).
+    from this route, since nothing lets them edit a connected repository (**G51**). Since
+    2026-09-15 `validate_connected_repo_url` refuses userinfo when a repository is connected,
+    so this residue is confined to rows written before then.
 
     Like its counterpart, the message does not quote the URL back, or it would carry the
     credential it exists to reject.
     """
-    parsed = urlparse(url)
-    if parsed.username is not None or parsed.password is not None:
+    if url_carries_userinfo(url):
         raise InvalidScannerConfig(
             "Declared repository URL must not contain userinfo (user:pass@host) — "
             "credentials must not be stored in a declared URL"

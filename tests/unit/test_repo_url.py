@@ -40,6 +40,15 @@ def test_rejects_urls_that_are_not_a_genuine_https_github_repo_url(repo_url: str
         parse_github_clone_url(repo_url)
 
 
+def test_a_credential_in_the_url_is_rejected_and_never_echoed():
+    """Rule 12. A userinfo-bearing URL is rejected here, and the message quoted it until
+    2026-09-15."""
+    with pytest.raises(UnsupportedRepoUrl) as exc_info:
+        parse_github_clone_url("https://octocat:ghp_s3cret@github.com/octocat/Hello-World")
+
+    assert "ghp_s3cret" not in str(exc_info.value)
+
+
 def test_build_git_auth_env_never_leaks_the_raw_token():
     env = build_git_auth_env("super-secret-token")
 

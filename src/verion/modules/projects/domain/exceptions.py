@@ -18,6 +18,10 @@ class UnsupportedRepoProvider(Exception):
     pass
 
 
+class InvalidConnectedRepoUrl(Exception):
+    """A repository URL refused at the connect write path. Its message never quotes the URL."""
+
+
 class SecurityContextNotFound(Exception):
     pass
 

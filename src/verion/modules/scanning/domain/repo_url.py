@@ -19,9 +19,9 @@ def parse_github_clone_url(repo_url: str) -> tuple[str, str]:
     parsed = urlparse(repo_url)
     path_parts = [part for part in parsed.path.split("/") if part]
     if parsed.scheme != "https" or parsed.netloc != "github.com" or len(path_parts) != 2:
-        raise UnsupportedRepoUrl(
-            f"'{repo_url}' is not a valid https://github.com/{{owner}}/{{repo}} URL"
-        )
+        # Never quotes the URL: a userinfo-bearing one lands here, since its netloc is not
+        # exactly github.com, and quoting it would put the credential in the message (rule 12).
+        raise UnsupportedRepoUrl("Repo URL is not a valid https://github.com/{owner}/{repo} URL")
     owner, repo = path_parts
     return owner, repo.removesuffix(".git")
 

@@ -292,6 +292,50 @@ async def test_raises_unsupported_repo_provider_for_a_malformed_github_url(
         )
 
 
+async def test_a_credential_in_a_stored_repository_url_is_not_echoed_in_the_error(
+    project_repository,
+    membership_repository,
+    security_context_repository,
+    connected_repo_repository,
+    clock,
+    id_generator,
+    vcs_provider,
+    route_map_repository,
+):
+    """Rule 12, for a row written before `validate_connected_repo_url` refused userinfo.
+
+    Its netloc is `octocat:ghp_s3cret@github.com`, not `github.com`, so this path raises, and
+    the detect route returns the message as its 400 detail. It quoted the URL until
+    2026-09-15.
+    """
+    project = await _seed_project(project_repository, clock)
+    await membership_repository.add(
+        ProjectMembership(project_id=project.id, user_id="owner-1", role=Role.OWNER)
+    )
+    await _seed_connected_repo(
+        connected_repo_repository,
+        project_id=project.id,
+        url="https://octocat:ghp_s3cret@github.com/example/repo",
+    )
+    use_case = _use_case(
+        project_repository,
+        membership_repository,
+        security_context_repository,
+        connected_repo_repository,
+        clock,
+        id_generator,
+        vcs_provider,
+        route_map_repository,
+    )
+
+    with pytest.raises(UnsupportedRepoProvider) as exc_info:
+        await use_case.execute(
+            project_id=project.id, user_id="owner-1", access_token="gho_faketoken"
+        )
+
+    assert "ghp_s3cret" not in str(exc_info.value)
+
+
 async def test_tolerates_a_trailing_slash_on_an_otherwise_valid_github_url(
     project_repository,
     membership_repository,

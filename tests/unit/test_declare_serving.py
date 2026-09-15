@@ -715,7 +715,18 @@ async def test_a_member_declaring_a_credentialed_url_is_refused_for_the_membersh
         )
 
 
+@pytest.mark.parametrize(
+    "declared_repo_url",
+    [
+        "https://tokenuser:s3cr3t@github.com/example/repo",
+        # No `//` authority, so `urlparse` reports no username (added 2026-09-15).
+        "https:tokenuser:s3cr3t@github.com/example/repo",
+        "https:/tokenuser:s3cr3t@github.com/example/repo",
+        "tokenuser:s3cr3t@github.com/example/repo",
+    ],
+)
 async def test_a_declared_repo_url_carrying_credentials_is_refused_and_never_echoed(
+    declared_repo_url,
     project_repository,
     membership_repository,
     serving_declaration_repository,
@@ -728,7 +739,7 @@ async def test_a_declared_repo_url_carrying_credentials_is_refused_and_never_ech
 
     `declared_repo_url` is stored and then returned by a **member-level** read, which is a
     wider audience than `ConnectedRepo.url` itself has — both routes exposing that are
-    owner-gated writes. And that value is stored completely unvalidated, so without
+    owner-gated writes. And that value was stored unvalidated until 2026-09-15, so without
     `validate_declared_repo_url` a credential-bearing repository URL would be copied into
     a second table and served. Rule 12 requires a module handling such a field to ship an
     explicit test; this is it.
@@ -751,9 +762,7 @@ async def test_a_declared_repo_url_carrying_credentials_is_refused_and_never_ech
     )
 
     with pytest.raises(InvalidScannerConfig) as caught:
-        await _declare(
-            use_case, user_id, declared_repo_url="https://tokenuser:s3cr3t@github.com/example/repo"
-        )
+        await _declare(use_case, user_id, declared_repo_url=declared_repo_url)
 
     assert "s3cr3t" not in str(caught.value)
     assert "tokenuser" not in str(caught.value)

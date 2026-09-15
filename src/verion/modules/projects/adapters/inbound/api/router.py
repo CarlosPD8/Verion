@@ -17,6 +17,7 @@ from verion.modules.projects.domain.exceptions import (
     ConnectedRepoNotFound,
     GitHubApiError,
     InsufficientPermissions,
+    InvalidConnectedRepoUrl,
     InvalidScannerConfig,
     ProjectNotFound,
     SecurityContextNotFound,
@@ -78,6 +79,8 @@ async def connect_repository(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except InsufficientPermissions as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except InvalidConnectedRepoUrl as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return ConnectedRepoResponse(
         id=connected_repo.id,
