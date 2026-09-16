@@ -4,7 +4,11 @@
 
 Verion is a developer-first AppSec platform that unifies signals from existing security tools — SAST, SCA, secrets, DAST — understands the context of the application being protected, correlates evidence across sources, and turns raw findings into prioritized, explainable, and verifiable remediation decisions.
 
-> **Status:** in development — M0–M6 complete (M5.7, a CI job split, moved to M11), M7 (Security Brief) next. **The pipeline runs end to end and its output is now readable over HTTP.** A trigger (API or GitHub webhook) fans out to Semgrep, Trivy and OWASP ZAP concurrently, persists each tool's raw output, and records in the same transaction that normalization is owed; a separate worker job then turns the trustworthy output into `Finding` rows and records one sighting per scan that observes each one. A finding is durable and project-scoped, deduplicated on a content hash, so re-running a scan refreshes rows rather than duplicating them — and a reconciliation sweep guarantees no scan's normalization is lost even if the queue drops the message. `GET /projects/{id}/findings` returns a project's findings most-severe-first with each one's sighting history, and says whether normalization actually completed, so a short list caused by a failed pipeline stage is distinguishable from a clean project. Raw tool output is a separate, per-finding route rather than a field on the listing, because it is a verbatim copy of scanned source. `GET /projects/{id}/risks` groups a project's findings into candidate Risks on shared signals, and for a Flask project whose owner has declared that the scanned URL serves the connected repository, a Semgrep finding and a ZAP finding on the same route land in one group. `GET /projects/{id}/scored-risks` returns the same groups ranked, each carrying the signals that produced its priority, computed per request and persisting nothing; it carries no confidence yet. The explanation layer and the dashboard follow. See the roadmap below.
+> **Status:** in development — M0–M6 complete (M5.7, a CI job split, moved to M11), M7 (Security Brief) next. **The pipeline runs end to end and its output is now readable over HTTP.** A trigger (API or GitHub webhook) fans out to Semgrep, Trivy and OWASP ZAP concurrently, persists each tool's raw output, and records in the same transaction that normalization is owed; a separate worker job then turns the trustworthy output into `Finding` rows and records one sighting per scan that observes each one. A finding is durable and project-scoped, deduplicated on a content hash, so re-running a scan refreshes rows rather than duplicating them — and a reconciliation sweep guarantees no scan's normalization is lost even if the queue drops the message. `GET /projects/{id}/findings` returns a project's findings most-severe-first with each one's sighting history, and says whether normalization actually completed, so a short list caused by a failed pipeline stage is distinguishable from a clean project. Raw tool output is a separate, per-finding route rather than a field on the listing, because it is a verbatim copy of scanned source. `GET /projects/{id}/risks` groups a project's findings into candidate Risks on shared signals, and for a Flask project whose owner has declared that the scanned URL serves the connected repository, a Semgrep finding and a ZAP finding on the same route land in one group. `GET /projects/{id}/scored-risks` returns the same groups ranked, each carrying the signals that produced its priority, computed per request and persisting nothing; it carries no confidence yet. A first two-page frontend (M8.3, started early) signs in and renders that ranked list with each priority's working shown. The explanation layer and the dashboard follow. See the roadmap below.
+
+![The ranked Risk list for a replayed real scan of verion-demo-target: /calculate in Fix now, its priority written out as 4 + 1 + 1 = 6 beside the finding that produced each term](docs/screenshots/ranked-risks-light.png)
+
+*The ranked Risk list for a replayed real scan of `verion-demo-target`, reproducible with [Run the demo screen](#run-the-demo-screen). Also: [dark mode](docs/screenshots/ranked-risks-dark.png), [sign-in](docs/screenshots/sign-in.png), [a project with nothing normalized yet](docs/screenshots/empty-state.png).*
 
 ---
 
@@ -107,6 +111,33 @@ uv run uvicorn verion.platform.app:app --reload
 # in a second terminal: run the worker that executes scans
 uv run arq verion.platform.worker.WorkerSettings
 ```
+
+## Run the demo screen
+
+Here rather than in `docs/`, because the screenshot at the top of this file is what a reader will want to reproduce, and these steps extend *Getting started* above.
+
+The screen needs a project that has been scanned, normalized and correlated. [`scripts/seed_demo_project.py`](scripts/seed_demo_project.py) builds one by replaying a committed real scan of `verion-demo-target` through the real pipeline. Its docstring says which parts are real and which are replaced, and states the demo credentials. Node 20.9 or later is needed for the frontend.
+
+```bash
+# start local Postgres + Redis, and apply migrations
+docker compose -f infra/docker-compose.yml up -d
+uv run alembic upgrade head
+
+# seed the demo project; prints the demo credentials and the new project's id
+uv run python scripts/seed_demo_project.py
+
+# terminal 1: run the API
+uv run uvicorn verion.platform.app:app --reload
+
+# terminal 2: run the frontend (npm ci installs the pinned, committed lockfile)
+cd frontend
+npm ci
+npm run dev
+```
+
+Open <http://localhost:3000>, sign in with the credentials the seed script printed, and paste the project id it printed. No route lists a user's projects yet, so the id has to be pasted.
+
+> **Running the tests deletes the demo data.** `tests/integration/conftest.py`'s `_clean_all_tables` fixture is `autouse`: after every integration test, it deletes every row of every table registered on `Base.metadata`. The test engine is created from the same `Settings.database_url` the app uses. A plain `uv run pytest` runs the integration tests, so re-run the seed script after it.
 
 ## License
 
