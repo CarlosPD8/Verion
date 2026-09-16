@@ -4,7 +4,7 @@
 
 Verion is a developer-first AppSec platform that unifies signals from existing security tools — SAST, SCA, secrets, DAST — understands the context of the application being protected, correlates evidence across sources, and turns raw findings into prioritized, explainable, and verifiable remediation decisions.
 
-> **Status:** in development — M0–M5 complete (M5.7, a CI job split, moved to M11), M6 (Risk scoring) next. **The pipeline runs end to end and its output is now readable over HTTP.** A trigger (API or GitHub webhook) fans out to Semgrep, Trivy and OWASP ZAP concurrently, persists each tool's raw output, and records in the same transaction that normalization is owed; a separate worker job then turns the trustworthy output into `Finding` rows and records one sighting per scan that observes each one. A finding is durable and project-scoped, deduplicated on a content hash, so re-running a scan refreshes rows rather than duplicating them — and a reconciliation sweep guarantees no scan's normalization is lost even if the queue drops the message. `GET /projects/{id}/findings` returns a project's findings most-severe-first with each one's sighting history, and says whether normalization actually completed, so a short list caused by a failed pipeline stage is distinguishable from a clean project. Raw tool output is a separate, per-finding route rather than a field on the listing, because it is a verbatim copy of scanned source. `GET /projects/{id}/risks` groups a project's findings into candidate Risks on shared signals, and for a Flask project whose owner has declared that the scanned URL serves the connected repository, a Semgrep finding and a ZAP finding on the same route land in one group. Risk scoring, the explanation layer and the dashboard follow. See the roadmap below.
+> **Status:** in development — M0–M6 complete (M5.7, a CI job split, moved to M11), M7 (Security Brief) next. **The pipeline runs end to end and its output is now readable over HTTP.** A trigger (API or GitHub webhook) fans out to Semgrep, Trivy and OWASP ZAP concurrently, persists each tool's raw output, and records in the same transaction that normalization is owed; a separate worker job then turns the trustworthy output into `Finding` rows and records one sighting per scan that observes each one. A finding is durable and project-scoped, deduplicated on a content hash, so re-running a scan refreshes rows rather than duplicating them — and a reconciliation sweep guarantees no scan's normalization is lost even if the queue drops the message. `GET /projects/{id}/findings` returns a project's findings most-severe-first with each one's sighting history, and says whether normalization actually completed, so a short list caused by a failed pipeline stage is distinguishable from a clean project. Raw tool output is a separate, per-finding route rather than a field on the listing, because it is a verbatim copy of scanned source. `GET /projects/{id}/risks` groups a project's findings into candidate Risks on shared signals, and for a Flask project whose owner has declared that the scanned URL serves the connected repository, a Semgrep finding and a ZAP finding on the same route land in one group. `GET /projects/{id}/scored-risks` returns the same groups ranked, each carrying the signals that produced its priority, computed per request and persisting nothing; it carries no confidence yet. The explanation layer and the dashboard follow. See the roadmap below.
 
 ---
 
@@ -28,7 +28,7 @@ Semgrep, Trivy, ZAP findings
 
 - **Decision-oriented, not detection-oriented** — surfaces the few things that matter instead of a wall of findings.
 - **Evidence-backed correlation** — related findings across tools (e.g. SAST + DAST on the same endpoint) are grouped into one traceable risk.
-- **Explainable scoring** — every priority is a traceable function of severity, exposure, reachability, and asset sensitivity, never an opaque number.
+- **Explainable scoring** — every priority is a traceable function of severity, exposure and cross-tool corroboration, never an opaque number.
 - **Stack-aware context** — recommendations account for the actual framework, deployment, and data sensitivity of the project being scanned.
 
 ## Architecture
@@ -71,7 +71,7 @@ Building in 16 weeks across 12 milestones — see [`docs/ROADMAP.md`](docs/ROADM
 - [X] M3 — Scanning Infrastructure
 - [X] M4 — Normalization
 - [x] M5 — Correlation Engine
-- [ ] M6 — Risk / Decision Engine
+- [x] M6 — Risk / Decision Engine
 - [ ] M7 — Security Brief / Explanation Layer
 - [ ] M8 — Dashboard & History
 - [ ] M9 — Verification Loop

@@ -8,8 +8,8 @@ Each ADR documents one consequential architectural or process decision: the situ
 |---|---|---|
 | [0001](0001-modular-monolith.md) | Modular monolith over microservices | Accepted |
 | [0002](0002-hexagonal-architecture.md) | Hexagonal architecture (ports & adapters) at the module level | Accepted |
-| [0003](0003-explainable-scoring.md) | Explainable risk scoring over black-box ML | Accepted |
-| [0004](0004-llm-downstream-of-scoring.md) | LLM explanation layer strictly downstream of risk scoring | Accepted |
+| [0003](0003-explainable-scoring.md) | Explainable risk scoring over black-box ML | Accepted (amended M6.1) |
+| [0004](0004-llm-downstream-of-scoring.md) | LLM explanation layer strictly downstream of risk scoring | Accepted (amended M6.2) |
 | [0005](0005-risk-scoring-model.md) | The risk scoring model: what a Risk is, the function over it, and what a score may not claim | Accepted |
 | [0006](0006-src-layout.md) | `src/verion/` layout instead of a flat repo-root package | Accepted |
 | [0007](0007-import-linter.md) | import-linter for mechanical architecture enforcement | Accepted (amended M5→M6 boundary) |
@@ -23,12 +23,12 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted |
 | [0016](0016-multi-scanner-dispatch.md) | Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration | Accepted (amended 2026-08-27, M5→M6 boundary) |
 | [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1, M4.3, M4.4) |
-| [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2, M5.1) |
+| [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2, M5.1, M6.1) |
 | [0019](0019-finding-identity-and-deduplication.md) | `Finding` identity, deduplication, and what the hash is over | Accepted (amended M4.3, M4.4, M5.1) |
 | [0020](0020-finding-upsert-semantics.md) | How the `Finding` upsert stays equal to `merge_observation` | Accepted (amended M4.5) |
 | [0021](0021-normalization-job-execution.md) | Normalization job execution: scheduling, state machine, and failure semantics | Accepted (amended M4.5) |
 | [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted |
-| [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted (amended M5.1, 2026-08-25, M5.8, M5.6) |
+| [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted (amended M5.1, 2026-08-25, M5.8, M5.6, M6.1) |
 | [0024](0024-active-scanning-consent-and-scan-policy.md) | Where active-scanning consent lives, what it is bound to, and the bounds on the `activeScan` job | Accepted (amended M5.4, M5.9) |
 | [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted |
 | [0026](0026-fixture-shape-conformance-check.md) | Checking a hand-written fixture's shape against the committed corpus | Accepted (amended 2026-08-27) |

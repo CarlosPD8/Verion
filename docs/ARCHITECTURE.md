@@ -2,7 +2,7 @@
 
 **Status:** Draft v1.0
 **Related:** `PRODUCT_SPEC.md`
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-16
 
 ---
 
@@ -84,7 +84,7 @@ Rather than one giant hexagon, Verion is split into cohesive **modules**, each w
 | **Scanning** | Triggering scans, orchestrating scanner adapters, ingesting raw output |
 | **Normalization** | Converting raw scanner output into the common `Finding` schema, deduplication |
 | **Correlation** | Grouping related Findings into candidate Risks |
-| **RiskEngine** | Scoring, prioritizing, explaining Risk (severity, exposure, reachability, confidence) |
+| **RiskEngine** | Scoring and prioritizing Risk (severity, exposure, corroboration) |
 | **Brief** | Generating the Security Brief via the AI Explanation Layer, evidence linking |
 | **History** | Scan history, risk lifecycle (open/dismissed/resolved), audit log |
 
@@ -581,7 +581,7 @@ To keep this from becoming aspirational documentation that the code drifts away 
 └────────────────────────────────────────────┘
 ```
 
-*(The Workers box read scan/correlate/risk/brief until 2026-09-15. `platform/worker.py`'s `WorkerSettings` runs `run_scan`, `normalize_scan` and the normalization sweep; correlation runs on the API request path (ADR-0025), and scoring and briefs are not built.)*
+*(The Workers box read scan/correlate/risk/brief until 2026-09-15. `platform/worker.py`'s `WorkerSettings` runs `run_scan`, `normalize_scan` and the normalization sweep; correlation and scoring run on the API request path (ADR-0025, ADR-0030), and briefs are not built.)*
 
 Single deployable unit for MVP; `platform/` wires everything together via dependency injection at startup, so splitting a module into its own service later (if ever needed) means extracting its hexagon, not rewriting it.
 
