@@ -633,7 +633,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
       - "items X–Y of `total`" with previous/next, since a list silently cut at a page limit looks complete;
       - the bucket thresholds from `thresholds`;
       - no text implying two tools agree (**G62**).
-    - **Decisions:** `docs/adr/0031-frontend-token-holding-transport-and-npm-dependency-scope.md`. **Its transport decision is PROVISIONAL until its precondition P1 passes**, and P1 runs before any screen code.
+    - **Decisions:** `docs/adr/0031-frontend-token-holding-transport-and-npm-dependency-scope.md`. Its transport decision was provisional until precondition P1 passed. ***(P1 passed 2026-09-16, before any screen code; the captured output is in that ADR's Consequences.)***
     - **The ground.** Next.js was chosen over a throwaway static page, so this work is kept rather than discarded (`PRODUCT_SPEC.md` §13).
     - **What it is NOT.** It does not mark this issue done or partly done.
       - This issue requires a project list, Security Brief cards (why it matters, recommended action, estimated effort, confidence) and drill-down into raw evidence. None of them ships.
@@ -652,6 +652,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
     - `GET /auth/github/login` (`github_login`) requires that header and answers with a redirect, while a browser top-level navigation cannot attach an `Authorization` header. So the connect step cannot start as that route is written.
     - Read from the route; the browser half is not verified.
     - The options are to return the authorize URL as JSON, or to move to a cookie-based session, which changes `get_current_user_id`. Decide it here, by amendment to ADR-0031 or a new ADR (rule 16's credential-handling clause).
+    - ***(Added 2026-09-16, from ADR-0031's P1.)* `POST /projects/` is unreachable through the rewrite.** This issue's scope does not name creating a project, but connecting a repository needs one to exist, so an onboarding flow that starts from nothing would call it. That is an inference, not something this bullet's scope states. Next strips the slash, and the API answers 307 to an absolute URL on its own origin. `skipTrailingSlashRedirect` was tested and does not fix it. **The bound, as measured:** it is the only one of 19 routes whose path ends in a slash, and none of the three `RedirectResponse` constructions derives its URL from the request. Decide the fix here; a route change enters rule 16's route clause.
 
 ---
 
@@ -690,7 +691,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 - **M10.2 — RBAC & rate limiting audit**
   Module: `identity`/`platform` · Depends on: M1
   - Verify enforcement at every endpoint, add rate limiting middleware.
-  - **Inherits ADR-0031** (added 2026-09-16, M8.3 started early): requests from the frontend reach the API **through a Next rewrite**. Middleware keyed on the client address would see the frontend server for every browser, unless forwarded headers are set by the proxy and trusted by the API. Whether a rewrite adds `X-Forwarded-For` is recorded by ADR-0031's P1; trusting it is this issue's decision.
+  - **Inherits ADR-0031** (added 2026-09-16, M8.3 started early): requests from the frontend reach the API **through a Next rewrite**. Middleware keyed on the client address would see the frontend server for every browser, unless forwarded headers are set by the proxy and trusted by the API. Whether a rewrite adds `X-Forwarded-For` is recorded by ADR-0031's P1; trusting it is this issue's decision. ***(Recorded 2026-09-16: it does not.** Under both `next dev` and `next start`, the rewrite added `x-forwarded-host` and no `x-forwarded-for`, so there is no forwarded client address to trust. This issue has to add one at the proxy before any per-client limit can work.)*
 
 - **M10.3 — Secrets management pass**
   Module: `platform` · Depends on: —
@@ -1710,6 +1711,7 @@ Blocks-if-unresolved: **every class of defect a Tier 1 gate exists to stop in `s
 - **The transitive npm tree is unverified.** ADR-0031 decision 3 covers direct dependencies only.
 
 Deferral rationale: **gating the frontend is a CI design task, and it would land inside a two-page departure.** A CI job needs `actions/setup-node` verified and pinned by SHA under ADR-0009, as `ci.yml`'s header requires of every action, plus a new *kind* of assertion in `check_claims` for a non-`uv run` gate — the coupling M5.7's scope bullet describes for a changed gate command. Until then, every commit touching `frontend/` states its local `npm run build` result in its message, so an unbuilt commit is visibly incomplete rather than silently green. Trigger: **M8.3**, when its early-start departure ends and it resumes as a normal issue; or the first commit adding a frontend step to `ci.yml`; or **M10.4**, the first issue to scan this repository's own dependencies.
+Note (2026-09-16, the early-start screen commit): **no linter is installed at all, so "lint violations pass CI" understates the gap: nothing lints `frontend/` anywhere.** `eslint` and `eslint-config-next` are on ADR-0031 decision 3's list and were not installed. `eslint@10.10.0` excludes this machine's Node v22.12.0, `eslint@9.39.5` is deprecated in the registry, and the pair brought the tree's only engine mismatch and only install script. `next build`'s TypeScript check and `npm test`'s rule-12 non-leakage test are the two local checks, and each `frontend/` commit quotes both results. Neither runs in CI, which is this entry's subject. ADR-0031's Consequences carries the evidence.
 
 ## V2 Backlog (explicitly out of this roadmap)
 

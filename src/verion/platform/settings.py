@@ -59,7 +59,9 @@ class Settings(BaseSettings):
     github_client_secret: str = _DEV_ONLY_GITHUB_CLIENT_SECRET
     github_oauth_redirect_uri: str = "http://localhost:8000/auth/github/callback"
 
-    # No real frontend exists yet — placeholder like database_url's default.
+    # frontend/ exists since M8.3's early start but serves only `/` and
+    # `/projects/{id}/risks`, not `/dashboard`, so this default still lands on a page
+    # that does not exist. The OAuth flow is M8.4's (ADR-0031's Consequences).
     oauth_success_redirect_url: str = "http://localhost:3000/dashboard"
 
     # Same dev-only-default treatment as jwt_secret_key/github_client_secret,
