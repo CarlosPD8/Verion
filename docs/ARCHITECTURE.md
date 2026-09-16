@@ -389,7 +389,7 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
 ### 6.1 Inbound adapters
 - **REST API** (FastAPI routers) — translates HTTP requests into calls on inbound ports/use cases. Contains no business logic — only request validation (Pydantic) and response shaping.
 - **GitHub webhook receiver** — translates push/PR events into `TriggerScanUseCase` calls.
-- **CI hook** (GitHub Actions step) — same, triggered from pipeline.
+- **CI hook** (GitHub Actions step) — same, triggered from pipeline. *(Names an adapter absent from `src/`, marked 2026-09-16: the webhook receiver above is the only thing that starts a scan, and no route starts one on demand either. See **G70**.)*
 
 ### 6.2 Outbound adapters
 - **Postgres repositories** (SQLAlchemy) — one implementation per `*RepositoryPort`.
@@ -467,7 +467,7 @@ Applied so far: `ClockPort`/`IdGeneratorPort` (cross-cutting Protocols, M0.3), `
 
 ```mermaid
 sequenceDiagram
-    participant CI as GitHub Actions / User
+    participant CI as GitHub (a user's push)
     participant API as Inbound API Adapter
     participant Trig as TriggerScanUseCase
     participant Q as JobQueuePort (Redis/arq)

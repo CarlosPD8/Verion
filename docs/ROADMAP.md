@@ -764,6 +764,7 @@ Steps 1–6 are ordered by observed value, not tidiness; step 7 is appended (its
 
 1. **Do the next milestone's stated dependencies still hold in code?** Take its first two issues and trace each `Depends on:` to the code that must already exist. *This is the step that found M3.7, and the only step here that has ever found something no gate could.*
    - **While the M8.3 departure stands** (M8.3's 2026-09-16 marker), check its three end conditions: whether M8.2 is marked done, whether `frontend/` holds more than two page routes or a direct dependency outside ADR-0031 decision 3's list, and whether `ci.yml` has a frontend step. If any holds, the departure has ended, and that marker says what happens next.
+   - **What this step cannot see as written** (recorded 2026-09-16, found through **G70**). It traces each issue's `Depends on:` field to code. A capability an issue assumes can instead sit in its bullet text, and then this step passes over it. M8.4's `Depends on: M1.5, M2.3` holds, in the sense that the code those issues ship exists — though M8.4's own "Inherits ADR-0031" bullet already records that its GitHub connect step cannot start as that route is written — while its bullet says "trigger first scan" and no route triggers a scan. M9.2's `Depends on: M9.1` has the same shape for its "Re-scan" action. That is a gap in the step, not in whoever ran it. *Recorded, not fixed: the step's wording is unchanged by this note.*
 2. **Run `uv run python scripts/check_claims.py`, then review what it structurally cannot check.** *Scope is listed explicitly because the first execution of this checklist proved that leaving it implicit narrows it: the original wording named only code comments and time-stamped markers, so the sweep grepped for those, covered `ARCHITECTURE.md`, and never opened `PRODUCT_SPEC.md` or `README.md` — where three drifts were sitting, including a status line four milestones stale.*
    - **Files:** `CLAUDE.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_SPEC.md`, `README.md`, `.claude/agents/`.
    - **Drift classes:** stale prose about implementation status; `TODO` / "as of M#.#" markers older than one milestone; broken or outdated internal cross-references (§ numbers, section names); and completion or status claims that outran reality.
@@ -1717,6 +1718,29 @@ Blocks-if-unresolved: **every class of defect a Tier 1 gate exists to stop in `s
 
 Deferral rationale: **gating the frontend is a CI design task, and it would land inside a two-page departure.** A CI job needs `actions/setup-node` verified and pinned by SHA under ADR-0009, as `ci.yml`'s header requires of every action, plus a new *kind* of assertion in `check_claims` for a non-`uv run` gate — the coupling M5.7's scope bullet describes for a changed gate command. Until then, every commit touching `frontend/` states its local `npm run build` result in its message, so an unbuilt commit is visibly incomplete rather than silently green. Trigger: **M8.3**, when its early-start departure ends and it resumes as a normal issue; or the first commit adding a frontend step to `ci.yml`; or **M10.4**, the first issue to scan this repository's own dependencies.
 Note (2026-09-16, the early-start screen commit): **no linter is installed at all, so "lint violations pass CI" understates the gap: nothing lints `frontend/` anywhere.** `eslint` and `eslint-config-next` are on ADR-0031 decision 3's list and were not installed. `eslint@10.10.0` excludes this machine's Node v22.12.0, `eslint@9.39.5` is deprecated in the registry, and the pair brought the tree's only engine mismatch and only install script. `next build`'s TypeScript check and `npm test`'s rule-12 non-leakage test are the two local checks, and each `frontend/` commit quotes both results. Neither runs in CI, which is this entry's subject. ADR-0031's Consequences carries the evidence.
+
+### G70 — No route starts a scan on demand: `TriggerScanUseCase` is written and wired, and its only caller is the GitHub webhook
+Confirmed: M8.3 early start · Status: open
+Blocks-if-unresolved: **M8.4's first bullet — "Connect repo → confirm Security Context → trigger first scan, guided flow" — has no way to trigger that first scan. M9.2's "Re-scan" action has none either, and no demonstration of the product can start a scan.** It is also an MVP requirement:
+- `PRODUCT_SPEC.md` §6 FR-4 says the system "can trigger scans (manual + on-push via GitHub Actions)", and §8's Core scope lists "Scans (manual + CI-triggered)".
+- §4's Journey 2 ("triggered manually or via CI") and Journey 4 ("Triggers re-scan (manual or automatic on push)") assume the same.
+
+Verified against the tree on 2026-09-16:
+- `TriggerScanUseCase` (`scanning/application/trigger_scan.py`) is built by `get_trigger_scan_use_case` in `platform/di.py` and exposed as `TriggerScanUseCaseDep`.
+- Its only consumer is `HandleGitHubWebhookUseCase`. `scanning`'s only inbound route is `POST /scanning/webhooks/github`. No other router in `src/` starts a scan, and no milestone schedules a route that does.
+- So the only way to start a scan is a real GitHub push with a valid signature (ADR-0014).
+  - That is one of three reasons `scripts/seed_demo_project.py` replays a capture. The other two, no GitHub token locally and the SSRF gate refusing a local ZAP target, would still force a replay on a laptop even with a trigger route.
+  - No CI-hook adapter exists either, whatever FR-4's "via GitHub Actions" implies.
+- **Recorded as a fact since M4.0, never as a gap.** ADR-0017's Context states that "`TriggerScanUseCaseDep` is consumed only by the webhook use case; there is no manual-trigger route".
+  - That sentence defers nothing and names no trigger, so no rule required an entry, and nothing carried the fact forward to the issues that assume the opposite.
+  - Meanwhile three live descriptions claimed the opposite, each corrected by the commit that opens this entry: `README.md`'s status line ("A trigger (API or GitHub webhook)"), `ARCHITECTURE.md` §6.1's "CI hook" as a catalogued adapter, and §8's "GitHub Actions" trigger participant.
+
+Deferral rationale: **it belongs to the issue that needs it, and it is less of a one-route job than it looks.** The use case is written and wired. Authorization is what is not settled:
+- `TriggerScanUseCase.execute` takes `project_exists` and `is_owner` as separate flags, and raises `ProjectNotFound` or `InsufficientPermissions`. That is the existence/permission split ADR-0022 decision 2 refused for cross-module reads, and the webhook sidesteps it by passing both as true.
+- `ProjectAccessPort` publishes one verdict, `may_read_project`. Starting a scan is an owner action, not a read: the use case refuses a non-owner, and a scan can run an active ZAP scan whose consent is itself owner-gated (**G49**). So a route needs either a second verdict on that port or a stated reason to accept the read verdict. Either way, ADR-0022 decision 2's 404-for-both shape has to be reconciled with the use case's two exceptions.
+- **For whoever builds it:** a new route enters rule 16's route clause, and this one also enters its authorization clause. It cites an ADR, or states in one line why reversal is cheap.
+
+Trigger: **M8.4**, or the first demonstration that must start a scan.
 
 ## V2 Backlog (explicitly out of this roadmap)
 
