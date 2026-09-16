@@ -59,6 +59,14 @@ The JWT sites came with a finding worth recording, because it changes what the g
 
 Both were confirmed load-bearing by mutation: with the guards temporarily removed, all four new tests fail and the pre-existing seven still pass.
 
+## Amendments
+
+- **2026-09-16 (M8.3 started early, ADR-0031): the repository takes on a Node toolchain in `frontend/`, created by the commit that builds the screen, and the pyright rejection below still stands.**
+  - The rejection's premise was that a Node toolchain is "exactly the supply-chain surface ADR-009 exists to scrutinize". `frontend/` does not contradict that. It takes on the surface for a different return.
+  - **The alternatives were not equivalent.** pyright's Node surface bought nothing mypy did not already give with no Node at all. `frontend/` is the frontend `PRODUCT_SPEC.md` §13 names, and its only Node-free alternative, a static page, would have been discarded at M8.3.
+  - **The surfaces sit in different places.** pyright would have run inside the Python gate, on every CI run. `frontend/` is confined to its own directory, which no CI job installs.
+  - **That second half ends** when **G69** adds a frontend CI job, at which point a Node toolchain runs in CI after all.
+
 ## Alternatives considered
 
 **pyright.** Rejected despite being the only checker that empirically caught the `repo_path`/`target` divergence — an advantage that disappears once the adapters are renamed. Its CI story is the deciding factor: it needs either a node toolchain in the workflow or the PyPI wrapper, which downloads a node binary at runtime. That is exactly the supply-chain surface ADR-009 exists to scrutinize, against mypy being pure-Python and arriving via `uv sync --locked` alongside every other dev dependency.

@@ -12,15 +12,15 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0004](0004-llm-downstream-of-scoring.md) | LLM explanation layer strictly downstream of risk scoring | Accepted (amended M6.2) |
 | [0005](0005-risk-scoring-model.md) | The risk scoring model: what a Risk is, the function over it, and what a score may not claim | Accepted |
 | [0006](0006-src-layout.md) | `src/verion/` layout instead of a flat repo-root package | Accepted |
-| [0007](0007-import-linter.md) | import-linter for mechanical architecture enforcement | Accepted (amended M5→M6 boundary) |
+| [0007](0007-import-linter.md) | import-linter for mechanical architecture enforcement | Accepted (amended M5→M6 boundary, M8.3 early start) |
 | [0008](0008-manual-di-wiring.md) | Explicit `Depends()`-based DI wiring instead of a DI framework | Accepted |
-| [0009](0009-dependency-verification-protocol.md) | Verify dependency-safety claims against primary sources before acting | Accepted |
+| [0009](0009-dependency-verification-protocol.md) | Verify dependency-safety claims against primary sources before acting | Accepted (amended M8.3 early start) |
 | [0010](0010-allow-indirect-imports.md) | `allow_indirect_imports` for cross-module contracts | Accepted |
 | [0011](0011-subprocess-execution-safety.md) | Subprocess execution safety pattern | Accepted (amended M3.5) |
 | [0012](0012-trivy-vulnerability-db-freshness.md) | Trivy vulnerability database defaults to a live refresh in production | Accepted |
 | [0013](0013-zap-target-url-ssrf-validation.md) | ZapAdapter target-URL SSRF validation | Accepted (amended 2026-08-27, M5→M6 boundary) |
 | [0014](0014-github-webhook-verification.md) | GitHub webhook signature verification and delivery handling | Accepted |
-| [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted |
+| [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted (amended M8.3 early start) |
 | [0016](0016-multi-scanner-dispatch.md) | Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration | Accepted (amended 2026-08-27, M5→M6 boundary) |
 | [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1, M4.3, M4.4) |
 | [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2, M5.1, M6.1) |
@@ -36,3 +36,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0028](0028-declaring-that-the-scanned-url-serves-the-scanned-tree.md) | Declaring that the scanned URL serves the scanned tree: where the record lives, what voids it, and what it does not assert | Accepted (amended M5.5, M5→M6 boundary) |
 | [0029](0029-route-extractor-placement-re-derivation-and-key-entry.md) | Where the route extractor lives, what its route map is re-derived against, and how a derived location enters the match key | Accepted (amended M5.6) |
 | [0030](0030-scored-risk-read-surface.md) | The scored Risk read surface: where ranking lives, what a response must carry to be re-derivable, and what the first measurement of a scored request does not show | Accepted |
+| [0031](0031-frontend-token-holding-transport-and-npm-dependency-scope.md) | The frontend's token holding, its transport to the API, and what ADR-0009 covers in an npm tree | Accepted (decision 2 provisional on P1) |

@@ -16,6 +16,13 @@ build/
 # Env
 .env
 infra/.env
+# `.env` above matches only a file named exactly `.env`, not `.env.local`.
+.env*.local
+
+# Node / Next.js (frontend/, ADR-0031) — added before frontend/ exists, so its
+# first `git add` cannot stage either.
+node_modules/
+.next/
 
 # Editors/OS
 .vscode/

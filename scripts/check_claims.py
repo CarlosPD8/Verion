@@ -40,7 +40,10 @@ LIVE_DOCS: tuple[str, ...] = (
 
 # Tooling this project considered and does not use. Naming one of these in a live
 # doc states that the project has something it doesn't.
-#   dependency-cruiser — rejected in ADR-007 (Node toolchain in a pure-Python repo)
+#   dependency-cruiser — rejected in ADR-007 (Node toolchain in a pure-Python repo;
+#                        the repo stops being pure-Python when ADR-0031's frontend/
+#                        is created, 2026-09-16, and the rejection stands on its
+#                        other ground: no benefit over a native Python tool)
 #   ABCs               — zero exist in src/; all ports are typing.Protocol
 RETIRED_TOOLS: dict[str, str] = {
     "dependency-cruiser": "rejected in ADR-007, never used",

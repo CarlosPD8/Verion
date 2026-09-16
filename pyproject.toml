@@ -50,6 +50,13 @@ dev = [
     # node toolchain in CI or a PyPI wrapper that downloads a node binary at
     # runtime, which is exactly the supply-chain surface ADR-009 exists to
     # scrutinize.
+    # (Dated 2026-09-16, ADR-0031.) ADR-0031's frontend/ brings a node toolchain
+    # into this repository. That is not the case rejected above: pyright's node surface
+    # bought nothing mypy did not already give at no node cost, while Next.js is
+    # the frontend PRODUCT_SPEC section 13 names and its only node-free
+    # alternative would be discarded at M8.3. It is also confined to frontend/,
+    # which no CI job installs (G69) - and that half of the argument ends when
+    # G69 adds one.
     "mypy>=2.3.1",
     "pre-commit>=3.8",
     "pytest>=8.3",

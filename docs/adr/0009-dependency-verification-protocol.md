@@ -18,6 +18,10 @@ This adds a verification step before acting on dependency-safety claims, which c
 
 It reduces the chance of two failure modes that are otherwise easy to fall into: acting on an initial alarm that turns out to be unfamiliarity rather than actual risk (over-blocking a legitimate dependency), and reversing a legitimate security action because a later, more confidently-worded message asked for it (under-defending against a social-engineering-style reversal). Both failure modes were live possibilities in the episode this ADR documents, and primary-source verification is what resolved the second one correctly.
 
+## Amendments
+
+- **2026-09-16 (M8.3 started early): this protocol's scope for an npm dependency tree is decided in ADR-0031 decision 3.** It covers direct dependencies only — verified before install, pinned exactly, installed from a committed lockfile — and states the transitive tree as **unverified** (G69). This document's Decision is triggered by a claim and has no transitive clause, so it gives no scope of its own for a tree. Read it with that one, and do not take a `frontend/` lockfile as evidence that its contents were checked.
+
 ## Alternatives considered
 
 **Defer to whichever instruction is most recent.** Rejected: this makes the verification process trivially bypassable — a claim only needs to arrive after the prior one to win, regardless of whether it's true, which provides no actual security property.

@@ -621,10 +621,37 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 - **M8.3 — Frontend: project dashboard (Next.js)**
   Module: frontend · Depends on: M8.2
   - Project list, Security Brief cards (per Journey 3 in `PRODUCT_SPEC.md` §4 — the ranked `Fix now`/`Plan`/`Monitor` list and its per-item fields: why it matters, supporting evidence, recommended action, estimated effort, confidence), drill-down into raw evidence. *(Cited "the UI sketch in `PRODUCT_SPEC.md` §3" until the M4→M5 boundary review. §3 is Target User & Personas, and there is no UI sketch anywhere in that document — §4's Journey 3 is the closest thing and is what this means. Corrected on both counts, since "sketch" promised a mockup that has never existed.)*
+  - ***(STARTED EARLY on 2026-09-16, during M7, and recorded as a DEPARTURE rather than a start.)*** Written before any of its code.
+    - **What is departed from.** This issue's `Depends on: M8.2` is unmet: neither M8.1 nor M8.2 is built. `CLAUDE.md`'s one-issue-at-a-time rule is departed from as well, since M7.1 is the open issue.
+    - **What starts.** Two page routes in `frontend/`:
+      - a login form against `POST /auth/login`;
+      - one project's ranked list from `GET /projects/{project_id}/scored-risks` (M6.3). The project id comes from the URL, because no `GET /projects` route exists.
+    - **What the list shows.** Each item's bucket, its `priority_score`, and the three signals, each with `value`, `produced_by` and `note`.
+    - **What the list must show about itself:**
+      - a non-dismissible banner whenever `normalization.unfinished_runs > 0`, `latest_run` is null, or `latest_run.status` is not `completed`;
+      - an empty state that says no scan has been normalized when `latest_run` is null, never "no risks";
+      - "items X–Y of `total`" with previous/next, since a list silently cut at a page limit looks complete;
+      - the bucket thresholds from `thresholds`;
+      - no text implying two tools agree (**G62**).
+    - **Decisions:** `docs/adr/0031-frontend-token-holding-transport-and-npm-dependency-scope.md`. **Its transport decision is PROVISIONAL until its precondition P1 passes**, and P1 runs before any screen code.
+    - **The ground.** Next.js was chosen over a throwaway static page, so this work is kept rather than discarded (`PRODUCT_SPEC.md` §13).
+    - **What it is NOT.** It does not mark this issue done or partly done.
+      - This issue requires a project list, Security Brief cards (why it matters, recommended action, estimated effort, confidence) and drill-down into raw evidence. None of them ships.
+      - Confidence and every Brief field exist in no API (**G63**, M7.2).
+      - Any field the screen wants added to `/scored-risks` is an ADR-0030 change first, because that ADR's decision 3 field list is bound by a key-set equality assertion.
+    - **The departure ends at the first of:**
+      1. **M8.2 lands.** Its commit says whether the screen moves to M8.2's read model, and this issue resumes as a normal issue.
+      2. `frontend/` gains a **third page route**, or a direct dependency outside ADR-0031 decision 3's list. At that point this is M8.3 built ahead of its dependency, and the work stops.
+      3. **A frontend step is added to `ci.yml`** (**G69**'s trigger).
 
 - **M8.4 — Frontend: onboarding flow**
   Module: frontend · Depends on: M1.5, M2.3
   - Connect repo → confirm Security Context → trigger first scan, guided flow.
+  - **Inherits ADR-0031** (added 2026-09-16, M8.3 started early): **token holding re-opens here.**
+    - ADR-0031 decision 1 holds the access token in memory and sends it as a Bearer header.
+    - `GET /auth/github/login` (`github_login`) requires that header and answers with a redirect, while a browser top-level navigation cannot attach an `Authorization` header. So the connect step cannot start as that route is written.
+    - Read from the route; the browser half is not verified.
+    - The options are to return the authorize URL as JSON, or to move to a cookie-based session, which changes `get_current_user_id`. Decide it here, by amendment to ADR-0031 or a new ADR (rule 16's credential-handling clause).
 
 ---
 
@@ -663,6 +690,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 - **M10.2 — RBAC & rate limiting audit**
   Module: `identity`/`platform` · Depends on: M1
   - Verify enforcement at every endpoint, add rate limiting middleware.
+  - **Inherits ADR-0031** (added 2026-09-16, M8.3 started early): requests from the frontend reach the API **through a Next rewrite**. Middleware keyed on the client address would see the frontend server for every browser, unless forwarded headers are set by the proxy and trusted by the API. Whether a rewrite adds `X-Forwarded-For` is recorded by ADR-0031's P1; trusting it is this issue's decision.
 
 - **M10.3 — Secrets management pass**
   Module: `platform` · Depends on: —
@@ -734,6 +762,7 @@ So the review has shrunk to roughly its most valuable third. **That is the argum
 Steps 1–6 are ordered by observed value, not tidiness; step 7 is appended (its note says why). Steps 2 and 4 are mostly mechanical now.
 
 1. **Do the next milestone's stated dependencies still hold in code?** Take its first two issues and trace each `Depends on:` to the code that must already exist. *This is the step that found M3.7, and the only step here that has ever found something no gate could.*
+   - **While the M8.3 departure stands** (M8.3's 2026-09-16 marker), check its three end conditions: whether M8.2 is marked done, whether `frontend/` holds more than two page routes or a direct dependency outside ADR-0031 decision 3's list, and whether `ci.yml` has a frontend step. If any holds, the departure has ended, and that marker says what happens next.
 2. **Run `uv run python scripts/check_claims.py`, then review what it structurally cannot check.** *Scope is listed explicitly because the first execution of this checklist proved that leaving it implicit narrows it: the original wording named only code comments and time-stamped markers, so the sweep grepped for those, covered `ARCHITECTURE.md`, and never opened `PRODUCT_SPEC.md` or `README.md` — where three drifts were sitting, including a status line four milestones stale.*
    - **Files:** `CLAUDE.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_SPEC.md`, `README.md`, `.claude/agents/`.
    - **Drift classes:** stale prose about implementation status; `TODO` / "as of M#.#" markers older than one milestone; broken or outdated internal cross-references (§ numbers, section names); and completion or status claims that outran reality.
@@ -1671,6 +1700,16 @@ Deferral rationale: **two carriers is not yet evidence of the right shape, and e
 Confirmed: M6→M7 boundary · Status: open
 Blocks-if-unresolved: **M7.2 cannot persist a Brief without deciding how a Risk is addressed, and ADR-0025 has already ruled on every option M7.2 has.** FR-8 requires a persisted Brief and FR-9 requires it to link to what produced it; `ARCHITECTURE.md` §4.1 designs `SecurityBrief` with a `risk_id`. ADR-0025 decision 1 says a candidate Risk **has no identifier** and rejects all three derivable addresses — the match key collides, the lowest constituent `finding_id` silently repoints when a lower-id finding joins, and a hash of the ordered ids breaks on every membership change — and its decision 2 makes M8.1 the first issue forced to store a Risk. None of the 17 migrations in `alembic/versions/` creates a `risks` or `briefs` table, and no register entry named `SecurityBrief` or `risk_id` before this one. So M7.2 faces three options: **persist a Risk**, which pulls **G37** and **G11** forward from M8.1; **key the Brief on the match key**; or **key it on the ordered finding-id set**. The second and third reverse decision 1's ruling on derived addresses, so each is an amendment to that ADR; the first is permitted by decision 2, which lets whichever issue writes first persist a Risk, and it brings G37's protected fields and G11's fourth table with it. Taking any of them inside M7.2's implementation commit, without that ADR or those obligations, is the failure.
 Deferral rationale: the choice belongs to the issue that faces it, not to a boundary review, and it needs M7.1's port shape settled first, since what a Brief can be keyed on depends on what `brief` receives from `risk_engine`. Trigger: **M7.2**'s first design commit, or any earlier commit that creates a `risks` or `briefs` table.
+
+### G69 — The frontend ships with no gate: type errors, lint violations and suppressions in `frontend/` pass CI, and the check that keeps Tier 1 honest cannot see a frontend step
+Confirmed: M8.3 early start · Status: open
+Blocks-if-unresolved: **every class of defect a Tier 1 gate exists to stop in `src/` reaches `main` green in `frontend/`.** Four things, each read from the artifact that would have to change:
+- **No gate reads it.** Every Tier 1 step in `.github/workflows/ci.yml` runs Python tooling. `mypy` is scoped by `files = ["src"]`, `lint-imports` by `root_package = "verion"`, and `ruff` reads no TypeScript. So a TypeScript type error, a lint violation or a broken `next build` passes CI.
+- **The suppression count cannot see it.** `check_claims.py` scans `src/**/*.py` for `# type: ignore` and `# noqa`, so a `@ts-ignore` or an `eslint-disable` is invisible to the one metric that detects a gate being bypassed rather than satisfied.
+- **A frontend CI step would be an undocumented gate by construction.** `_ci_run_commands` matches only `run: uv run …`, so `check_ci_steps_match_tier1_table` cannot see an `npm` step in either direction. The existing `Build` step (`uv build`) is already in that state.
+- **The transitive npm tree is unverified.** ADR-0031 decision 3 covers direct dependencies only.
+
+Deferral rationale: **gating the frontend is a CI design task, and it would land inside a two-page departure.** A CI job needs `actions/setup-node` verified and pinned by SHA under ADR-0009, as `ci.yml`'s header requires of every action, plus a new *kind* of assertion in `check_claims` for a non-`uv run` gate — the coupling M5.7's scope bullet describes for a changed gate command. Until then, every commit touching `frontend/` states its local `npm run build` result in its message, so an unbuilt commit is visibly incomplete rather than silently green. Trigger: **M8.3**, when its early-start departure ends and it resumes as a normal issue; or the first commit adding a frontend step to `ci.yml`; or **M10.4**, the first issue to scan this repository's own dependencies.
 
 ## V2 Backlog (explicitly out of this roadmap)
 

@@ -27,6 +27,7 @@ It costs real config verbosity — 17 largely repetitive contract blocks, since 
 ## Amendments
 
 - **2026-09-15 (M5→M6 boundary review): the Decision's framework list is qualified, and the contract is not.** It names four packages — `fastapi`, `sqlalchemy`, `redis`, `uvicorn` — while `pyproject.toml`'s framework-isolation contract forbids five. `arq` was added to that contract at M3.1 (`421b64b`), the day after this ADR was written (`4236543`), and this sentence was never updated. The contract is the list; read the sentence as its M0.2 state.
+- **2026-09-16 (M8.3 started early, ADR-0031): *Alternatives considered* calls this "a pure-Python project", which stops being true when `frontend/` is created.** ADR-0031 decides a `frontend/` that brings npm and `node_modules` into the repository; the commit that builds the screen creates it. The dependency-cruiser rejection stands on its other ground, unchanged: a JS tool would add a toolchain to CI for no benefit over a native Python tool that does the same job. What changed is only that the repository is no longer pure-Python. It is still true that no JS tooling enters the Python gates.
 
 ## Alternatives considered
 
