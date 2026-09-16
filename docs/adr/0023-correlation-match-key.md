@@ -891,6 +891,18 @@ that point it should be weighed as an amendment to ADR-0018's criterion, not as 
 convenience — and under the note in alternative 4 that nothing mechanical guards what lands in
 `shared_kernel/`.
 
+*(**Re-proposed and rejected 2026-09-16, M6.1** — the event this entry forecast, so the outcome is
+recorded where the prediction is rather than only in the new ADR. ADR-0005 decision 2 weighs it as
+this entry instructed, as an amendment to ADR-0018's criterion, and declines it on a ground this
+entry could not have had, because `risk_engine`'s shape was not yet chosen: **the
+one-copy-instead-of-four argument prices a problem the scalars pattern does not have.** A
+construction site taking scalars needs no shared name, so there is no copy to make; and the
+consumers do not read the same fields — `build_match_key` takes four `Location` values, while
+`risk_engine` takes `source` and `severity` — so a shared structural type would be a union no
+consumer needs whole. **Not struck**: the argument returns intact at `brief` or `history` if either needs the
+entity rather than scalars, and the consumer count it rests on is now two of four rather than
+one.)*
+
 **7. A `TYPE_CHECKING`-guarded import of `Finding`.** Rejected as **illegal, not unworkable**,
 and the distinction matters enough to state precisely, because the two failure modes look
 alike and lead to different sentences.

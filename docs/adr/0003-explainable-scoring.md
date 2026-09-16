@@ -18,6 +18,14 @@ This makes every priority decision auditable: a developer (or Verion's own team)
 
 It caps the sophistication of the scoring in the near term: a hand-specified function of explicit signals will not capture subtle interactions between signals the way a trained model could, and improving accuracy means deliberately reworking the formula rather than retraining on more data. It also puts pressure on signal quality — an explainable formula is only as good as the signals feeding it (exposure, reachability, etc.), and gaps there show up directly as scoring gaps rather than being absorbed by a model's ability to find patterns in noisy data.
 
+## Amendments
+
+- **2026-09-16 (M6.1): the Decision's five-signal list is narrowed by measurement, and the constraint it exists to state is untouched.** ADR-0005 ships the function this ADR deferred, and it does not use three of the five signals named above.
+  - **What was claimed:** scoring is a function of *"severity, exposure, reachability (where available), asset sensitivity, and environment"*.
+  - **What ships:** `severity_signal`, an `exposure_signal`, and a `corroboration_signal` this ADR did not name. **`reachability_signal`, `asset_sensitivity_signal` and `environment_signal` have no source anywhere in `src/`** and are declined for M6 rather than invented — inventing one would be the untraceable input rule 5 forbids, which is this ADR's own subject.
+  - **`exposure` ships in a weaker form than this ADR meant**, and the difference is stated rather than absorbed: FR-7's exposure is the project's statement about the asset, which exists only as `SecurityContext.exposure_tags` (free text, behind a persistence port, unreadable after a second detect — `ROADMAP.md` **G55**). ADR-0005 substitutes a fact already in the data: a surface carrying a DAST member was reached over the network by a scanner.
+  - **Nothing here is reversed.** The constraint — an inspectable function of explicit signals, a bucket, a confidence, a `RiskReasoning`, no trained model — is what ADR-0005 satisfies, and the signals above remain the target rather than becoming wrong. What this amendment records is that the list was written before any of its inputs had a source, and three of them still do not.
+
 ## Alternatives considered
 
 **A trained ML model** (e.g. gradient-boosted trees or a small neural net trained on labeled finding/outcome data) for priority scoring. Rejected: even with post-hoc explainability tooling (SHAP, LIME, etc.), the explanation is an approximation of what the model actually did, not a direct account of it — that gap is exactly what `PRODUCT_SPEC.md` §7 rules out. It would also require a labeled training dataset that doesn't exist yet and can't be assembled within the MVP timeline.

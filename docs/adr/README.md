@@ -2,7 +2,7 @@
 
 Each ADR documents one consequential architectural or process decision: the situation that prompted it, what was decided, the honest trade-offs, and what alternatives were rejected and why. See `CLAUDE.md`'s working-style rule for when a new ADR is warranted.
 
-**One number is reserved and not yet created**, claimed by a roadmap entry rather than by a file: `0005` for the risk-scoring-model ADR (`docs/ROADMAP.md` M6.1).
+**Every number from `0001` is now a file.** `0005` was reserved at M0 for the risk-scoring-model ADR and left uncreated; it was written at **M6.1, 2026-09-16**. Until that commit this line read *"One number is reserved and not yet created, claimed by a roadmap entry rather than by a file: `0005` for the risk-scoring-model ADR (`docs/ROADMAP.md` M6.1)."* — a sentence its own subject falsified, and which no check saw: `check_adrs_are_indexed` requires the table row below and reads no prose.
 
 | ADR | Title | Status |
 |---|---|---|
@@ -10,6 +10,7 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0002](0002-hexagonal-architecture.md) | Hexagonal architecture (ports & adapters) at the module level | Accepted |
 | [0003](0003-explainable-scoring.md) | Explainable risk scoring over black-box ML | Accepted |
 | [0004](0004-llm-downstream-of-scoring.md) | LLM explanation layer strictly downstream of risk scoring | Accepted |
+| [0005](0005-risk-scoring-model.md) | The risk scoring model: what a Risk is, the function over it, and what a score may not claim | Accepted |
 | [0006](0006-src-layout.md) | `src/verion/` layout instead of a flat repo-root package | Accepted |
 | [0007](0007-import-linter.md) | import-linter for mechanical architecture enforcement | Accepted (amended M5→M6 boundary) |
 | [0008](0008-manual-di-wiring.md) | Explicit `Depends()`-based DI wiring instead of a DI framework | Accepted |

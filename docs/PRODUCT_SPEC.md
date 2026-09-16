@@ -88,7 +88,7 @@ Security engineers at slightly larger orgs who want a correlation and triage lay
 | **Security Context** | The structured understanding of what is being protected: framework, language, DB, APIs, auth mechanism, deployment target, dependencies. Conditions how everything downstream is interpreted. |
 | **Finding** | A normalized unit of output from any scanner, mapped to a common schema (vulnerability, severity, source, asset, evidence, location, CWE, OWASP category, CVSS, references). |
 | **Correlation** | The process of linking findings from different tools/sources that plausibly describe the same underlying attack surface. |
-| **Risk** | A correlated, contextualized group of evidence with a computed priority, confidence, and reasoning — the actual unit a developer should think about. |
+| **Risk** | A correlated, contextualized group of evidence with a computed priority, confidence, and reasoning — the actual unit a developer should think about. *(Narrowed 2026-09-16, M6.1, ADR-0005 decision 0: as built, the unit is a **surface** — the package or route path the match key names, scored as "everything wrong with that surface". It is deliberately **not** "these findings describe the same vulnerability": group membership is produced by the route map, and no field distinguishes a substantive cross-tool member from a coincidental one. The Correlation row above needs no such narrowing — it already says "attack surface".)* |
 | **Security Brief** | The developer-facing explanation of a Risk: what happened, why it matters, what to do, how to verify. |
 
 ---
