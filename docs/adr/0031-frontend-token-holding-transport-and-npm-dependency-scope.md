@@ -199,6 +199,12 @@ The setting is therefore **not** in `next.config.mjs`: it is not load-bearing, a
 
 **So the exposure is one route, measured, not a class.** M8.4 inherits that bound. Its onboarding flow is the first plausible caller of `POST /projects/`, by the inference under *Status*. A second slash-terminated route would reactivate the mechanism.
 
+### The rewrite's default destination was wrong, and only rendering found it (2026-09-16)
+
+`next.config.mjs` shipped with `VERION_API_BASE_URL` defaulting to `http://localhost:8000`. On this machine Node resolves `localhost` to `::1` first, while uvicorn binds `127.0.0.1` by default. So with the variable unset, every proxied call failed: `next start` logged `Failed to proxy http://localhost:8000/auth/login Error: connect ECONNREFUSED ::1:8000`, `curl` through the proxy returned `HTTP/1.1 500 Internal Server Error`, and the login page showed its generic error.
+
+**P1 did not catch this, and could not have:** every P1 run set `VERION_API_BASE_URL` explicitly — to the echo server on `http://127.0.0.1:8765` for the two header probes, and to `http://127.0.0.1:8000` for the end-to-end run — so it verified the rewrite and never the committed default. The default is now `http://127.0.0.1:8000`. That is the follow-up commit that styles the screen, the first time anyone opened it in a browser.
+
 ### What the screen's commit established about the build (2026-09-16)
 
 - **`next build` is a real type check, and the only local one (G69).**

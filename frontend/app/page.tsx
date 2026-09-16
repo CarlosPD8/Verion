@@ -22,11 +22,11 @@ export default function LoginPage() {
     const result = await login(email, password);
     setBusy(false);
     if (result.kind === "invalid") {
-      setMessage("Email or password is incorrect.");
+      setMessage("That email and password don't match an account.");
       return;
     }
     if (result.kind === "error") {
-      setMessage("Could not sign in. Try again.");
+      setMessage("Couldn't reach Verion. Check that the API is running, then sign in again.");
       return;
     }
     setAccessToken(result.token);
@@ -36,12 +36,16 @@ export default function LoginPage() {
   }
 
   return (
-    <main>
-      <h1>Verion</h1>
-      <form onSubmit={onSubmit}>
-        <label>
+    <main className="login">
+      <header className="page-header">
+        <p className="wordmark">verion</p>
+        <p className="tagline">From security findings to security decisions.</p>
+      </header>
+      <form className="login-form" onSubmit={onSubmit}>
+        <label className="field">
           Email
           <input
+            className="input"
             type="email"
             autoComplete="username"
             required
@@ -49,9 +53,10 @@ export default function LoginPage() {
             onChange={(event) => setEmail(event.target.value)}
           />
         </label>
-        <label>
+        <label className="field">
           Password
           <input
+            className="input"
             type="password"
             autoComplete="current-password"
             required
@@ -59,15 +64,25 @@ export default function LoginPage() {
             onChange={(event) => setPassword(event.target.value)}
           />
         </label>
-        <label>
+        <label className="field">
           Project id
-          <input required value={projectId} onChange={(event) => setProjectId(event.target.value)} />
+          <input
+            className="input data"
+            required
+            value={projectId}
+            onChange={(event) => setProjectId(event.target.value)}
+          />
+          <span className="hint">Paste the id of the project whose Risks you want to see.</span>
         </label>
-        <button type="submit" disabled={busy}>
+        <button className="button" type="submit" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
         </button>
+        {message !== null && (
+          <p className="form-error" role="alert">
+            {message}
+          </p>
+        )}
       </form>
-      {message !== null && <p role="alert">{message}</p>}
     </main>
   );
 }

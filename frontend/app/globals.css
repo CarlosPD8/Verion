@@ -1,0 +1,470 @@
+/*
+ * The one stylesheet for frontend/. Plain CSS, no dependency (ADR-0031 decision 3).
+ *
+ * Structure, top to bottom, and it is the migration path:
+ *   1. Tokens — spacing, type, colour, borders — as custom properties on :root.
+ *   2. The same colour tokens for dark mode.
+ *   3. Base element styles.
+ *   4. Component classes, named for what they ARE.
+ *
+ * Below the token block no raw length or colour appears: everything is var(--…), except the
+ * one media-query breakpoint, which CSS cannot express with var() and which says so at its site. Moving to
+ * Tailwind later means mapping these tokens into its theme, not rewriting the pages.
+ */
+
+/* ---- 1. Tokens ---------------------------------------------------------- */
+
+:root {
+  /* Spacing: seven steps. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* Type: six sizes, two families, three weights. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.5rem;
+  --leading-tight: 1.2;
+  --leading-body: 1.55;
+  --weight-regular: 400;
+  --weight-medium: 600;
+  --weight-bold: 750;
+  --tracking-label: 0.08em;
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+
+  /* Borders and shape. */
+  --border-thin: 1px;
+  --border-thick: 4px;
+  --radius-sm: 4px;
+  --radius-md: 10px;
+  --measure: 72rem;
+  --measure-narrow: 24rem;
+
+  /* Colour: ground, ink, three tiers, warning, error, focus. */
+  --color-ground: #eef2f6;
+  --color-surface: #ffffff;
+  --color-ink: #16202e;
+  --color-muted: #5a6778;
+  --color-rule: #d3dbe5;
+  --color-fix-now: #b3261e;
+  --color-plan: #8a5a00;
+  --color-monitor: #3f5b7a;
+  --color-warning-ground: #fff4d4;
+  --color-warning-rule: #d9a520;
+  --color-warning-ink: #574100;
+  --color-error: #b3261e;
+  --color-focus: #2f6fdb;
+}
+
+/* ---- 2. Dark mode: the same tokens, redefined ---------------------------- */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-ground: #0f141b;
+    --color-surface: #171e28;
+    --color-ink: #e5eaf1;
+    --color-muted: #9aa6b6;
+    --color-rule: #2c3644;
+    --color-fix-now: #ff8a80;
+    --color-plan: #f0b53d;
+    --color-monitor: #93b0d1;
+    --color-warning-ground: #332808;
+    --color-warning-rule: #b8891a;
+    --color-warning-ink: #f5d98a;
+    --color-error: #ff8a80;
+    --color-focus: #7aa7ff;
+  }
+}
+
+/* ---- 3. Base ------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: var(--border-thin) solid var(--color-focus);
+  outline-offset: var(--space-1);
+  box-shadow: 0 0 0 var(--space-1) var(--color-focus);
+}
+
+/* ---- 4. Components ------------------------------------------------------ */
+
+/* Page frame */
+
+.page {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-7);
+  display: grid;
+  gap: var(--space-5);
+}
+
+.page-header {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.eyebrow {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* An id inside a label stays exactly as the system wrote it. */
+.eyebrow .data {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.page-title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+}
+
+.data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* The key: what each tier mark means and where each bucket starts. */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.page-count {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+/* Tier mark: three dots, filled by tier. Shape and count carry the tier; colour only adds. */
+
+.tier-mark {
+  font-family: var(--font-mono);
+  letter-spacing: var(--space-1);
+}
+
+.bucket-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-weight: var(--weight-bold);
+}
+
+.bucket-badge[data-bucket="fix_now"] {
+  color: var(--color-fix-now);
+}
+
+.bucket-badge[data-bucket="plan"] {
+  color: var(--color-plan);
+}
+
+.bucket-badge[data-bucket="monitor"] {
+  color: var(--color-monitor);
+}
+
+/* A bucket's section: heading, then its cards in rank order. */
+
+.bucket-section {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.bucket-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-thin) solid var(--color-rule);
+  font-size: var(--text-lg);
+}
+
+.bucket-heading .bucket-count {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  color: var(--color-muted);
+}
+
+/* The warning banner: the list may be short. A warning, not an error. */
+
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-warning-ground);
+  color: var(--color-warning-ink);
+  border-left: var(--border-thick) solid var(--color-warning-rule);
+  border-radius: var(--radius-sm);
+}
+
+.banner .banner-title {
+  font-weight: var(--weight-bold);
+}
+
+/* One scored Risk. The top tier is heavier, not only redder. */
+
+.risk-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-thin) solid var(--color-rule);
+  border-left: var(--border-thick) solid var(--color-monitor);
+  border-radius: var(--radius-md);
+}
+
+.risk-card[data-bucket="fix_now"] {
+  border-left-color: var(--color-fix-now);
+  border-width: var(--border-thick) var(--border-thin) var(--border-thin) var(--border-thick);
+  border-top-color: var(--color-fix-now);
+}
+
+.risk-card[data-bucket="plan"] {
+  border-left-color: var(--color-plan);
+}
+
+.risk-surface {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+}
+
+.risk-surface .surface-name {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+}
+
+.risk-card[data-bucket="fix_now"] .surface-name {
+  font-size: var(--text-xl);
+}
+
+.risk-surface .surface-meta {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+/* The working: three terms written as long addition, summing to the score. */
+
+.ledger {
+  display: grid;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.signal-row {
+  display: grid;
+  grid-template-columns: var(--space-5) var(--space-6) minmax(0, 1fr);
+  column-gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-top: var(--border-thin) dashed var(--color-rule);
+}
+
+.signal-row:first-child {
+  border-top: none;
+}
+
+.signal-row .operator {
+  color: var(--color-muted);
+  text-align: right;
+}
+
+.signal-row .term {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  text-align: right;
+}
+
+.signal-row .signal-detail {
+  display: grid;
+  gap: var(--space-1);
+  font-family: var(--font-sans);
+}
+
+.signal-row .signal-name {
+  font-weight: var(--weight-medium);
+}
+
+.signal-row .signal-note {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.finding-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.ledger-total {
+  display: grid;
+  grid-template-columns: var(--space-5) var(--space-6) minmax(0, 1fr);
+  column-gap: var(--space-2);
+  align-items: baseline;
+  padding-top: var(--space-2);
+  border-top: var(--border-thick) double var(--color-ink);
+}
+
+.ledger-total .operator {
+  text-align: right;
+}
+
+.ledger-total .term {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  text-align: right;
+}
+
+.ledger-total .threshold {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+/* Empty state, errors, paging */
+
+.empty-state {
+  padding: var(--space-6) var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-thin) dashed var(--color-rule);
+  border-radius: var(--radius-md);
+  color: var(--color-muted);
+}
+
+.form-error {
+  color: var(--color-error);
+  font-weight: var(--weight-medium);
+}
+
+.pager {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.button {
+  font: inherit;
+  font-weight: var(--weight-medium);
+  padding: var(--space-2) var(--space-5);
+  color: var(--color-surface);
+  background: var(--color-ink);
+  border: var(--border-thin) solid var(--color-ink);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.button:disabled {
+  color: var(--color-muted);
+  background: transparent;
+  border-color: var(--color-rule);
+  cursor: default;
+}
+
+/* Sign-in */
+
+.login {
+  max-width: var(--measure-narrow);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-4);
+  display: grid;
+  gap: var(--space-5);
+}
+
+.wordmark {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+}
+
+.tagline {
+  color: var(--color-muted);
+}
+
+.login-form {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-thin) solid var(--color-rule);
+  border-radius: var(--radius-md);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.field .input {
+  font: inherit;
+  font-weight: var(--weight-regular);
+  font-size: var(--text-base);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-ink);
+  background: var(--color-ground);
+  border: var(--border-thin) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+}
+
+.field .hint {
+  font-weight: var(--weight-regular);
+  color: var(--color-muted);
+}
+
+/* Wide screens: the surface on the left, the working on the right. The one raw length below
+   the token block, because CSS does not allow var() inside a media condition. */
+
+@media (min-width: 48rem) {
+  .page {
+    padding: var(--space-7) var(--space-6);
+  }
+
+  .risk-card {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: var(--space-6);
+  }
+
+  .page-title {
+    font-size: var(--text-2xl);
+  }
+}
