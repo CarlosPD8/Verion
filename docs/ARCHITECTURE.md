@@ -275,8 +275,18 @@ RiskReasoning
  # persistence port and unreadable after a second detect (G55).
  # A Risk scores a SURFACE — the package or route path its match key names — never
  # "the same vulnerability". The Risk's own `confidence` is NOT decided by ADR-0005:
- # the scale was cut by that issue's byte ceiling and deferred to M6.2 (G63), so a
- # scored Risk carries a priority bucket and a reasoning and no confidence until then.
+ # the scale was cut by that issue's byte ceiling and deferred to M6.2 (G63).
+ # M6.2 DECIDED it (2026-09-16): no confidence is emitted, and a test asserts the
+ # absence. So a scored Risk carries a priority bucket and a reasoning and no
+ # confidence, and M7.1 is where the scale gets chosen — by the consumer that
+ # renders it. FR-7's second output is therefore unmet by shipped code; G63 and
+ # ADR-0004's dated amendment both say so.
+ #
+ # SHIPPED at M6.2, in risk_engine/domain/scoring.py: `ScoredSurface` is the scored
+ # projection above — project_id, the key's package/url, finding_ids, priority_score,
+ # priority and reasoning, with NO id and NO row. The `Risk` block above stays
+ # designed-not-built: this adds a function and a signal set, not a table.
+ # `fix_now` has exactly one reachable route, so no package surface can reach it — G64.
 
 SecurityBrief
  ├── id, risk_id
@@ -358,7 +368,7 @@ erDiagram
 | `NormalizationRunRepositoryPort` | Record that normalization is owed for a scan, and read it back (M4.0); since M4.4 also `claim` (a row-locked `pending`/`running`/`failed` → `running` transition — `completed` is the only terminal state), `update`, and `get_stale` for the sweep; since M4.5 `get_latest_by_project_id` and `count_unfinished_by_project_id`, which are what let a findings response say whether it is complete (G15). Its `request` method takes primitives so `scanning` can call it without importing `normalization`'s domain; the M4.4 methods take the entity, because only `normalization` calls them | Postgres adapter |
 | `FindingRepositoryPort` | Upsert findings on `(project_id, dedup_hash)` — keeping the stored `id` and refreshing the mutable attributes per `merge_observation` — record `FindingSighting` rows, and query by project (M4.3); since M4.5 `list_for_project` (filtered, paged, severity-ranked, each item carrying its sighting aggregate), `count_for_project` and a project-scoped `get_by_id`. `get_by_project_id` is kept alongside the listing deliberately — it does not require the sighting invariant, so the write path is verified by a reader that is not the read path. `upsert` **returns** the resolved `Finding`, because only it settles which surrogate `id` wins and M4.4 needs that to write a sighting; `record_sighting` takes a per-scan **total**, never an increment (ADR-0020) | Postgres adapter |
 | `RiskRepositoryPort` | Persist/query risks, history. **Not built** — ADR-0025 decision 1: a candidate Risk is a projection with no port and no repository, and nothing is forced to persist one before M8.1 *(marked 2026-09-15)* | Postgres adapter, designed |
-| candidate-Risk port | `correlation`'s first published port, and the reason `risk_engine` need not import its `application/` (**G35**). Returns `correlation`'s own groups; `risk_engine/application/` takes them by inference and passes **scalars** into its domain, so no module names another's types (M6.1, ADR-0005 decision 2). **Designed, not built** — M6.2 | Designed |
+| candidate-Risk port | `correlation`'s first published port, and the reason `risk_engine` need not import its `application/` (**G35**). Returns `correlation`'s own groups; `risk_engine/application/` takes them by inference and passes **scalars** into its domain, so no module names another's types (M6.1, ADR-0005 decision 2). **Built at M6.2**: `CandidateRiskPort`, implemented by `CorrelationCandidateRisks` over `CorrelateFindingsUseCase`. Its denial, `CandidateRiskAccessDenied`, is declared in the port module rather than in `correlation/domain/`, because the consumer may not name that package (rule 3) and would otherwise be unable to handle a refusal | `CorrelationCandidateRisks` |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
 | `VcsProviderPort` | Read repo metadata, register webhooks; since M5.6 commit 4 also fetch the default branch as one source archive, read in memory under size caps (`fetch_source_archive`, ADR-0029) | `GitHubAdapter` |
 | `ExplanationProviderPort` | Generate natural-language brief text from structured Risk data | LLM adapter (provider-agnostic) |
@@ -499,9 +509,9 @@ sequenceDiagram
 
     Corr->>DB: read Findings
     Corr-->>Corr: group Findings into candidate Risks (not persisted — ADR-0025)
-    Risk->>DB: read Risk + Security Context
-    Risk->>Risk: score (severity, exposure, reachability, ...)
-    Risk->>DB: persist priority + reasoning
+    Risk->>Corr: candidate Risks (correlation's published port — M6.2)
+    Risk->>DB: read Findings AGAIN — a group carries ids, not severities (G61)
+    Risk-->>Risk: score (severity + exposure + corroboration), persisting nothing (ADR-0005)
     Brief->>Exp: explain(structured RiskReasoning)
     Exp-->>Brief: narrative text
     Brief->>DB: persist SecurityBrief
@@ -516,7 +526,9 @@ Three properties this diagram is drawn to make visible, each load-bearing:
 - **Normalization's own progress is a state machine, and `completed` is its only terminal state.** The job claims the row in a transaction of its own before doing any work, so a worker killed mid-flight leaves an observable `running` row rather than being indistinguishable from one that never started — which is what the sweep needs in order to recover it. `failed` is deliberately re-claimable: the job writes it and re-raises for a transient failure, and a terminal `failed` would make arq's retry silently do nothing (ADR-0021 decision 3).
 - **The sweep is a backstop, not the trigger, and it selects on `normalization_runs` alone.** The enqueue above is what makes normalization prompt; the sweep only bounds how late a *lost* message is noticed. It must never read `Scan.status` — ADR-0017 decision 2 states that as an invariant, because a sweep filtering on a derived, human-facing summary would put the decision of whether to run the stage downstream of exactly what ADR-016 decision 2 forbids the stage itself to read.
 
-Stages after normalization are drawn as designed, not as built: `correlation`, `risk_engine` and `brief` are M5-M7, and how each is triggered is that milestone's decision. *(Marked 2026-09-15: M5 decided correlation's, and it has none — `ListProjectRisksUseCase` recomputes groups per request on the API path, not in the worker chain. The diagram does not draw its `ServingDeclarationPort` and `RouteMapPort` reads, or the route-map write at Security Context build.)* M5 inherits the handoff pattern above as a precedent, not as a constraint (ADR-0017). **One line is now drawn as built and is the exception**: correlation's grouping is a projection and reaches no database (ADR-0025 decision 1, M5.2). The `Risk->>DB` lines below it stay as designed — a Risk first reaches the database at **M8.1**, the first issue with a value it cannot recompute, or at M6.3 if that issue takes the optional early write.
+Stages after normalization are drawn as designed, not as built — with the exceptions named below, which have grown: `brief` is M7 and how it is triggered is that milestone's decision. *(Marked 2026-09-15: M5 decided correlation's, and it has none — `ListProjectRisksUseCase` recomputes groups per request on the API path, not in the worker chain. The diagram does not draw its `ServingDeclarationPort` and `RouteMapPort` reads, or the route-map write at Security Context build.)* M5 inherits the handoff pattern above as a precedent, not as a constraint (ADR-0017).
+
+**Four lines are now drawn as built** *(updated 2026-09-16, M6.2 — this paragraph described the pre-M6.2 diagram until this commit)*: correlation's grouping, which is a projection reaching no database (ADR-0025 decision 1, M5.2), and the three `Risk` lines, which are `ComputeRiskUseCase` as it actually runs. **There is no longer a `Risk->>DB: persist` line to describe as designed**: the one remaining `Risk->>DB` is a *read* of findings — the second read of the same rows that **G61** records — and scoring persists nothing (ADR-0005 decision 3). A Risk still first reaches the database at **M8.1**, the first issue with a value it cannot recompute, or at M6.3 if that issue takes the optional early write; the diagram simply no longer draws that write before it exists.
 
 ---
 

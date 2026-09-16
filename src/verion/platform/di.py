@@ -5,8 +5,12 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from verion.modules.correlation.application.candidate_risk_provider import (
+    CorrelationCandidateRisks,
+)
 from verion.modules.correlation.application.correlate_findings import CorrelateFindingsUseCase
 from verion.modules.correlation.application.list_project_risks import ListProjectRisksUseCase
+from verion.modules.correlation.ports.candidate_risk import CandidateRiskPort
 from verion.modules.identity.adapters.outbound.db.repository import (
     PostgresGitHubConnectionRepository,
     PostgresUserRepository,
@@ -89,6 +93,7 @@ from verion.modules.projects.ports.serving_declaration_repository import (
     ServingDeclarationRepositoryPort,
 )
 from verion.modules.projects.ports.vcs_provider import VcsProviderPort
+from verion.modules.risk_engine.application.compute_risk import ComputeRiskUseCase
 from verion.modules.scanning.adapters.outbound.db.repository import (
     PostgresScanRepository,
     PostgresScanResultRepository,
@@ -712,3 +717,30 @@ def get_list_project_risks_use_case(
 ListProjectRisksUseCaseDep = Annotated[
     ListProjectRisksUseCase, Depends(get_list_project_risks_use_case)
 ]
+
+
+# `correlation`'s first PUBLISHED port and `risk_engine`'s first factory (M6.2, ADR-0005
+# decision 2). Neither is @lru_cache'd: both reach DbSessionDep through the use case they
+# depend on, so caching either would leak a stale session across requests (rule 15).
+#
+# This factory is also the ONLY place `mypy --strict` checks CorrelationCandidateRisks
+# against CandidateRiskPort — the reason given above `get_finding_repository`, and the
+# reason this is wired now rather than at M6.3: without a port-annotated return type
+# somewhere, the Protocol conformance is unverified no matter how many tests pass.
+def get_candidate_risk_port(correlate: CorrelateFindingsUseCaseDep) -> CandidateRiskPort:
+    return CorrelationCandidateRisks(correlate)
+
+
+CandidateRiskPortDep = Annotated[CandidateRiskPort, Depends(get_candidate_risk_port)]
+
+
+# No route consumes this yet — M6.3 adds the ranked endpoint, and ADR-0005 decision 3 has
+# this use case persist nothing, so there is no worker path either. It is wired here so the
+# conformance site above exists alongside the code it checks.
+def get_compute_risk_use_case(
+    candidate_risks: CandidateRiskPortDep, findings: FindingRepositoryDep
+) -> ComputeRiskUseCase:
+    return ComputeRiskUseCase(candidate_risks=candidate_risks, findings=findings)
+
+
+ComputeRiskUseCaseDep = Annotated[ComputeRiskUseCase, Depends(get_compute_risk_use_case)]

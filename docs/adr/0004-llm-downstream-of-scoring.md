@@ -18,6 +18,13 @@ This keeps ADR-003's explainability guarantee intact end-to-end: no matter what 
 
 It also means the Security Brief's narrative quality is fundamentally limited by the quality of the `RiskReasoning` it's given — the LLM cannot compensate for a thin or unclear reasoning record by inferring additional context, because giving it license to do that would reopen the boundary this ADR exists to hold. And it forecloses certain future UX ideas (e.g., letting a user ask the LLM "what if this exposure changed?" and get an updated priority in response) unless that flow is explicitly redesigned to re-run the Risk Engine rather than let the LLM answer directly.
 
+## Amendments
+
+- **2026-09-16 (M6.2): two clauses of the Decision are qualified by what M6.2 shipped. Neither is struck, and the boundary this ADR exists to hold is untouched.**
+  - *"The Risk Engine computes priority, confidence, and `RiskReasoning` entirely before the LLM is ever invoked, **and persists that result**."* — **M6.2 persists nothing.** ADR-0005 decision 3 scores per request from stored inputs, so there is no `risks` table and no row to write (ADR-0025 decisions 1 and 2); M6.3's write stays optional and M8.1 is the first issue forced into one. What this ADR requires is that priority be **decided** before the LLM runs, and it is. Persistence was the mechanism assumed in 2026, not the guarantee.
+  - *"See `ARCHITECTURE.md` §8 … which shows the LLM call happening strictly after risk **persistence**."* — that diagram read `Risk->>DB: persist priority + reasoning` until this commit, which described no code; **the same commit replaces that line** with the findings read M6.2 actually performs. The **ordering** the diagram illustrates holds and is unchanged; the persistence step within it is gone, because there is none to draw.
+  - Recorded here because M7.1 reads this ADR before building against it: a scored Risk carries **no `confidence`** (**G63**), so one of the three values this Decision names is absent at the boundary. Rule 6 forbids the Explanation Layer from supplying one itself, which makes this a missing input rather than something M7.1 can route around.
+
 ## Alternatives considered
 
 **Let the LLM weigh in on priority directly** (e.g., pass it the raw findings and signals and let it produce both the priority and the explanation together). Rejected: this is faster to build for a demo, but it reopens exactly the black-box problem ADR-003 closes — priority would no longer be traceable to explicit inputs — and combines the untrusted-content/prompt-injection risk with the ability to influence a security-relevant decision, which is a materially worse risk profile than injection only being able to affect narrative text.

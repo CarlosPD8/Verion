@@ -8,9 +8,18 @@ from enum import StrEnum
 #
 # UNKNOWN sits at the bottom because a total order needs it somewhere, and that
 # placement is a display convention, not a judgment that an unknown severity is
-# the least dangerous one. M6 must decide what UNKNOWN means to a score
-# explicitly — treating it as "lowest" by letting it sort to the bottom would be
-# deciding it by accident.
+# the least dangerous one. M6 DECIDED what UNKNOWN means to a score, explicitly,
+# in ADR-0005 decision 1: it contributes nothing and is never the maximum, so
+# `risk_engine`'s severity term reads the highest-ranked member whose severity is
+# NOT UNKNOWN and scores 0 when no member stated one. The rank below therefore
+# stays a sort position and never became a score — which is what letting it sort
+# to the bottom would have decided by accident.
+#
+# One consequence is worth knowing before trusting a green test: since UNKNOWN's
+# rank is 0 and the "no member stated one" fallback is also 0, including UNKNOWN
+# in that maximum would produce an IDENTICAL score in every case. Only
+# `RiskReasoning`'s recorded producer distinguishes the two, which is why that
+# rule is pinned by a reasoning assertion rather than by a bucket.
 _RANK: dict[str, int] = {
     "unknown": 0,
     "info": 1,

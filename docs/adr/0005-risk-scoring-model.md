@@ -162,6 +162,16 @@ ADR-0027 decision 5's pattern, stated before the code exists:
   it does not say they agree. **G62**.
 - **No latency claim.** Decision 3's doubling is arithmetic over ADR-0025's numbers.
 
+**Amendment (2026-09-16, M6.2) — a QUALIFICATION, not a strike.** Everything above is true.
+What it omits is that the `CRITICAL` **branch** and the `fix_now` **bucket** are disjoint, so
+the "scoring-level coverage" it prescribes goes green over a top bucket that no
+pipeline-level test touches. `trivy_synthetic_edges.json`'s `criticalpkg` scores
+`5 + 0 + 0 = 5 → plan`: `CRITICAL` is Trivy-only and every Trivy finding is package-keyed,
+while corroboration implies exposure, so `fix_now` has exactly one reachable route and it is
+this surface's own. M6.2 therefore asserts the **closures** — a `CRITICAL` surface and a
+DAST-only `HIGH` surface each reach `plan` and neither reaches `fix_now` — rather than
+reporting a covered branch as a covered bucket. **G64.**
+
 ## Consequences
 
 **`PRODUCT_SPEC.md` §10, answered at the width the evidence supports** — the likeliest place in
