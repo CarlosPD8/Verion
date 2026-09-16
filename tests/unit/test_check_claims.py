@@ -1,4 +1,4 @@
-"""`scripts/check_claims.py`'s ADR-index and assignment-target checks, against synthetic corpora.
+"""`check_claims.py`'s ADR-index, assignment-target and fired-trigger checks, on synthetic corpora.
 
 These are the first tests the script has had. Its four earlier checks are verified only by
 running against the live corpus, and there a check that works and a check that cannot fire
@@ -389,3 +389,124 @@ def test_a_missing_register_is_reported_rather_than_passing(write: Write) -> Non
 
     assert len(findings) == 1
     assert "no '## Deferred gaps' section" in findings[0][2]
+
+
+# --- check_fired_triggers_are_recorded ----------------------------------------------------
+
+# M6.3 carries the `— done` marker and M7.1 does not, so one milestone has shipped and the
+# other has not. Kept separate from `_MILESTONE` above, whose issues carry no marker and on
+# whose absence the assignment tests depend.
+_DONE_MILESTONES = (
+    "## Milestone 6 — Risk / Decision Engine (Weeks 9-11)\n\n"
+    "- **M6.3 — Scoring persistence + API** — done\n"
+    "  Module: `risk_engine`\n\n"
+    "## Milestone 7 — Security Brief (Weeks 11-12)\n\n"
+    "- **M7.1 — ExplanationProviderPort + LLM adapter**\n"
+    "  Module: `brief`\n\n"
+)
+
+
+def _gap(body: str, *, status: str = "open") -> str:
+    """One register entry whose `Deferral rationale:` line carries `body`."""
+    return (
+        "### G64 — A gap\n"
+        f"Confirmed: M6.2 · Status: {status}\n"
+        "Blocks-if-unresolved: x\n"
+        f"Deferral rationale: it is deferred. {body}\n"
+    )
+
+
+def _fired(write: Write, register: str) -> Findings:
+    _roadmap(write, register, milestones=_DONE_MILESTONES)
+    return _run(check_claims.check_fired_triggers_are_recorded)
+
+
+def test_a_fired_trigger_with_no_history_line_is_reported(write: Write) -> None:
+    findings = _fired(write, _gap("Trigger: **M6.3's ranked endpoint**."))
+
+    assert len(findings) == 1
+    path, line, message = findings[0]
+    assert path == "docs/ROADMAP.md"
+    lines = (check_claims.ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8").splitlines()
+    assert lines[line - 1] == "### G64 — A gap"
+    assert message.startswith("gap 'G64 — A gap' names M6.3 as a trigger and M6.3 is marked done")
+
+
+def test_a_fired_trigger_named_in_a_history_header_passes(write: Write) -> None:
+    body = "Trigger: **M6.3's ranked endpoint**.\nNote (2026-09-16, M6.3): **it fired.**"
+
+    assert _fired(write, _gap(body)) == []
+
+
+def test_an_id_in_a_history_lines_body_does_not_count_as_recorded(write: Write) -> None:
+    """The mention failure that passed G33 and G61 while their own dated note was deleted."""
+    body = "Trigger: **M6.3's ranked endpoint**.\nNote (2026-09-16): **the M6.3 trigger fired.**"
+
+    findings = _fired(write, _gap(body))
+
+    assert len(findings) == 1
+    assert "no history line's header names M6.3" in findings[0][2]
+
+
+def test_a_trigger_naming_an_unstarted_milestone_is_not_reported(write: Write) -> None:
+    assert _fired(write, _gap("Trigger: **M7.1**, the first consumer.")) == []
+
+
+def test_a_resolved_entry_is_skipped(write: Write) -> None:
+    """A resolved entry's trigger is spent by definition, so it is never read."""
+    assert _fired(write, _gap("Trigger: **M6.3**.", status="resolved → M6.3")) == []
+
+
+def test_an_unbolded_trigger_target_is_invisible(write: Write) -> None:
+    """Pins the widest documented hole, so it cannot widen or close unnoticed."""
+    assert _fired(write, _gap("Trigger: M6.3's ranked endpoint.")) == []
+
+
+def test_a_milestone_in_prose_after_the_trigger_is_not_a_target(write: Write) -> None:
+    """G21's shape: its `Trigger:` clause ends 'Do it the way M5.0 did ruff'."""
+    body = "Trigger: **the next time the file is opened**. Do it the way M6.3 did it."
+
+    assert _fired(write, _gap(body)) == []
+
+
+def test_a_colonless_re_point_inside_a_history_line_is_read(write: Write) -> None:
+    """G33's shape: a trigger re-pointed inside a `Note`, with no colon before the bold.
+
+    That line's header names M6.1, so nothing records M6.3 and the re-pointed trigger is
+    the thing that must be caught.
+    """
+    body = (
+        "Trigger: **M7.1**.\n"
+        "Note (2026-09-16, M6.1): **x.** Re-entry trigger re-points to **M6.3**."
+    )
+
+    findings = _fired(write, _gap(body))
+
+    assert len(findings) == 1
+    assert "names M6.3 as a trigger" in findings[0][2]
+
+
+def test_a_struck_trigger_is_still_read(write: Write) -> None:
+    """A struck trigger is a SPENT one, which is the case this check exists for."""
+    findings = _fired(write, _gap("Trigger: ~~**M6.3's endpoint**~~ *(fired)*."))
+
+    assert len(findings) == 1
+    assert "names M6.3 as a trigger" in findings[0][2]
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["Note", "Rewritten", "Resolution", "Discharge", "Assignment", "Split", "Update"],
+)
+def test_every_history_prefix_records_not_only_note(write: Write, prefix: str) -> None:
+    """G42 recorded its fired M5.9 trigger under `Rewritten`, not under `Note`."""
+    body = f"Trigger: **M6.3's endpoint**.\n{prefix} (2026-09-16, M6.3): **it fired.**"
+
+    assert _fired(write, _gap(body)) == []
+
+
+def test_an_issue_without_the_done_marker_has_not_fired(write: Write) -> None:
+    milestones = _DONE_MILESTONES.replace("Scoring persistence + API** — done", "Scoring**")
+    _roadmap(write, _gap("Trigger: **M6.3's endpoint**."), milestones=milestones)
+
+    assert _run(check_claims.check_fired_triggers_are_recorded) == []

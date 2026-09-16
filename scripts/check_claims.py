@@ -57,6 +57,26 @@ ADR_INDEX = "docs/adr/README.md"
 # An issue id as ROADMAP.md writes one in a heading: `M5.6`, `M10.2`.
 ISSUE_ID = r"M\d+\.\d+"
 
+# A LABELLED trigger, the only form `check_fired_triggers_are_recorded` reads:
+# `Trigger:`, `Re-entry trigger:`, `Trigger sharpens to:`, and — with the colon
+# OPTIONAL before a bold — `Re-entry trigger re-points to **M7.1**`, which is how G33
+# moves its own trigger and is therefore one of this register's established forms.
+# The lookahead tolerates a leading `~~` because a STRUCK trigger is a spent one, and a
+# spent trigger is the case this check exists for: G61's reads
+# `Trigger: ~~**M6.3's endpoint, measured**~~`. Demanding `**` immediately after the
+# colon instead would drop G61, G38, G59 and G67 ENTIRELY and in silence — measured by
+# comparing both directions, because the first version of this widening was checked for
+# what it gained and not for what it lost, and it lost four entries including G61.
+TRIGGER_LABEL = re.compile(r"[Tt]rigger[a-z]*(?:\s+[a-z-]+){0,3}\s*:?\s*(?=[~*]*\*\*)")
+
+# A trigger's TARGET is bolded by this register's convention. `~~**M6.3**~~` counts:
+# a struck trigger is a spent one, which is the case that check exists for.
+BOLD_ISSUE = re.compile(rf"\*\*~*\s*({ISSUE_ID})")
+
+# The seven dated forms this register opens a history line with. Not `Note` alone —
+# G42 recorded its fired trigger under `Rewritten (2026-09-08, M5.9 commit 1)`.
+HISTORY_LINE = re.compile(r"^(?:Note|Rewritten|Resolution|Discharge|Assignment|Split|Update)\b")
+
 # Confirmations after which a deferred gap must be assigned or explicitly
 # justified. Three, because three is where G1 broke: M3.4 and M3.5 were
 # reasonable deferrals, and by M3.6 the repetition was information nobody acted on.
@@ -424,6 +444,151 @@ def check_assignments_name_real_issues(findings: list[tuple[str, int, str]]) -> 
             )
 
 
+def _history_header(line: str) -> str:
+    """A history line's header: its label and parenthetical, and nothing after them.
+
+    Ends at the earliest of the line's first bold, its first `: ` or its first spaced
+    em dash. Keyed this tightly because the loose version — "everything before the first
+    bold" — is the WHOLE LINE on a history line that carries no bold, and that is the
+    mention-keying this module exists to avoid. Re-derived over this register: of 153
+    history lines, **16 carry no bold at all, and 12 of those 16 hold an issue id in
+    their prose that their header does not** — G24's and G29's identical
+    `Note (2026-08-27): the assignment moved from M5.4 to M5.9 when …` would otherwise
+    record both ids, having recorded neither, and G1's and G12's `Resolution:` lines
+    the same. None of the 12 changes a verdict today, so the defect is latent rather
+    than live, which is exactly the condition under which it would have been adopted
+    and never noticed.
+    """
+    end = len(line)
+    for marker in ("**", ": ", " — "):
+        position = line.find(marker)
+        if position != -1:
+            end = min(end, position)
+    return line[:end]
+
+
+def check_fired_triggers_are_recorded(findings: list[tuple[str, int, str]]) -> None:
+    """An open gap whose trigger named a milestone that has since shipped must say so.
+
+    The class this catches: a `Trigger:` aimed at an event that has already happened.
+    Such an entry surfaces to nobody — it is waiting for a thing that is behind it —
+    which is G1's failure shape exactly, and it does not fail
+    `check_deferred_gaps_are_escalated`, since that guard counts `Confirmed:` entries
+    and a spent trigger adds none. Found by hand seven times at the M5→M6 boundary
+    and twice more inside M6 (G61's trigger, spent by the commit that wrote it; G33's,
+    three commits earlier), each time by reading the register against `git log` — which
+    step 3 of the boundary review does not ask anyone to do.
+
+    **Both sides are keyed on an anchor, never on a mention**, which is the lesson
+    `check_adrs_are_indexed` records about the 13 ADRs a mention-keyed check would have
+    made invisible. Measured over this register at introduction, a mention anchor was
+    wrong in both directions:
+
+    * **The trigger side takes a bolded id after a trigger LABEL** — `Trigger:`,
+      `Re-entry trigger:`, `Trigger sharpens to:`. Keying on the bare word `trigger`
+      sweeps up prose instead. **Measured under the configuration this check actually
+      ships — both sides reading every line — 13 of the 52 SCANNED entries would report
+      a fired trigger that is not one; the shipped anchor reports none.**
+
+      **The span, stated once and used by every count in this docstring.** SCANNED means
+      the **52** register entries whose `Status:` does not begin `resolved`, out of 66.
+      That **includes the three that are assigned** — G17, G18, G61 — because an
+      assignment does not spend a trigger: G61's own trigger names M8.2, the issue it is
+      assigned to, so marking M8.2 done must make G61 fire. Counting the assigned three
+      as closed instead gives 49 scanned and 17 with a target, and that is the whole of
+      the difference between the two readings. Both figures are stated with their span
+      because a bare count here is not re-derivable, and a coverage number about a guard
+      is the one number that has to be. *(The configuration matters as much as the span:
+      an earlier count of four false positives was taken while the trigger side skipped
+      history lines.)* G21's is the clearest of the 13:
+      its `Trigger:` clause ends *"Do it the way M5.0 did ruff"*, where `M5.0` is an
+      example of how to do the work and not a thing to wait for. The register bolds a trigger's
+      target, so the bold is what distinguishes the two — and because the bold carries
+      the meaning, the colon does not have to: a label followed directly by a bolded id
+      counts, which is what makes G33's `Re-entry trigger re-points to **M7.1**`
+      readable. **An UNBOLDED target is invisible here**, and that is the widest hole
+      this check has.
+    * **The recorded side takes an id from the history line's HEADER**, never from its
+      body — see `_history_header` for where a header ends and why it is bounded that
+      tightly. Scanning whole history lines passed G33 and G61 while their own dated
+      note was deleted, because a *second* note mentioned the milestone in passing.
+      That is the mention failure arriving inside the fix for it. Note the header is
+      not required to carry a DATE: `Note (M5.1):` and `Resolution (M5.1):` are both
+      forms this register already uses.
+
+    History lines are the seven dated forms this register uses — `Note`, `Rewritten`,
+    `Resolution`, `Discharge`, `Assignment`, `Split`, `Update` — and not `Note` alone:
+    G42 recorded its fired M5.9 trigger under `Rewritten (2026-09-08, M5.9 commit 1)`,
+    in full, and a `Note`-only anchor would have failed the one entry that did the job
+    thoroughly.
+
+    Scope, stated because each exclusion is a place this check is silent. Resolved
+    entries are skipped — their trigger is spent by definition. A trigger naming no
+    `M<n>.<n>` is invisible here, which is 34 of those same 52 scanned entries, most
+    of them keyed on an event rather than an issue (*"any workflow gaining a
+    `pull_request_target` trigger"*). And nothing here requires an entry to HAVE a
+    trigger; that is a rule M6 set for new entries and not a property of the 66 already
+    written.
+    """
+    lines = _read(ROADMAP).splitlines()
+
+    done_issues: set[str] = set()
+    in_milestone = False
+    for line in lines:
+        if line.startswith("## "):
+            in_milestone = line.startswith("## Milestone ")
+        elif (
+            in_milestone
+            and re.search(r"— done\b", line)
+            and (match := re.match(rf"- \*\*({ISSUE_ID}) — ", line))
+        ):
+            done_issues.add(match.group(1))
+
+    register = _h2_section(lines, lambda heading: heading.startswith("## Deferred gaps"))
+    if register is None:
+        findings.append(
+            (ROADMAP, 1, "no '## Deferred gaps' section, so no trigger can be verified")
+        )
+        return
+    register_start, register_lines = register
+
+    entries: list[tuple[int, str, list[str]]] = []
+    for offset, line in enumerate(register_lines):
+        if line.startswith("### "):
+            entries.append((register_start + offset + 1, line.removeprefix("### ").strip(), []))
+        elif entries:
+            entries[-1][2].append(line)
+
+    for line_number, title, body in entries:
+        status = re.search(r"^Confirmed:.*?Status:\s*(.+)$", "\n".join(body), flags=re.MULTILINE)
+        value = (status.group(1) if status else "").strip().lstrip("*`_ ").lower()
+        if value.startswith("resolved"):
+            continue
+
+        targets: set[str] = set()
+        recorded: set[str] = set()
+        for entry_line in body:
+            if HISTORY_LINE.match(entry_line):
+                recorded.update(re.findall(ISSUE_ID, _history_header(entry_line)))
+            # Both sides read every line, because a history line may also RE-POINT a
+            # trigger: G33 re-points its own inside a `Note`, which is this register's
+            # established way of doing it. Skipping history lines here would make the
+            # one shape that moves a trigger the one shape this check cannot read.
+            for label in TRIGGER_LABEL.finditer(entry_line):
+                targets.update(BOLD_ISSUE.findall(entry_line[label.end() :]))
+
+        for issue in sorted((targets & done_issues) - recorded):
+            findings.append(
+                (
+                    ROADMAP,
+                    line_number,
+                    f"gap '{title}' names {issue} as a trigger and {issue} is marked done, "
+                    f"but no history line's header names {issue} — the trigger has "
+                    f"fired and the entry does not say so",
+                )
+            )
+
+
 def report_type_suppressions() -> list[str]:
     """Reports, and deliberately does not block on, type/lint suppressions.
 
@@ -467,6 +632,7 @@ CHECKS = (
     check_deferred_gaps_are_escalated,
     check_adrs_are_indexed,
     check_assignments_name_real_issues,
+    check_fired_triggers_are_recorded,
 )
 
 
