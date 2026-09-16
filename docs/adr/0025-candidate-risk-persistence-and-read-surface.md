@@ -256,11 +256,40 @@ ADR's query was rewritten; the slower plan here serves a whole project for stric
 
 **What this does NOT measure, named as a trigger rather than left to be found later.** It is
 2,000 findings in one project — a volume ADR-0022 chose for a different question. **No project
-an order of magnitude larger has been measured**, and this cost scales with a project's finding
-count rather than with the number of projects. Measuring one now would be scaling with no
+an order of magnitude larger has been measured**, and ~~this cost scales with a project's finding
+count rather than with the number of projects~~ *(**struck 2026-09-16, M6.3 — falsified, not
+narrowed.** On the `Hash Right Join` plan — 5 of the 8 runs this ADR recorded — the evidence side
+is a `Seq Scan` over the **whole table**, not the project's slice. Re-measured at M6.3 at this
+same volume: `Seq Scan on evidence e … rows=100000 … actual time=0.042..11.312`, and of the 11.312 ms that scan
+costs inside that run's **25.943 ms** read, all but the measured project's own 2,000 rows —
+**roughly 11.1 ms** — is spent on other projects' evidence, so the cost grows with the corpus as
+well as with the project. *(M6.3 ran this benchmark **twice**, and the two are kept distinguishable
+rather than averaged or conflated: the figures here are the **first** run, which read 25.943 ms; the
+second read **26.661 ms** on the same `Hash Right Join` plan and is the one every end-to-end ratio
+in G61 and ADR-0030 is taken against — so a reader meeting 4.08× elsewhere is meeting 108.8 ÷ 26.661
+and not a disagreement with this paragraph. ADR-0030's Consequences names both runs in one
+sentence.)* The struck clause is the ground this paragraph's trigger was
+written on, so the trigger is widened by the same note: a project an order of magnitude larger is
+no longer the only way to reach a bad number — enough OTHER projects will do it. Recorded beside
+the measurement that falsifies it, in ADR-0030's Consequences.)* Measuring one now would be scaling with no
 consumer, which this repo refuses elsewhere (ADR-016 decision 3). **Trigger: the first project
 an order of magnitude beyond the measured 2,000 findings, or any report of a slow Risk
 listing.**
+
+***(Note 2026-09-16, M6.3: **the number arrived and it meets this paragraph's own criterion.**
+Measured end to end rather than by `EXPLAIN` — which this ADR's figures are, and which understate a
+request's cost by **4.08×** at this volume — one `get_by_project_id` has a median of **108.8 ms**,
+and the gap between the unscored and scored routes is 115.3 ms at the medians. **The doubled read
+is therefore the larger term on every estimator** (94.4% of the gap at the medians, 52.9% at the
+minima, 73.9% at the maxima), and per-request purity is precisely what buys that doubling. **What that settles is the SHAPE of
+the cost, not the badness of the number:** the criterion below is *cheap to recompute*, this
+document sets no threshold on purpose, and the only scale it offers — 763 ms for ADR-0022's
+pre-rewrite query — sits above the 259.5 ms measured here at a worst-case grouping. The argument
+for re-opening decision 1 is therefore that **the dominant term is the one production shape cannot
+reduce**, and it is put in front of whoever takes the amendment rather than settled here. M6.3 does not take it: its scope is a read surface and it declined the optional
+write at design time. The escalation, the full readings and the conditions are in **G61** and in
+ADR-0030's Consequences. Recorded here rather than only there, because this is the paragraph a
+later reader checks the criterion against.)***
 
 **A bad number is evidence AGAINST decision 1, not a tuning task — this is the one thing about
 this ADR that is easiest to get wrong at implementation time.** Decision 1 rests on a candidate

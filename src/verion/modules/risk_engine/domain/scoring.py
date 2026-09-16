@@ -259,3 +259,48 @@ def score_surface(
         priority=bucket_for(priority_score),
         reasoning=RiskReasoning(severity=severity, exposure=exposure, corroboration=corroboration),
     )
+
+
+def _rank_order(surface: ScoredSurface) -> tuple[int, str, bool, str, bool, str, str]:
+    """`correlation`'s `_group_order` tuple, behind a descending score.
+
+    **Copied rather than imported**, for the reason that function gives about copying
+    `_representative_key`: it is private and sits on the far side of
+    `cross-module-risk-engine`. `None` sorts before a value (`False < True`), and the
+    lowest member id is the final tiebreak — unique across surfaces, so no two can tie
+    on it and the order is total rather than merely deterministic.
+
+    A surface with no members sorts on an empty id. `score_surface` admits one
+    (`test_a_surface_with_no_members_scores_zero_rather_than_raising`) while
+    `group_by_match_key` cannot produce one, so this is a totality guard rather than a
+    reachable case.
+    """
+    return (
+        -surface.priority_score,
+        surface.project_id,
+        surface.package is not None,
+        surface.package or "",
+        surface.url is not None,
+        surface.url or "",
+        surface.finding_ids[0] if surface.finding_ids else "",
+    )
+
+
+def rank_surfaces(surfaces: Sequence[ScoredSurface]) -> list[ScoredSurface]:
+    """Highest priority first, tie-broken so the order AGREES with the unscored listing.
+
+    **In `domain/` rather than in the route**, per ADR-0030 decision 2: an ordering
+    contract living in an inbound adapter is one no unit test reaches. `ComputeRiskUseCase`
+    deliberately does not call this — it returns `correlation`'s group order, and
+    `test_the_order_is_correlations_group_order_and_not_a_priority_order` pins that — so
+    ranking enters only at the use case behind the scored route.
+
+    **Descending `priority_score`, then `_group_order`'s own tuple.** Within one bucket the
+    two routes therefore return the same relative order, and a reader comparing them sees
+    one order refined rather than two unrelated ones. That agreement is an invariant across
+    two modules, one of them private, so `tests/unit/test_ranking.py` imports **both**
+    orderings and asserts they agree on a tie: a copied invariant with nothing checking it
+    is a prose claim over a silent divergence, which is this project's recorded failure
+    class.
+    """
+    return sorted(surfaces, key=_rank_order)

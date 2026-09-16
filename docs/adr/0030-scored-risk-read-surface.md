@@ -11,8 +11,10 @@ makes those tests pass.
 ## Context
 
 M6.2 shipped `score_surface`, `ComputeRiskUseCase` and `correlation`'s first published port, and
-**no route** — `platform/di.py` wires `ComputeRiskUseCaseDep` with a comment saying nothing consumes
-it yet. M6.3's roadmap bullet is titled *"Scoring persistence + API"*, and **as that bullet stood at
+**no route** — `platform/di.py` wired `ComputeRiskUseCaseDep` with a comment saying nothing consumed
+it yet. *(That comment is gone as of this ADR's second commit, which replaced it with the consumer's
+name; the sentence is past tense rather than struck, because it is the state this decision was taken
+against.)* M6.3's roadmap bullet is titled *"Scoring persistence + API"*, and **as that bullet stood at
 `2b38d3b`, immediately before this commit**, two of its three dated annotations had removed the
 first half: ADR-0025 decision 1 makes a candidate Risk a projection, and ADR-0005 decision 3 scores
 per request persisting nothing. The third added an obligation rather than removing one — ADR-0022
@@ -216,6 +218,50 @@ Goal in the same commit** — a qualification and not a strike, since two of FR-
 outputs ship — so that no window exists in which the roadmap asserts a goal it did not meet.
 
 **This takes M6's second and last ADR slot**, per the budget G63's note records.
+
+### The measurement decision 7 owed, and it does not support the decision that prompted it
+
+Taken 2026-09-16 at ADR-0025's volume — 100,000 findings across 50 projects, 2,000 in the measured
+project by its own guard counts — with one discarded warm-up per subject and eight readings each,
+all printed:
+
+| subject | min | median | max |
+|---|---|---|---|
+| `get_by_project_id`, end to end | 84.1 | **108.8** | 136.6 |
+| `GET /risks` — ONE read | 94.8 | 144.1 | 150.9 |
+| `GET /scored-risks` — TWO reads + scoring | 253.8 | 259.5 | 335.8 |
+
+Query 5's plan reproduced ADR-0025's slower mode both times it was run: `Hash Right Join` with a
+`Seq Scan` over all 100,000 evidence rows, `Execution Time` 25.943 then 26.661 ms.
+
+**The doubled read is the larger term on every estimator** — it covers 94.4% of the route gap at
+the medians, 52.9% at the minima and 73.9% at the maxima. Eight readings with this dispersion do
+not pin it tighter than *between about half and nearly all*, and decision 7's upper-bound condition
+applies to the residual rather than to this: the 6.5–74.9 ms left over is scoring over **2,000
+singleton surfaces**, the worst case, which real grouping shrinks — while the read term is
+shape-independent and does not.
+
+**End to end is 4.08× `EXPLAIN`'s server-side figure** (108.8 against 26.661), the difference being
+driver round-trip, transfer of 2,000 rows ~872 bytes wide, and hydration. An earlier reading
+subtracted the `EXPLAIN` number from an end-to-end difference and concluded the second read was the
+*minor* half — **16.6% at that run's medians, 18.1% at its minima**, re-derived from its own output
+rather than restated. That is backwards, and it is recorded here rather than quietly corrected
+because **G61** is the entry that would have inherited it. ADR-0025 had already warned against
+exactly this — *"do not quote the milliseconds as production latency"*.
+
+**What this does to ADR-0025 decision 1.** That ADR states a bad number is *"evidence AGAINST
+decision 1, not a tuning task"*, and that cost-forced persistence would be *"an amendment to this
+document and not a follow-up"*. Per-request purity buys the doubling, and the doubling is the
+dominant term. **That is a claim about how the cost SPLITS, and it is not by itself the claim that
+the premise failed** — the criterion is *cheap to recompute*, a read at 94% of a 5 ms gap would
+falsify nothing, ADR-0025 sets no threshold deliberately, and the only scale it offers is the
+**763 ms** it records for ADR-0022's pre-rewrite query against **259.5 ms** here at a worst-case
+shape. What the measurement does establish is the **shape**: the dominant term is the one
+production grouping cannot shrink, while the residual is the one it can. This ADR does not take the
+amendment — M6.3's scope is a read surface and the write was declined at design time — and it does
+not overstate the finding to compensate.
+**G61** carries the escalation and ADR-0025 carries a dated note beside the paragraph that set the
+criterion.
 
 **Register**: **G66** and **G67** are opened by the commit that lands this ADR, which also carries
 **G33**'s dated note — written before any of M6.3's code, since its subject is what M6.2 built.

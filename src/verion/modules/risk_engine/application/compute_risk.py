@@ -24,11 +24,14 @@ class ComputeRiskUseCase:
     score is derived from stored inputs exactly as the grouping is, so there is no `risks`
     table, no upsert, and **G37**'s protected-column obligation stays latent. M8.1 is the
     first issue forced to persist a Risk, because a dismissal is the first value about one
-    that cannot be recomputed; M6.3 may still choose to, and takes G37 with it if it does.
+    that cannot be recomputed; **M6.3 could have written a row and declined to** (ADR-0030),
+    so G37 is unmoved and M8.1 remains the forced one.
 
-    **Returns `correlation`'s group order, NOT a priority order.** Ranking is M6.3's, and
-    sorting here would pre-empt it — `test_risks_routes.py` already pins that the M5.2
-    listing carries no priority order, and this use case has no route of its own yet.
+    **Returns `correlation`'s group order, NOT a priority order.** Ranking is
+    `ListScoredRisksUseCase`'s, above this one, and sorting here would pre-empt it —
+    `test_risks_routes.py` pins that the M5.2 listing carries no priority order, and
+    `test_the_order_is_correlations_group_order_and_not_a_priority_order` pins that this use
+    case does not acquire one now that a route above it does have one.
 
     Authorization is the port's: `candidate_risks` refuses before reading anything and
     raises `CandidateRiskAccessDenied`, which this module deliberately does not catch — it

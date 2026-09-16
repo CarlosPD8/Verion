@@ -8,6 +8,7 @@ from verion.modules.correlation.adapters.inbound.api.router import router as ris
 from verion.modules.identity.adapters.inbound.api.router import router as identity_router
 from verion.modules.normalization.adapters.inbound.api.router import router as findings_router
 from verion.modules.projects.adapters.inbound.api.router import router as projects_router
+from verion.modules.risk_engine.adapters.inbound.api.router import router as scored_risks_router
 from verion.modules.scanning.adapters.inbound.api.router import router as scanning_router
 from verion.platform.settings import get_settings
 
@@ -47,6 +48,12 @@ def create_app() -> FastAPI:
     # the same reason `findings_router` does. Paths stay disjoint: /risks here,
     # /findings there.
     app.include_router(risks_router, prefix="/projects", tags=["risks"])
+    # `risk_engine`'s scored read, M6.3. Same prefix and the same reason again; the
+    # path is /scored-risks, disjoint from /risks. It deliberately does NOT hang off
+    # /risks/{something} — ADR-0025 decision 1 gives a candidate Risk no id, and a
+    # literal segment sitting where a future {risk_id} would go is a collision
+    # waiting for M8.1 (ADR-0030 decision 1).
+    app.include_router(scored_risks_router, prefix="/projects", tags=["risks"])
     app.include_router(scanning_router, prefix="/scanning", tags=["scanning"])
 
     return app

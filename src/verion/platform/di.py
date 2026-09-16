@@ -94,6 +94,7 @@ from verion.modules.projects.ports.serving_declaration_repository import (
 )
 from verion.modules.projects.ports.vcs_provider import VcsProviderPort
 from verion.modules.risk_engine.application.compute_risk import ComputeRiskUseCase
+from verion.modules.risk_engine.application.list_scored_risks import ListScoredRisksUseCase
 from verion.modules.scanning.adapters.outbound.db.repository import (
     PostgresScanRepository,
     PostgresScanResultRepository,
@@ -734,9 +735,11 @@ def get_candidate_risk_port(correlate: CorrelateFindingsUseCaseDep) -> Candidate
 CandidateRiskPortDep = Annotated[CandidateRiskPort, Depends(get_candidate_risk_port)]
 
 
-# No route consumes this yet — M6.3 adds the ranked endpoint, and ADR-0005 decision 3 has
-# this use case persist nothing, so there is no worker path either. It is wired here so the
-# conformance site above exists alongside the code it checks.
+# Consumed by `get_list_scored_risks_use_case` below, which M6.3's route consumes. Until
+# that route shipped this factory had no consumer at all and was wired so the conformance
+# site above would exist alongside the code it checks; that is no longer the reason it is
+# here. ADR-0005 decision 3 still has this use case persist nothing, so there is no worker
+# path — the only caller is the read surface.
 def get_compute_risk_use_case(
     candidate_risks: CandidateRiskPortDep, findings: FindingRepositoryDep
 ) -> ComputeRiskUseCase:
@@ -744,3 +747,18 @@ def get_compute_risk_use_case(
 
 
 ComputeRiskUseCaseDep = Annotated[ComputeRiskUseCase, Depends(get_compute_risk_use_case)]
+
+
+# M6.3's read surface. Request-scoped, so not @lru_cache'd: it reaches `DbSessionDep`
+# through both of its dependencies, and caching it would leak a stale session across
+# requests (rule 15).
+def get_list_scored_risks_use_case(
+    compute: ComputeRiskUseCaseDep,
+    normalization_runs: NormalizationRunRepositoryDep,
+) -> ListScoredRisksUseCase:
+    return ListScoredRisksUseCase(compute=compute, normalization_runs=normalization_runs)
+
+
+ListScoredRisksUseCaseDep = Annotated[
+    ListScoredRisksUseCase, Depends(get_list_scored_risks_use_case)
+]

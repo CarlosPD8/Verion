@@ -64,6 +64,26 @@ disconnected from reality — arriving through a seed script rather than through
 linter or a redacted fixture. It is registered as **G19** so the next person
 writing one of these meets it before repeating it, not after.
 
+**Extended at M6.3 to measure a scored REQUEST, and what it gained is two rows
+per project and nothing else.** `ProjectAccessPort` refuses a read without a
+membership row, so `projects` and `project_memberships` rows had to arrive before
+the endpoint could be reached at all. **No generated finding value changed** —
+which is the short answer G19's trigger asks for, since no emitted field moved
+and therefore no shape question moved with it.
+
+**What the request figures do and do not say.** Every finding here carries
+`package: None` and `url: None`, so 2,000 findings become 2,000 **singleton**
+surfaces, each single-source with corroboration 0. That is the worst case for
+per-surface overhead and it is **not** a production grouping, so the Python-side
+cost below is an **UPPER BOUND reported with its shape beside it** and must never
+be quoted as "a scored request costs X ms". What it does measure honestly is
+**G61**'s actual subject: `/risks` performs ONE `get_by_project_id` and
+`/scored-risks` performs TWO plus the scoring pass, so the difference between the
+two routes is the doubling, measured rather than inferred. The read itself is
+grouping-independent — same statement, same rows — though populating
+`package`/`url` would widen them, which is why each plan is reported rather than
+assumed.
+
 Usage:
 
     uv run python scripts/seed_findings_benchmark.py --projects 50 --findings-per-project 2000
@@ -80,15 +100,26 @@ import asyncio
 import hashlib
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx2
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from verion.modules.identity.adapters.outbound.security.jwt_issuer import (  # noqa: E402
+    JwtAccessTokenIssuer,
+)
+from verion.modules.normalization.adapters.outbound.db.repository import (  # noqa: E402
+    PostgresFindingRepository,
+)
+from verion.modules.projects.domain.project import Role  # noqa: E402
+from verion.platform.app import app  # noqa: E402
+from verion.platform.clock import SystemClock  # noqa: E402
 from verion.platform.settings import get_settings  # noqa: E402
 from verion.shared_kernel.scanner_tools import ScannerTool  # noqa: E402
 from verion.shared_kernel.severity import Severity  # noqa: E402
@@ -97,6 +128,11 @@ from verion.shared_kernel.severity import Severity  # noqa: E402
 # rows and never a real one. Chosen rather than "truncate the tables" because
 # somebody will eventually run this against a database that has something in it.
 _MARK = "bench-"
+
+# The owner of every seeded project, and the subject of the token the request
+# measurement signs. One user for all of them: `may_read_project` asks whether a
+# membership row exists, so a second user would model more than the port exposes.
+_MEMBER = f"{_MARK}member"
 
 # The same marker for ids that must fit `String(36)` in UUID shape — it is the
 # first group of the UUID rather than a prefix on it, so cleanup can still match
@@ -131,6 +167,35 @@ def _ensure_schema() -> None:
 def _month(index: int, *, minute: int = 0, day_offset: int = 0) -> datetime:
     """asyncpg binds real datetimes, not ISO strings, and rejects the latter."""
     return datetime(2026, index + 1, 1, 0, minute, tzinfo=UTC) + timedelta(seconds=day_offset)
+
+
+def _project_rows(projects: int) -> tuple[list[dict], list[dict]]:
+    """A project row and an owner membership per seeded project. **M6.3's only new data.**
+
+    `ProjectAccessPort` refuses a project-scoped read without a membership row, so the
+    request measurement cannot reach the endpoint at all without these two. They are the
+    whole of what this script's generated data gained, and deliberately so: every finding
+    value is untouched, so **G19**'s shape question is unchanged rather than re-answered.
+
+    `role` is written from `Role.OWNER` rather than the literal `"owner"`, so a renamed
+    member fails here instead of silently seeding a row no authorization rule matches.
+    """
+    project_rows: list[dict] = []
+    membership_rows: list[dict] = []
+    for index in range(projects):
+        project_id = f"{_MARK}project-{index}"
+        project_rows.append(
+            {
+                "id": project_id,
+                "owner_id": _MEMBER,
+                "name": f"Benchmark project {index}",
+                "created_at": _month(0),
+            }
+        )
+        membership_rows.append(
+            {"project_id": project_id, "user_id": _MEMBER, "role": str(Role.OWNER)}
+        )
+    return project_rows, membership_rows
 
 
 def _rows(
@@ -228,6 +293,17 @@ def _rows(
 
 
 _INSERTS = {
+    # Projects and their memberships come first: `findings` carries no foreign key to
+    # either (ADR-0017 decision 1, and G11 records what that costs), but the membership
+    # row does, and `ProjectAccessPort` reads it on every request measured below.
+    "projects": (
+        "INSERT INTO projects (id, owner_id, name, created_at)"
+        " VALUES (:id, :owner_id, :name, :created_at)"
+    ),
+    "project_memberships": (
+        "INSERT INTO project_memberships (project_id, user_id, role)"
+        " VALUES (:project_id, :user_id, :role)"
+    ),
     "normalization_runs": (
         "INSERT INTO normalization_runs (id, scan_id, project_id, status, requested_at,"
         " started_at, finished_at, failure_reason) VALUES (:id, :scan_id, :project_id,"
@@ -338,10 +414,135 @@ _GUARD_COUNTS: dict[str, str] = {
 }
 
 
-async def _run(projects: int, per_project: int, runs_per_project: int, keep: bool) -> None:
+async def _measure_reads(project_id: str, runs: int) -> None:
+    """Time ONE `get_by_project_id` END TO END, on the same footing as the requests below.
+
+    **This function exists because `EXPLAIN` and a request are not comparable, and an
+    earlier reading of this script's output compared them anyway.** `EXPLAIN (ANALYZE)`
+    reports server-side `Execution Time` only. It does not include the driver round-trip,
+    the transfer of every returned row, or SQLAlchemy's hydration of them into `Finding`
+    entities — and at 2,000 rows roughly 871 bytes wide (see query 5's plan) those steps
+    usually dominate. Subtracting a 26 ms `Execution Time` from a 156 ms difference between
+    two routes therefore says **nothing** about how that difference splits, which is exactly
+    the claim **G61** exists to settle.
+
+    Timed with `perf_counter` around the port call, exactly as the routes are timed, so the
+    read term and the route difference are finally the same kind of number.
+
+    Its own engine rather than the caller's, so the read is not served from a connection the
+    app has already warmed; the discarded warm-up below then covers first-connection cost
+    the same way it does for the routes.
+    """
+    engine = create_async_engine(get_settings().database_url)
+    try:
+        timings: list[float] = []
+        returned = 0
+        async with AsyncSession(engine) as session:
+            repository = PostgresFindingRepository(session)
+            await repository.get_by_project_id(project_id)  # discarded warm-up
+            for _ in range(runs):
+                started = time.perf_counter()
+                findings = await repository.get_by_project_id(project_id)
+                timings.append((time.perf_counter() - started) * 1000)
+                returned = len(findings)
+        print("\n=== get_by_project_id — ONE read, end to end ===")
+        print(f"findings returned: {returned:,} (driver round-trip + transfer + hydration)")
+        print("ms, ascending: " + ", ".join(f"{value:.1f}" for value in sorted(timings)))
+    finally:
+        await engine.dispose()
+
+
+async def _measure_requests(project_id: str, runs: int) -> None:
+    """Time a SCORED request against the unscored one, and the read term against both.
+
+    `GET /risks` performs ONE `get_by_project_id`; `GET /scored-risks` performs TWO plus the
+    scoring and ranking pass. **The difference between the two route rows is therefore the
+    second read PLUS the scoring pass, and the difference alone does not say how it
+    splits** — which is why `_measure_reads` runs first and on the same footing. An earlier
+    version of this docstring claimed the difference *was* the doubling measured; it is not,
+    and **G61** is precisely the entry that would have inherited that error.
+
+    Every reading is printed, never an average: ADR-0025 found this project's evidence join
+    **bimodal** over eight runs, and a mean would name a latency no run produced.
+
+    Goes through the real app over an ASGI transport, so the route, its DI graph and
+    `CorrelationCandidateRisks` are all genuinely constructed. The lifespan is deliberately
+    not run — `ASGITransport` does not invoke it — so no Redis pool is created; nothing on
+    this path touches the job queue.
+    """
+    await _measure_reads(project_id, runs)
+
+    settings = get_settings()
+    issuer = JwtAccessTokenIssuer(
+        secret_key=settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+        expires_minutes=settings.jwt_expires_minutes,
+        clock=SystemClock(),
+    )
+    headers = {"Authorization": f"Bearer {issuer.issue(subject=_MEMBER).value}"}
+
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(
+        transport=transport, base_url="http://bench", timeout=300.0
+    ) as client:
+        for label, path in (
+            ("GET /risks — ONE findings read, no scoring", f"/projects/{project_id}/risks"),
+            (
+                "GET /scored-risks — TWO findings reads, plus scoring and ranking",
+                f"/projects/{project_id}/scored-risks",
+            ),
+        ):
+            # ONE DISCARDED WARM-UP PER ROUTE, and it is not tidiness. Observed while
+            # developing this at the 50-finding smoke volume, without the warm-up: the first
+            # route read 12.2 and 142.5 ms while the second — by then warm — read 17.0 and
+            # 20.8. **That run's output was not captured**, so those four figures are the
+            # observation that motivated the discard and NOT a measurement of record; the
+            # reproducible ones are in ADR-0030's Consequences. The outlier is one-time
+            # process setup (the engine's first connection, the DI graph, Pydantic's
+            # validator construction) landing on whichever request happens to go first, so
+            # leaving it in would let ROUTE ORDER decide the comparison this function
+            # exists to make, and would show the one-read route as slower than the
+            # two-read one. Discarded rather than reported, because it measures process
+            # startup and G61 is about the per-request doubling.
+            await client.get(path, headers=headers)
+
+            timings: list[float] = []
+            body: dict = {}
+            for _ in range(runs):
+                started = time.perf_counter()
+                response = await client.get(path, headers=headers)
+                timings.append((time.perf_counter() - started) * 1000)
+                if response.status_code != 200:
+                    raise SystemExit(
+                        f"{path} returned {response.status_code}: {response.text[:300]}"
+                    )
+                body = response.json()
+            print(f"\n=== {label} ===")
+            print(f"surfaces in the project: {body['total']:,} (page of {len(body['items'])})")
+            print("ms, ascending: " + ", ".join(f"{value:.1f}" for value in sorted(timings)))
+
+    print(
+        "\nREAD THE ROUTE ROWS AS A DIFFERENCE, NOT AS A LATENCY. Every seeded finding\n"
+        "carries package=None and url=None, so each one is a NO-SIGNAL singleton: the totals\n"
+        "above are one surface per finding, which is the worst case for per-surface overhead\n"
+        "and is not a production grouping. The scored figure is therefore an UPPER BOUND on\n"
+        "the Python-side cost, and must not be quoted as 'a scored request costs X ms'.\n"
+        "\n"
+        "AND DO NOT SUBTRACT THE EXPLAIN FIGURE FROM THE ROUTE DIFFERENCE. Query 5's\n"
+        "Execution Time is server-side only; the read row above is the same read measured\n"
+        "end to end, and it is the ONLY one of the two that is commensurable with the route\n"
+        "rows. The route difference is the second read PLUS scoring; the read row is what\n"
+        "says how much of it is the read. That split is G61's whole subject."
+    )
+
+
+async def _run(
+    projects: int, per_project: int, runs_per_project: int, keep: bool, request_runs: int
+) -> None:
     _ensure_schema()
     engine = create_async_engine(get_settings().database_url)
     findings, evidence, sightings, runs = _rows(projects, per_project, runs_per_project)
+    project_rows, membership_rows = _project_rows(projects)
 
     print(
         f"seeding {len(findings):,} findings, {len(evidence):,} evidence rows, "
@@ -349,7 +550,11 @@ async def _run(projects: int, per_project: int, runs_per_project: int, keep: boo
     )
     try:
         async with engine.begin() as conn:
+            # Projects and memberships FIRST: `project_memberships` carries a foreign key
+            # to `projects`, and `ProjectAccessPort` reads it on every measured request.
             for table, rows in (
+                ("projects", project_rows),
+                ("project_memberships", membership_rows),
                 ("normalization_runs", runs),
                 ("findings", findings),
                 ("evidence", evidence),
@@ -373,6 +578,10 @@ async def _run(projects: int, per_project: int, runs_per_project: int, keep: boo
                 print(f"\n=== {label} ===")
                 for row in plan:
                     print(row[0])
+
+        # After the plans, and against the same seeded rows: M6.3's own deliverable.
+        if request_runs:
+            await _measure_requests(f"{_MARK}project-0", request_runs)
     finally:
         if not keep:
             async with engine.begin() as conn:
@@ -388,6 +597,14 @@ async def _run(projects: int, per_project: int, runs_per_project: int, keep: boo
                 )
                 await conn.execute(
                     text("DELETE FROM normalization_runs WHERE id LIKE :m"), {"m": f"{_MARK}%"}
+                )
+                # Reverse foreign-key order: the membership references the project.
+                await conn.execute(
+                    text("DELETE FROM project_memberships WHERE user_id LIKE :m"),
+                    {"m": f"{_MARK}%"},
+                )
+                await conn.execute(
+                    text("DELETE FROM projects WHERE id LIKE :m"), {"m": f"{_MARK}%"}
                 )
         await engine.dispose()
 
@@ -413,8 +630,22 @@ def main() -> None:
     parser.add_argument(
         "--keep", action="store_true", help="leave the seeded rows in place afterwards"
     )
+    # M6.3's own deliverable. Eight is ADR-0030 decision 7's floor, and it is that number
+    # because ADR-0025 found this project's evidence join BIMODAL over exactly eight runs —
+    # fewer would report one plan as though it were the only one. `--request-runs 0` skips
+    # the request measurement and leaves the EXPLAIN plans above, which is what a
+    # schema-only re-run wants.
+    parser.add_argument("--request-runs", type=int, default=8)
     args = parser.parse_args()
-    asyncio.run(_run(args.projects, args.findings_per_project, args.runs_per_project, args.keep))
+    asyncio.run(
+        _run(
+            args.projects,
+            args.findings_per_project,
+            args.runs_per_project,
+            args.keep,
+            args.request_runs,
+        )
+    )
 
 
 if __name__ == "__main__":
