@@ -99,6 +99,25 @@ def _decision_from_json(stored: Any) -> ExplainableDecision:
         ) from None
 
 
+def _what_happened(model: SecurityBriefModel) -> Explanation | None:
+    """The second narration, or `None` for a Brief written before M7.3.
+
+    `ck_security_briefs_what_happened_all_or_none` makes a partial row impossible, so testing
+    all three is a type narrowing, not a policy.
+    """
+    if (
+        model.what_happened is None
+        or model.what_happened_model is None
+        or model.what_happened_prompt_version is None
+    ):
+        return None
+    return Explanation(
+        text=model.what_happened,
+        model=model.what_happened_model,
+        prompt_version=model.what_happened_prompt_version,
+    )
+
+
 def _to_domain(model: SecurityBriefModel) -> SecurityBrief:
     return SecurityBrief(
         id=model.id,
@@ -108,6 +127,7 @@ def _to_domain(model: SecurityBriefModel) -> SecurityBrief:
         explanation=Explanation(
             text=model.why_it_matters, model=model.model, prompt_version=model.prompt_version
         ),
+        what_happened=_what_happened(model),
         generated_at=model.generated_at,
     )
 
@@ -129,6 +149,11 @@ class PostgresSecurityBriefRepository:
                 why_it_matters=brief.explanation.text,
                 model=brief.explanation.model,
                 prompt_version=brief.explanation.prompt_version,
+                what_happened=brief.what_happened.text if brief.what_happened else None,
+                what_happened_model=brief.what_happened.model if brief.what_happened else None,
+                what_happened_prompt_version=(
+                    brief.what_happened.prompt_version if brief.what_happened else None
+                ),
                 generated_at=brief.generated_at,
             )
         )

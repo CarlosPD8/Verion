@@ -2,10 +2,15 @@ from typing import Any
 
 import httpx2
 
+from verion.modules.brief.adapters.outbound.explanation.describe_prompt import (
+    DESCRIBE_PROMPT_VERSION,
+    build_describe_messages,
+)
 from verion.modules.brief.adapters.outbound.explanation.prompt import (
     PROMPT_VERSION,
     build_messages,
 )
+from verion.modules.brief.domain.brief_member import BriefMember
 from verion.modules.brief.domain.exceptions import ExplanationUnavailable
 from verion.modules.brief.domain.explanation import Explanation
 from verion.modules.risk_engine.ports.explainable_decision import ExplainableDecision
@@ -17,9 +22,10 @@ _CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
 # UNMEASURED. Nothing in CI calls OpenAI, so this is a placeholder bound, not a measured
 # latency. M7.2's `POST /projects/{project_id}/briefs` is the first production call path and
-# does not measure it either: measuring needs real calls, and the capture that would provide
-# them is not taken, because `_parse` discards `usage` and recording a response whole needs
-# tooling and an adapter change M7.2 does not make (ADR-0032's 2026-09-17 amendment).
+# did not measure it: measuring needs real calls, and no script to record them existed. No
+# adapter change is needed for that — the `transport=` seam below suffices (ADR-0032's first M7.3
+# amendment strikes the earlier claim that one was). M7.3's capture measures it over both
+# `explain` and `describe` (ADR-0034 decision 7).
 _TIMEOUT_SECONDS = 30.0
 
 # OpenAI's reasoning guide: "reserve at least 25,000 tokens for reasoning and outputs when
@@ -30,7 +36,10 @@ _MAX_COMPLETION_TOKENS = 25_000
 
 
 class OpenAIExplanationProvider:
-    """`ExplanationProviderPort` over OpenAI's Chat Completions API, by raw HTTP (M7.1).
+    """`ExplanationProviderPort` over OpenAI's Chat Completions API, by raw HTTP (M7.1, M7.3).
+
+    **`explain` and `describe` are two requests through one path**, differing only in their
+    messages and prompt version. Everything below holds for both.
 
     **The credential goes in exactly one place: the `Authorization: Bearer` header.** Never
     in the URL, never in an exception, never in a log (rules 12 and 13's spirit).
@@ -64,9 +73,22 @@ class OpenAIExplanationProvider:
         self._transport = transport
 
     async def explain(self, *, decision: ExplainableDecision) -> Explanation:
+        return await self._complete(build_messages(decision), prompt_version=PROMPT_VERSION)
+
+    async def describe(self, *, members: tuple[BriefMember, ...], member_count: int) -> Explanation:
+        # A separate request with its own messages: the decision never reaches this prompt, and
+        # these members never reach `explain`'s (ADR-0034 decision 3).
+        return await self._complete(
+            build_describe_messages(members, member_count=member_count),
+            prompt_version=DESCRIBE_PROMPT_VERSION,
+        )
+
+    async def _complete(
+        self, messages: list[dict[str, str]], *, prompt_version: str
+    ) -> Explanation:
         body = {
             "model": self._model,
-            "messages": build_messages(decision),
+            "messages": messages,
             "max_completion_tokens": _MAX_COMPLETION_TOKENS,
             "store": False,
         }
@@ -85,10 +107,10 @@ class OpenAIExplanationProvider:
         if response.status_code != 200:
             raise ExplanationUnavailable(f"OpenAI answered HTTP {response.status_code}") from None
 
-        return _parse(response)
+        return _parse(response, prompt_version=prompt_version)
 
 
-def _parse(response: httpx2.Response) -> Explanation:
+def _parse(response: httpx2.Response, *, prompt_version: str) -> Explanation:
     """Read the one field set this adapter relies on, trusting none of it.
 
     Shapes from openai-python's `ChatCompletion`: `choices[].message.content: str | None`,
@@ -127,7 +149,7 @@ def _parse(response: httpx2.Response) -> Explanation:
     if not isinstance(model, str) or not model:
         raise ExplanationUnavailable("OpenAI answered without naming its model") from None
 
-    return Explanation(text=content.strip(), model=model, prompt_version=PROMPT_VERSION)
+    return Explanation(text=content.strip(), model=model, prompt_version=prompt_version)
 
 
 _FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter", "function_call"})

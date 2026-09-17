@@ -32,7 +32,8 @@ from verion.shared_kernel.severity import Severity
 
 # ADR-0032 decision 2's enumeration. Binding: the test below asserts EQUALITY, so adding
 # `package`, `url`, `finding_ids` or `project_id` fails here instead of widening the prompt
-# boundary silently — scanned content in the prompt is M7.3's scope.
+# boundary silently. Since M7.3 scanned content reaches a separate prompt through `brief`'s
+# `BriefMember`, never through this carrier (ADR-0034 decisions 2 and 3).
 _DECISION_FIELDS = {
     "priority",
     "priority_score",

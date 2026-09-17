@@ -9,12 +9,14 @@ from verion.modules.brief.adapters.inbound.api.schemas import (
     GenerateSecurityBriefRequest,
     ProjectSecurityBriefsResponse,
     SecurityBriefResponse,
+    WhatHappenedResponse,
 )
 from verion.modules.brief.application.list_security_briefs import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
 )
 from verion.modules.brief.domain.exceptions import (
+    BriefMemberMissing,
     ExplanationUnavailable,
     SecurityBriefAccessDenied,
     StoredBriefUnreadable,
@@ -46,6 +48,7 @@ _NO_CURRENT_RISK = (
 _INCONSISTENT = "This project's Risks could not be scored consistently."
 _NARRATION_UNAVAILABLE = "The Brief could not be generated. Nothing was stored."
 _UNREADABLE = "A stored Brief for this project could not be read."
+_MEMBER_MISSING = "A finding in this Risk could not be read."
 
 
 def _signal_response(signal: ExplainableSignal) -> BriefSignalResponse:
@@ -64,6 +67,15 @@ def _brief_response(brief: SecurityBrief) -> SecurityBriefResponse:
         id=brief.id,
         finding_ids=list(brief.finding_ids),
         why_it_matters=brief.explanation.text,
+        what_happened=(
+            None
+            if brief.what_happened is None
+            else WhatHappenedResponse(
+                text=brief.what_happened.text,
+                model=brief.what_happened.model,
+                prompt_version=brief.what_happened.prompt_version,
+            )
+        ),
         priority=decision.priority,
         priority_score=decision.priority_score,
         # The STORED thresholds, never today's constants: this is the decision as narrated.
@@ -94,9 +106,11 @@ async def generate_security_brief(
 ) -> SecurityBriefResponse:
     """Narrate the current Risk whose members are exactly `finding_ids`, and store the Brief.
 
-    **Every call is a billed provider call and writes a new row.** Generation is append-only,
+    **Every call is two billed provider calls and writes a new row** (ADR-0034 decision 3): one
+    narrates what the members report, one why the priority is what it is. Both succeed or
+    nothing is stored. Generation is append-only,
     so a second call for the same set is a regeneration, not a no-op (ADR-0033 decision 3). It
-    is synchronous, holding this request open across the call, and nothing bounds repeats
+    is synchronous, holding this request open across both calls, and nothing bounds repeats
     (**G73**).
 
     **The set selects; it does not address.** If findings joined or left the surface since the
@@ -125,7 +139,15 @@ async def generate_security_brief(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INCONSISTENT
         ) from exc
+    except BriefMemberMissing as exc:
+        # The same class of broken invariant, one read later (ADR-0034 decision 2). Raised
+        # before any provider call, so nothing was billed.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_MEMBER_MISSING
+        ) from exc
     except ExplanationUnavailable as exc:
+        # Also `WhatHappenedRejected`, its subclass: a narrative failing output validation is,
+        # to the caller, no usable narrative (ADR-0034 decision 5).
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=_NARRATION_UNAVAILABLE
         ) from exc

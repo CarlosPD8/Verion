@@ -25,6 +25,10 @@ import traceback
 import httpx2
 import pytest
 
+from verion.modules.brief.adapters.outbound.explanation.describe_prompt import (
+    DESCRIBE_PROMPT_VERSION,
+    build_describe_messages,
+)
 from verion.modules.brief.adapters.outbound.explanation.openai_adapter import (
     OpenAIExplanationProvider,
 )
@@ -32,9 +36,16 @@ from verion.modules.brief.adapters.outbound.explanation.prompt import (
     PROMPT_VERSION,
     build_messages,
 )
+from verion.modules.brief.domain.brief_member import BriefMember
 from verion.modules.brief.domain.exceptions import ExplanationUnavailable
 from verion.modules.risk_engine.application.explainable_decision import explainable_decision
-from verion.modules.risk_engine.domain.scoring import SurfaceMember, score_surface
+from verion.modules.risk_engine.domain.scoring import (
+    CORROBORATION_DEFINITION,
+    EXPOSURE_DEFINITION,
+    SEVERITY_DEFINITION,
+    SurfaceMember,
+    score_surface,
+)
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -246,3 +257,111 @@ async def test_an_unusable_200_is_unavailable(response, message):
         await provider.explain(decision=_decision())
 
     assert _leaks(exc_info.value) == []
+
+
+# --- describe (M7.3, ADR-0034) ----------------------------------------------------------
+
+
+# Sentinel member values: none of them may reach the priority request.
+_MEMBER_SENTINELS = ("TITLE-SENTINEL", "app-SENTINEL.py", "pkg-SENTINEL", "/path-SENTINEL")
+
+
+def _members() -> tuple[BriefMember, ...]:
+    return (
+        BriefMember.from_scalars(
+            finding_id="f-1",
+            source=ScannerTool.SEMGREP,
+            title=_MEMBER_SENTINELS[0],
+            file_path=_MEMBER_SENTINELS[1],
+            start_line=28,
+            end_line=28,
+            package=None,
+            installed_version=None,
+            url=None,
+            http_method=None,
+            parameter=None,
+        ),
+        BriefMember.from_scalars(
+            finding_id="f-2",
+            source=ScannerTool.ZAP,
+            title="Path Traversal",
+            file_path=None,
+            start_line=None,
+            end_line=None,
+            package=_MEMBER_SENTINELS[2],
+            installed_version=None,
+            url=_MEMBER_SENTINELS[3],
+            http_method="GET",
+            parameter="expr",
+        ),
+    )
+
+
+async def test_describe_is_one_post_with_the_same_four_body_keys_and_its_own_messages():
+    provider, requests = _provider(lambda _: httpx2.Response(200, json=_completion()))
+
+    explanation = await provider.describe(members=_members(), member_count=2)
+
+    assert len(requests) == 1
+    body = json.loads(requests[0].content)
+    assert set(body) == {"model", "messages", "max_completion_tokens", "store"}
+    assert body["store"] is False
+    assert body["messages"] == build_describe_messages(_members(), member_count=2)
+    assert requests[0].headers["Authorization"] == f"Bearer {_KEY}"
+    assert explanation.prompt_version == DESCRIBE_PROMPT_VERSION
+
+
+async def test_the_priority_request_carries_no_member_byte_and_the_member_request_no_decision():
+    """**M5, cross-call separation, over the bodies actually sent** (ADR-0034 decision 3).
+
+    Mutations "pass members into explain" and "render the decision into describe" each fail
+    here. **Three requests, describe then explain then describe**, so input carried across calls
+    in EITHER direction lands in a body this test reads. The decision is `fix_now` at 6, so its
+    bucket, score line, thresholds and three definitions are all distinctive strings.
+    """
+    provider, requests = _provider(lambda _: httpx2.Response(200, json=_completion()))
+    decision = _decision()
+
+    await provider.describe(members=_members(), member_count=2)
+    await provider.explain(decision=decision)
+    await provider.describe(members=_members(), member_count=2)
+
+    first_describe, explain_body, second_describe = (r.content.decode() for r in requests)
+    for sentinel in _MEMBER_SENTINELS:
+        assert sentinel in first_describe
+        assert sentinel in second_describe
+        assert sentinel not in explain_body
+    assert decision.priority == "fix_now"
+    for decision_text in (
+        "fix_now",
+        f"score {decision.priority_score}",
+        "Thresholds:",
+        json.dumps(SEVERITY_DEFINITION)[1:-1],
+        json.dumps(EXPOSURE_DEFINITION)[1:-1],
+        json.dumps(CORROBORATION_DEFINITION)[1:-1],
+    ):
+        assert decision_text in explain_body
+        assert decision_text not in first_describe
+        assert decision_text not in second_describe
+
+
+async def test_an_echoing_401_on_describe_leaks_no_part_of_the_key(caplog):
+    caplog.set_level(logging.DEBUG)
+    provider, _ = _provider(lambda _: httpx2.Response(401, json=_ECHOING_401))
+
+    with pytest.raises(ExplanationUnavailable) as exc_info:
+        await provider.describe(members=_members(), member_count=2)
+
+    assert str(exc_info.value) == "OpenAI answered HTTP 401"
+    assert exc_info.value.__cause__ is None
+    assert _leaks(exc_info.value) == []
+    assert not [fragment for fragment in (_KEY, *_KEY_FRAGMENTS) if fragment in caplog.text]
+
+
+async def test_an_unusable_describe_200_is_unavailable():
+    provider, _ = _provider(
+        lambda _: httpx2.Response(200, json=_completion(finish_reason="length"))
+    )
+
+    with pytest.raises(ExplanationUnavailable, match="finish_reason length"):
+        await provider.describe(members=_members(), member_count=2)

@@ -196,4 +196,4 @@ If a suggestion from that skill conflicts with any rule elsewhere in this file, 
 - Don't build a SAST/SCA/DAST engine from scratch — Verion integrates existing tools, it doesn't replace them (see `PRODUCT_SPEC.md` §2 for the explicit rationale).
 - Don't add V2-scope features (automated PR remediation, attack graphs, MCP/LLM security scanning, cloud/CSPM, Jira/Slack integration) without an explicit decision to pull them into the current roadmap.
 - Don't let a scanner adapter's output format leak into `correlation/` or `risk_engine/` — everything downstream of `normalization/` speaks only the common `Finding` schema.
-- Don't interpolate raw scanned source/finding content directly into an LLM prompt without going through the sanitization step defined for the Explanation Layer (`ROADMAP.md` M7.3) — scanned content is untrusted input.
+- Don't interpolate raw scanned source/finding content directly into an LLM prompt without going through the sanitization step defined for the Explanation Layer (ADR-0034, `PRODUCT_SPEC.md` §11.8; `BriefMember` and `describe_prompt.py`) — scanned content is untrusted input.

@@ -46,9 +46,12 @@ class ExplainableDecision:
 
     **What is deliberately absent, and is the boundary this issue ends at:** `project_id`,
     `package`, `url` and `finding_ids`. `package` and `url` are scanned content — a Trivy
-    `PkgName`, a ZAP path or a route derived from scanned source — and scanned content in a
-    prompt is M7.3's scope. A test asserts this field set EQUALS its enumeration, so adding
-    one of them fails rather than widening the boundary silently (ADR-0032 decision 2).
+    `PkgName`, a ZAP path or a route derived from scanned source. **Since M7.3 scanned content
+    does reach a prompt, and never through this carrier**: `brief` reads members' typed fields
+    into its own `BriefMember` for a separate `describe` call, so the priority narrative stays
+    free of it (ADR-0034 decisions 2 and 3). A test asserts this field set EQUALS its
+    enumeration, so adding one of them fails rather than widening the boundary silently
+    (ADR-0032 decision 2).
 
     **Stored whole by `brief` since M7.2** (ADR-0033 decision 2). A change to this type's
     fields, or to `ExplainableSignal`'s, fails `brief`'s pinned v1 test, and must bump the

@@ -222,7 +222,7 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     decision 7's departure. That capture is not taken in M7.2: `OpenAIExplanationProvider._parse`
     reads only `choices` and `model` and discards `usage`, so recording the response whole needs
     recording tooling that does not exist in `scripts/`~~, and a transport or adapter change M7.2 does
-    not make~~. *(Clause STRUCK 2026-09-17 as false; see the M7.3 amendment below.)*
+    not make~~. *(Clause STRUCK 2026-09-17 as false; see the first M7.3 amendment below.)*
   - **Result.** The timeout stays **30 s and UNMEASURED**, and its measurement moves to that capture.
     The Consequences paragraph on narration cost is unaffected.
 - **2026-09-17 (M7.2, ADR-0033): decision 1's closing sentence is qualified, not struck.**

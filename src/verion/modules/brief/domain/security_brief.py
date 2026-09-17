@@ -20,15 +20,20 @@ class SecurityBrief:
     FR-9's link, and what a client joins on against `/scored-risks`. No route resolves a Risk
     by it (ADR-0033 decision 1).
 
-    **`decision` and `explanation` are held whole, not copied field by field.** The live
-    score can move for an unchanged member set, so what was narrated has to be stored to stay
-    re-derivable (rule 5) and checkable against its narrative (rule 6). A copy would store
-    without any field the carrier later gains, which is G33's narrowing at a storage boundary.
+    **`decision`, `explanation` and `what_happened` are held whole, not copied field by field.**
+    The live score can move for an unchanged member set, so what was narrated has to be stored
+    to stay re-derivable (rule 5) and checkable against its narrative (rule 6). A copy would
+    store without any field the carrier later gains, which is G33's narrowing at a storage
+    boundary.
 
-    Two of FR-8's six parts: *why it matters* is `explanation.text`, and *evidence sources* is
-    `finding_ids`. **Deliberately absent**, each with a test asserting the field set:
-    `risk_id`, `what_happened`, `recommended_action` and `estimated_effort` (**G74**), and
-    `confidence` (**G63**).
+    Three of FR-8's six parts: *why it matters* is `explanation.text`, *evidence sources* is
+    `finding_ids`, and *what happened* is `what_happened.text` (ADR-0034). **Two narrations, each
+    with its own producer**: `explanation` was written from the decision alone, and
+    `what_happened` from the members' typed titles and locations alone, by separate calls.
+
+    **`what_happened` is `None` only for a Brief written before M7.3.** Generation never writes
+    `None`. **Deliberately absent**, each with a test asserting the field set: `risk_id`,
+    `recommended_action` and `estimated_effort` (**G74**), and `confidence` (**G63**).
     """
 
     id: str
@@ -36,4 +41,5 @@ class SecurityBrief:
     finding_ids: tuple[str, ...]
     decision: ExplainableDecision
     explanation: Explanation
+    what_happened: Explanation | None
     generated_at: datetime

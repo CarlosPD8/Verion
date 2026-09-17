@@ -35,6 +35,13 @@ class SecurityBriefModel(Base):
         # and the count, and `generated_at DESC` serves the page order without a sort. The
         # `ix_normalization_runs_project_id` idiom.
         Index("ix_security_briefs_project_id", "project_id", desc("generated_at")),
+        # M7.3, ADR-0034: the second narration is stored whole or not at all. All three are
+        # NULL exactly for a Brief written before M7.3; generation never writes a partial one.
+        CheckConstraint(
+            "(what_happened IS NULL) = (what_happened_model IS NULL)"
+            " AND (what_happened IS NULL) = (what_happened_prompt_version IS NULL)",
+            name="ck_security_briefs_what_happened_all_or_none",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -47,4 +54,9 @@ class SecurityBriefModel(Base):
     why_it_matters: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String, nullable=False)
     prompt_version: Mapped[str] = mapped_column(String, nullable=False)
+    # The *what happened* narration and its producer (M7.3, ADR-0034 decision 3). Nullable only
+    # because Briefs written before M7.3 have none, and a narration cannot be backfilled.
+    what_happened: Mapped[str | None] = mapped_column(Text, nullable=True)
+    what_happened_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    what_happened_prompt_version: Mapped[str | None] = mapped_column(String, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

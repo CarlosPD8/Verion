@@ -20,7 +20,11 @@ import httpx2
 import pytest_asyncio
 from sqlalchemy import text
 
-from verion.modules.brief.domain.exceptions import ExplanationUnavailable
+from verion.modules.brief.domain.exceptions import (
+    BriefMemberMissing,
+    ExplanationUnavailable,
+)
+from verion.modules.brief.domain.explanation import Explanation
 from verion.modules.identity.adapters.outbound.security.jwt_issuer import JwtAccessTokenIssuer
 from verion.modules.normalization.adapters.outbound.db.repository import PostgresFindingRepository
 from verion.modules.normalization.domain.finding import Evidence, Finding, Location
@@ -32,7 +36,12 @@ from verion.modules.projects.domain.project import Project, ProjectMembership, R
 from verion.modules.risk_engine.ports.explainable_risk import ExplainableRiskInconsistent
 from verion.platform.app import app
 from verion.platform.clock import SystemClock
-from verion.platform.di import get_clock, get_explainable_risk_port, get_explanation_provider
+from verion.platform.di import (
+    get_clock,
+    get_explainable_risk_port,
+    get_explanation_provider,
+    get_generate_security_brief_use_case,
+)
 from verion.platform.settings import get_settings
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
@@ -49,6 +58,7 @@ _ITEM_KEYS = {
     "id",
     "finding_ids",
     "why_it_matters",
+    "what_happened",
     "priority",
     "priority_score",
     "thresholds",
@@ -58,6 +68,7 @@ _ITEM_KEYS = {
     "generated_at",
 }
 _SIGNAL_KEYS = {"name", "value", "produced_by", "note", "definition"}
+_WHAT_HAPPENED_KEYS = {"text", "model", "prompt_version"}
 _PAGE_KEYS = {"items", "total", "limit", "offset"}
 
 _NO_CURRENT_RISK = (
@@ -207,6 +218,15 @@ async def test_a_brief_stores_exactly_the_decision_the_scored_listing_shows(
     )
     assert brief["model"] == "fake"
     assert len(fake_provider.calls) == 1
+    # The second narration, from the members' typed titles, with its own producer (ADR-0034).
+    assert brief["what_happened"] == {
+        "text": "2 findings: trivy title f-1; trivy title f-2",
+        "model": "fake",
+        "prompt_version": "m7.3-1",
+    }
+    [(members, member_count)] = fake_provider.describe_calls
+    assert [member.finding_id for member in members] == ["f-1", "f-2"]
+    assert member_count == 2
 
     listed = await _list(client)
 
@@ -230,10 +250,14 @@ async def test_every_object_in_the_response_has_exactly_its_enumerated_keys(clie
         assert set(item["reasoning"]) == {"severity", "exposure", "corroboration"}
         for signal in item["reasoning"].values():
             assert set(signal) == _SIGNAL_KEYS
+        assert set(item["what_happened"]) == _WHAT_HAPPENED_KEYS
 
 
 async def test_what_a_brief_does_not_carry(client, db_session):
-    """G63, G74, ADR-0025 decision 1 and ADR-0033 decision 4, each anchored on a real body."""
+    """G63, G74, ADR-0025 decision 1 and ADR-0033 decision 4, each anchored on a real body.
+
+    `what_happened` left this list at M7.3 (ADR-0034); `recommended_action` and
+    `estimated_effort` did not."""
     await _seed_project(db_session)
     await _seed_findings(db_session, _trivy("f-1", "urllib3"))
 
@@ -243,7 +267,6 @@ async def test_what_a_brief_does_not_carry(client, db_session):
     for absent in (
         "confidence",
         "estimated_effort",
-        "what_happened",
         "recommended_action",
         "risk_id",
         "project_id",
@@ -392,7 +415,14 @@ async def test_a_member_whose_role_is_not_owner_may_generate_and_read(client, db
 
 
 class _EchoingFailingProvider:
-    """Fails with a message carrying key-shaped text, as a provider body could (rule 12, G71)."""
+    """Fails with a message carrying key-shaped text, as a provider body could (rule 12, G71).
+
+    `describe` is the first call since M7.3, so it is the one that fails here."""
+
+    async def describe(self, *, members, member_count):
+        raise ExplanationUnavailable(
+            "OpenAI said: Incorrect API key provided: sk-proj-SENTINEL-4f2a"
+        )
 
     async def explain(self, *, decision):
         raise ExplanationUnavailable(
@@ -461,4 +491,92 @@ async def test_an_unreadable_stored_brief_fails_the_list_with_a_fixed_500(client
 
     assert response.status_code == 500
     assert response.json() == {"detail": "A stored Brief for this project could not be read."}
+    assert "SENTINEL" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# M7.3: what_happened on the routes (ADR-0034 decisions 5, 6 and 8)
+# ---------------------------------------------------------------------------
+
+
+async def test_the_list_carries_what_happened_whole(client, db_session):
+    """Decision 6: kept on the list, never dropped or truncated, because its inputs are fields
+    the findings listing already returns in bulk."""
+    await _seed_project(db_session)
+    await _seed_findings(db_session, _trivy("f-1", "urllib3"))
+
+    created = (await _post(client, ["f-1"])).json()
+    listed = (await _list(client)).json()
+
+    assert listed["items"][0]["what_happened"] == created["what_happened"]
+    assert listed["items"][0]["what_happened"]["text"] == "1 findings: trivy title f-1"
+
+
+async def test_a_brief_written_before_m7_3_lists_with_a_null_what_happened(client, db_session):
+    await _seed_project(db_session)
+    await _seed_findings(db_session, _trivy("f-1", "urllib3"))
+    created = (await _post(client, ["f-1"])).json()
+    await db_session.execute(
+        text(
+            "UPDATE security_briefs SET what_happened = NULL, what_happened_model = NULL,"
+            " what_happened_prompt_version = NULL WHERE id = :id"
+        ),
+        {"id": created["id"]},
+    )
+    await db_session.commit()
+
+    listed = await _list(client)
+
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["what_happened"] is None
+
+
+class _RejectingProvider:
+    """Its describe output names a bucket no member supplied, so M6 rejects it."""
+
+    def __init__(self):
+        self.explain_calls = 0
+
+    async def describe(self, *, members, member_count):
+        return Explanation(text="This is fix_now.", model="m", prompt_version="m7.3-1")
+
+    async def explain(self, *, decision):
+        self.explain_calls += 1
+        raise AssertionError("explain must not be called after a rejected describe")
+
+
+async def test_a_rejected_what_happened_is_the_fixed_502_and_stores_nothing(client, db_session):
+    await _seed_project(db_session)
+    await _seed_findings(db_session, _trivy("f-1", "urllib3"))
+    provider = _RejectingProvider()
+    app.dependency_overrides[get_explanation_provider] = lambda: provider
+
+    response = await _post(client, ["f-1"])
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "The Brief could not be generated. Nothing was stored."}
+    assert "fix_now" not in response.text
+    assert provider.explain_calls == 0
+    assert (await _list(client)).json()["total"] == 0
+
+
+class _MemberMissingUseCase:
+    """Stands in for the use case to reach `BriefMemberMissing`, which no real read produces
+    (nothing deletes a finding). **This test does NOT exercise the real use case**; its raise
+    is covered by `tests/unit/test_generate_security_brief.py`."""
+
+    async def execute(self, *, project_id, user_id, finding_ids):
+        raise BriefMemberMissing("Finding 'MEMBER-SENTINEL' is in a scored Risk")
+
+
+async def test_a_member_that_cannot_be_read_back_is_a_fixed_500(client, db_session):
+    await _seed_project(db_session)
+    app.dependency_overrides[get_generate_security_brief_use_case] = _MemberMissingUseCase
+    try:
+        response = await _post(client, ["f-1"])
+    finally:
+        app.dependency_overrides.pop(get_generate_security_brief_use_case, None)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "A finding in this Risk could not be read."}
     assert "SENTINEL" not in response.text

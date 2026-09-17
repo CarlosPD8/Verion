@@ -22,6 +22,11 @@ from verion.shared_kernel.severity import Severity
 _PROJECT = "project-1"
 _OTHER_PROJECT = "project-2"
 _AT = datetime(2026, 1, 1, tzinfo=UTC)
+_WHAT_HAPPENED = Explanation(
+    text="Semgrep flagged dangerous-eval in app.py at line 28.",
+    model="gpt-5-mini-2025-08-07",
+    prompt_version="m7.3-1",
+)
 
 
 def _brief(
@@ -30,6 +35,7 @@ def _brief(
     project_id: str = _PROJECT,
     finding_ids: tuple[str, ...] = ("f-1", "f-2"),
     generated_at: datetime = _AT,
+    what_happened: Explanation | None = _WHAT_HAPPENED,
 ) -> SecurityBrief:
     surface = score_surface(
         project_id=project_id,
@@ -48,6 +54,7 @@ def _brief(
         explanation=Explanation(
             text=f"narrative {brief_id}", model="gpt-5-mini-2025-08-07", prompt_version="m7.1-1"
         ),
+        what_happened=what_happened,
         generated_at=generated_at,
     )
 
@@ -133,3 +140,59 @@ async def test_an_unreadable_stored_decision_fails_the_read_rather_than_being_sk
         await PostgresSecurityBriefRepository(db_session).list_for_project(
             project_id=_PROJECT, limit=50, offset=0
         )
+
+
+# --- what_happened (M7.3, ADR-0034 decision 3) ---------------------------------------------
+
+
+async def test_a_brief_without_what_happened_round_trips_as_none(db_session):
+    """Only a Brief written before M7.3 has none; the repository must still read it whole."""
+    brief = _brief(brief_id="b-legacy", what_happened=None)
+    await _add(db_session, brief)
+
+    stored = await PostgresSecurityBriefRepository(db_session).list_for_project(
+        project_id=_PROJECT, limit=50, offset=0
+    )
+
+    assert stored == [brief]
+
+
+async def test_a_row_written_before_the_migration_reads_with_no_what_happened(db_session):
+    """The M7.2 insert shape, naming no new column, as rows existing at the migration look."""
+    await _add(db_session, _brief(brief_id="b-good"))
+    await db_session.execute(
+        text(
+            "INSERT INTO security_briefs (id, project_id, finding_ids, decision, why_it_matters,"
+            " model, prompt_version, generated_at) SELECT 'b-old', project_id, finding_ids,"
+            " decision, 'old', 'm', 'm7.1-1', generated_at - interval '1 minute'"
+            " FROM security_briefs WHERE id = 'b-good'"
+        )
+    )
+    await db_session.commit()
+
+    stored = await PostgresSecurityBriefRepository(db_session).list_for_project(
+        project_id=_PROJECT, limit=50, offset=0
+    )
+
+    assert [b.id for b in stored] == ["b-good", "b-old"]
+    assert stored[1].what_happened is None
+    assert stored[1].explanation.text == "old"
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        "what_happened = 'text only'",
+        "what_happened_model = 'm'",
+        "what_happened = 'text', what_happened_model = 'm'",
+        "what_happened_prompt_version = 'v'",
+    ],
+)
+async def test_a_partial_what_happened_is_refused_by_the_database(db_session, columns):
+    """`ck_security_briefs_what_happened_all_or_none`: a narration without its producer, or the
+    reverse, is not a state a Brief can be in."""
+    await _add(db_session, _brief(brief_id="b-1", what_happened=None))
+
+    with pytest.raises(IntegrityError, match="ck_security_briefs_what_happened_all_or_none"):
+        await db_session.execute(text(f"UPDATE security_briefs SET {columns} WHERE id = 'b-1'"))
+    await db_session.rollback()

@@ -51,8 +51,22 @@ class BriefThresholdsResponse(BaseModel):
     plan_at: int
 
 
+class WhatHappenedResponse(BaseModel):
+    """*What happened*, and the producer of that narration (M7.3, ADR-0034).
+
+    A narration of the members' typed titles and locations, written by a separate call from the
+    one behind `why_it_matters`, so it carries its own `model` and `prompt_version`. **Its text
+    derives from scanned content**: the same fields `GET /projects/{project_id}/findings` already
+    lists in bulk, never a finding's `raw_payload` (ADR-0034 decisions 1 and 6).
+    """
+
+    text: str
+    model: str
+    prompt_version: str
+
+
 class SecurityBriefResponse(BaseModel):
-    """One stored Brief. FR-8's *why it matters* and *evidence sources*, and nothing more.
+    """One stored Brief. FR-8's *why it matters*, *what happened* and *evidence sources*.
 
     **`finding_ids` is FR-9's link**: each id is reachable at
     `GET /projects/{project_id}/findings/{finding_id}/evidence`. It is also what a client joins
@@ -63,8 +77,13 @@ class SecurityBriefResponse(BaseModel):
     member's severity can be refreshed without the set changing. Compare `priority_score`
     against `/scored-risks` to see whether it moved.
 
+    **`what_happened` is `null` only for a Brief generated before M7.3**, and is kept whole on
+    the list as well (ADR-0034 decision 6). It is an object, not top-level fields beside
+    `why_it_matters`, `model` and `prompt_version`, so that shipped keys were not renamed; those
+    three remain the *why it matters* narration's.
+
     **Deliberately absent**, each asserted by a test: `confidence` (**G63**);
-    `what_happened`, `recommended_action` and `estimated_effort` (**G74**); `risk_id`, because
+    `recommended_action` and `estimated_effort` (**G74**); `risk_id`, because
     a Risk has no identifier (ADR-0025 decision 1); `project_id`, which is the path parameter
     (ADR-0022 decision 1); and a completeness envelope (ADR-0033 decision 4, **G76**).
     """
@@ -72,6 +91,7 @@ class SecurityBriefResponse(BaseModel):
     id: str
     finding_ids: list[str]
     why_it_matters: str
+    what_happened: WhatHappenedResponse | None
     priority: str
     priority_score: int
     thresholds: BriefThresholdsResponse

@@ -16,10 +16,14 @@ fixture, so it is the same class every consumer uses.
 import httpx2
 import pytest
 
+from verion.modules.brief.adapters.outbound.explanation.describe_prompt import (
+    DESCRIBE_PROMPT_VERSION,
+)
 from verion.modules.brief.adapters.outbound.explanation.openai_adapter import (
     OpenAIExplanationProvider,
 )
 from verion.modules.brief.adapters.outbound.explanation.prompt import PROMPT_VERSION
+from verion.modules.brief.domain.brief_member import BriefMember
 from verion.modules.brief.domain.exceptions import ExplanationUnavailable
 from verion.modules.brief.domain.explanation import Explanation
 from verion.modules.risk_engine.application.explainable_decision import explainable_decision
@@ -91,6 +95,52 @@ async def test_a_provider_returns_a_non_empty_explanation_with_its_producer(make
 async def test_a_failing_provider_raises_only_explanation_unavailable(make):
     with pytest.raises(ExplanationUnavailable):
         await make(fail=True).explain(decision=_decision(*_FIX_NOW))
+
+
+_MEMBERS = (
+    BriefMember.from_scalars(
+        finding_id="f-1",
+        source=ScannerTool.SEMGREP,
+        title="dangerous-eval",
+        file_path="app.py",
+        start_line=28,
+        end_line=28,
+        package=None,
+        installed_version=None,
+        url=None,
+        http_method=None,
+        parameter=None,
+    ),
+)
+
+
+@pytest.mark.parametrize("make", _PROVIDER_NAMES, indirect=True)
+async def test_describe_returns_a_non_empty_explanation_with_its_own_prompt_version(make):
+    """M7.3: the second method holds to the same promises as the first (G65)."""
+    explanation = await make().describe(members=_MEMBERS, member_count=3)
+
+    assert isinstance(explanation, Explanation)
+    assert explanation.text.strip()
+    assert explanation.model
+    assert explanation.prompt_version == DESCRIBE_PROMPT_VERSION
+
+
+@pytest.mark.parametrize("make", _PROVIDER_NAMES, indirect=True)
+async def test_a_failing_describe_raises_only_explanation_unavailable(make):
+    with pytest.raises(ExplanationUnavailable):
+        await make(fail=True).describe(members=_MEMBERS, member_count=1)
+
+
+async def test_the_fake_records_exactly_the_members_and_count_it_was_given(
+    explanation_provider_factory,
+):
+    fake = explanation_provider_factory()
+
+    await fake.describe(members=_MEMBERS, member_count=3)
+
+    assert fake.describe_calls == [(_MEMBERS, 3)]
+    assert fake.describe_calls[0][0] is _MEMBERS
+    assert fake.calls == []
 
 
 async def test_the_fake_records_exactly_the_decision_it_was_given(explanation_provider_factory):

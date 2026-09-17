@@ -3,7 +3,11 @@ from pathlib import Path
 
 import pytest
 
+from verion.modules.brief.adapters.outbound.explanation.describe_prompt import (
+    DESCRIBE_PROMPT_VERSION,
+)
 from verion.modules.brief.adapters.outbound.explanation.prompt import PROMPT_VERSION
+from verion.modules.brief.domain.brief_member import BriefMember
 from verion.modules.brief.domain.exceptions import ExplanationUnavailable
 from verion.modules.brief.domain.explanation import Explanation
 from verion.modules.risk_engine.ports.explainable_decision import ExplainableDecision
@@ -18,8 +22,15 @@ class FakeExplanationProvider:
     passing on prose the Risk Engine did not decide. `fail=True` stands in for every
     provider failure, which the real adapter collapses to the same one exception.
 
+    **`describe` since M7.3**, recording into `describe_calls`. Its text only echoes each
+    member's scanner and title, so it states nothing the members did not supply.
+
+    **It obeys no instructions, so it proves nothing about prompt safety.** A test that feeds it
+    injected text and asserts the Brief is unaffected passes with every sanitizer deleted
+    (ADR-0034 decision 5). Sanitizer tests read the rendered prompt instead.
+
     **Moved here from `tests/integration/test_explanation_provider_contract.py` at M7.2**,
-    unchanged, because M7.2's unit and route tests use it and `tests/` is not a package. It
+    because M7.2's unit and route tests use it and `tests/` is not a package. It
     arrives through `explanation_provider_factory`, which returns this CLASS, so the contract
     test still holds this fake and the real adapter to the same assertions (G65).
     """
@@ -27,6 +38,7 @@ class FakeExplanationProvider:
     def __init__(self, *, fail: bool = False) -> None:
         self._fail = fail
         self.calls: list[ExplainableDecision] = []
+        self.describe_calls: list[tuple[tuple[BriefMember, ...], int]] = []
 
     async def explain(self, *, decision: ExplainableDecision) -> Explanation:
         self.calls.append(decision)
@@ -38,6 +50,15 @@ class FakeExplanationProvider:
             f"{decision.corroboration.value}."
         )
         return Explanation(text=text, model="fake", prompt_version=PROMPT_VERSION)
+
+    async def describe(self, *, members: tuple[BriefMember, ...], member_count: int) -> Explanation:
+        self.describe_calls.append((members, member_count))
+        if self._fail:
+            raise ExplanationUnavailable("fake provider failure")
+        text = f"{member_count} findings: " + "; ".join(
+            f"{member.source} {member.title}" for member in members
+        )
+        return Explanation(text=text, model="fake", prompt_version=DESCRIBE_PROMPT_VERSION)
 
 
 @pytest.fixture

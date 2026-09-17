@@ -1,13 +1,18 @@
-"""The Explanation Layer's prompt: what the model is told, and exactly what it is shown.
+"""The *why it matters* prompt: what the model is told, and exactly what it is shown.
 
 Pure — no I/O — so the wording is unit-tested without a provider (ADR-0032 decision 4).
 
-**What reaches the model is Verion-computed and nothing else**: a bucket name, integers,
+**One of the Explanation Layer's two prompts, and the one that narrates a priority.** Since M7.3
+the other, `describe_prompt.py`, carries scanned member titles and locations (ADR-0034). **This
+one still carries none**, and that is now a design property rather than a scope limit: the
+priority narrative is written from a prompt holding zero attacker-controlled bytes, so rule 6
+holds by construction (ADR-0034 decision 3).
+
+**What reaches the model here is Verion-computed and nothing else**: a bucket name, integers,
 the fixed strings `scoring.py` declares, and severity labels from `shared_kernel`. No
-finding id, no package, no URL, no finding text — so nothing from a scanned repository
-leaves Verion through this prompt, and prompt-injection-via-scanned-content (M7.3) has no
-entry point here. That property belongs to `ExplainableDecision`'s field set, which a test
-pins; this module only has to avoid rendering the ids it does carry.
+finding id, no package, no URL, no finding text — so prompt-injection-via-scanned-content has no
+entry point in THIS prompt. That property belongs to `ExplainableDecision`'s field set, which a
+test pins; this module only has to avoid rendering the ids it does carry.
 
 **G62 is carried, not restated.** Rule 3 below tells the model to describe a signal only in
 its definition's terms, and `CORROBORATION_DEFINITION` — declared beside the function that

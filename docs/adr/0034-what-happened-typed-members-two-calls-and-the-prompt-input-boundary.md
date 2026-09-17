@@ -37,6 +37,7 @@ fixtures** (in memory, no file written):
   CVE-2019-11236's title holds the literal backslash sequence `'\r\n'` (the character `0x5c`, not a
   CR or LF), and CVE-9000-0006's title holds an em dash (`0x2014`). ZAP's `<p>` markup appears only
   in `desc`, `solution` and `otherinfo`, inside `raw_payload`.
+
 **A separate probe, offline and not over the fixtures**, over `httpx2.MockTransport` with synthetic
 responses and no key:
 
@@ -365,7 +366,7 @@ capture commit: **G65** again.
   here"* stays true of that module and becomes false of the Explanation Layer.
 - `ExplainableDecision`'s docstring and the matching comment in `tests/unit/test_explainable_decision.py`.
 - `openai_adapter.py`'s comment above `_TIMEOUT_SECONDS`, which still states as present fact the clause
-  ADR-0032's M7.3 amendment strikes: *"needs tooling and an adapter change M7.2 does not make"*.
+  ADR-0032's first M7.3 amendment strikes: *"needs tooling and an adapter change M7.2 does not make"*.
 - `SecurityBrief`'s and `SecurityBriefResponse`'s docstrings, which list `what_happened` as absent.
 - `ExplanationProviderPort`'s and `GenerateSecurityBriefUseCase`'s docstrings.
 - `ARCHITECTURE.md`'s `SecurityBrief` entity, use-case and port rows, LLM adapter bullet and sequence

@@ -821,6 +821,7 @@ SecurityBriefRepositoryDep = Annotated[
 
 def get_generate_security_brief_use_case(
     explainable_risks: ExplainableRiskPortDep,
+    findings: FindingRepositoryDep,
     explanations: ExplanationProviderDep,
     briefs: SecurityBriefRepositoryDep,
     clock: ClockDep,
@@ -828,6 +829,7 @@ def get_generate_security_brief_use_case(
 ) -> GenerateSecurityBriefUseCase:
     return GenerateSecurityBriefUseCase(
         explainable_risks=explainable_risks,
+        findings=findings,
         explanations=explanations,
         briefs=briefs,
         clock=clock,

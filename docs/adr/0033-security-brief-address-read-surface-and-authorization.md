@@ -337,7 +337,7 @@ until the capture that ends M7.1's departure.
 The capture is not taken because `OpenAIExplanationProvider._parse` reads only `choices` and `model`
 and discards `usage`, so recording the response whole needs recording tooling that does not exist~~
 and a transport or adapter change this issue does not make~~ *(clause struck 2026-09-17 as false;
-ADR-0032's M7.3 amendment)*. The 30 s timeout stays unmeasured for the
+ADR-0032's M7.3 amendment striking the adapter-change clause)*. The 30 s timeout stays unmeasured for the
 same reason. Recorded in ADR-0032's Amendments and in `ROADMAP.md`'s M7.2 entry. The dated line
 that re-dates M7.1's departure belongs to the implementation commit, because that commit is the one
 that first calls `explain`.
@@ -384,7 +384,7 @@ that first calls `explain`.
   keeps it on the list whole, because those inputs are fields the findings listing already returns in
   bulk, and ADR-0022 decision 1 drew the bulk line at `raw_payload`.
 - **2026-09-17 (M7.3): the Consequences clause *"and a transport or adapter change this issue does not
-  make"* is struck in place as false**, for the reason in ADR-0032's M7.3 amendment.
+  make"* is struck in place as false**, for the reason in ADR-0032's M7.3 amendment striking the adapter-change clause.
 
 ## Alternatives considered
 

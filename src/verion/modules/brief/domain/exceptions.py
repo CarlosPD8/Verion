@@ -19,6 +19,28 @@ class ExplanationUnavailable(BriefError):
     """
 
 
+class WhatHappenedRejected(ExplanationUnavailable):
+    """A *what happened* narrative failed output validation (ADR-0034 decision 5, M6).
+
+    **A subclass of `ExplanationUnavailable`**, because to a caller it is the same outcome: no
+    usable narrative, nothing stored, and the route's fixed 502. It is its own type so a test
+    can tell a rejection from a provider failure.
+
+    **Its message names the check that failed and never quotes the output**, which is model text
+    written over scanned content.
+    """
+
+
+class BriefMemberMissing(BriefError):
+    """A finding the engine scored into this Risk could not be read back. A broken invariant.
+
+    Nothing in `src/` deletes a finding, and `get_by_id` is scoped to the project the engine
+    scored, so this means the two reads disagreed. It is raised before any provider call, so
+    nothing is billed and nothing is stored, and the route answers a fixed 500 (ADR-0034
+    decision 2, ADR-0030 decision 5's shape).
+    """
+
+
 class SecurityBriefAccessDenied(BriefError):
     """The caller may not read this project's Briefs.
 
