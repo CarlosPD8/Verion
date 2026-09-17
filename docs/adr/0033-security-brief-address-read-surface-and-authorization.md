@@ -335,8 +335,9 @@ until the capture that ends M7.1's departure.
 
 **That capture is owed and not taken.** M7.2's `POST` is the first call to `explain` outside a test.
 The capture is not taken because `OpenAIExplanationProvider._parse` reads only `choices` and `model`
-and discards `usage`, so recording the response whole needs recording tooling that does not exist
-and a transport or adapter change this issue does not make. The 30 s timeout stays unmeasured for the
+and discards `usage`, so recording the response whole needs recording tooling that does not exist~~
+and a transport or adapter change this issue does not make~~ *(clause struck 2026-09-17 as false;
+ADR-0032's M7.3 amendment)*. The 30 s timeout stays unmeasured for the
 same reason. Recorded in ADR-0032's Amendments and in `ROADMAP.md`'s M7.2 entry. The dated line
 that re-dates M7.1's departure belongs to the implementation commit, because that commit is the one
 that first calls `explain`.
@@ -366,6 +367,24 @@ that first calls `explain`.
   §5.1 and §5.2's rows, including the explanation-provider row saying M7.2's `SecurityBrief` *"is to
   carry"* the narrative; §6.1, §6.2, §7, and §8's `Brief->>` lines and trigger sentence.
 - **`ROADMAP.md`'s M7.1 departure**: the dated line.
+
+## Amendments
+
+- **2026-09-17 (M7.3, ADR-0034): decision 2's rejection of `what_happened` is superseded, and its
+  parts count moves from two of six to three.**
+  - **What decision 2 said.** `what_happened` was rejected as *"scanned content with no producer"*.
+  - **What changed.** ADR-0034 gives it a producer: a second narration, from typed member fields,
+    through a separate provider call. `SecurityBrief` gains `what_happened: Explanation | None`, where
+    `None` means a row written before M7.3. `recommended_action`, `estimated_effort` and `confidence`
+    stay rejected on decision 2's grounds (**G74**, **G63**).
+  - **What does not change.** `decision` and its version, the append-only write, and the list's shape.
+- **2026-09-17 (M7.3, ADR-0034): the Consequences re-read is taken.** *"The list's bulk shape carries no
+  scanned content today … This is re-read when M7.3 widens what the prompt sees."* From M7.3 each item
+  carries *what happened*, prose written over typed member titles and locations. ADR-0034 decision 6
+  keeps it on the list whole, because those inputs are fields the findings listing already returns in
+  bulk, and ADR-0022 decision 1 drew the bulk line at `raw_payload`.
+- **2026-09-17 (M7.3): the Consequences clause *"and a transport or adapter change this issue does not
+  make"* is struck in place as false**, for the reason in ADR-0032's M7.3 amendment.
 
 ## Alternatives considered
 

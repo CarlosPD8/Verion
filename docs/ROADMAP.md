@@ -597,7 +597,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
     - **The departure ends when a captured OpenAI response replaces the schema-derived fixtures** — a 200 and a 401 from the real API, redacted, committed, and replayed by the same tests. That puts this adapter on `GitHubAdapter`'s footing, which is the thing departed from in substance.
     - **The captured 200 keeps its `usage` object whole** *(added 2026-09-17)*: `prompt_tokens`, `completion_tokens`, and `completion_tokens_details`, especially `reasoning_tokens`. Do not trim the fixture to the fields the adapter reads. `gpt-5-mini` is a reasoning model: its reasoning tokens are billed as output and never appear in `content`, so this capture is the **only measurement of what one narration costs**. The per-Brief figure the model was chosen against assumed 250 output tokens and so counted no reasoning tokens. Also record with the capture the one condition the figure depends on: the request sends no `reasoning_effort`, so it measures the model's default effort, and changing that invalidates it. The numbers go into ADR-0032's Consequences. **`Explanation` gains no usage field**: nothing consumes one, on ADR-016 decision 3's and ADR-0021's precedent against speculative fields.
     - **M7.2's first real call path is when the capture becomes OWED, not an end.** A production caller changes nothing that CI exercises; only a capture changes the footing. So the commit that first calls `explain` outside a test either takes the capture or records, in one line, why not, and that line re-dates this departure.
-    - **Re-dated 2026-09-17 (M7.2 commit 2), the first call outside a test.** The capture is not taken because `OpenAIExplanationProvider._parse` reads only `choices` and `model` and discards `usage`, so recording the response whole needs recording tooling that does not exist and a transport or adapter change this issue does not make. The departure stands, and the 30 s timeout stays unmeasured for the same reason.
+    - **Re-dated 2026-09-17 (M7.2 commit 2), the first call outside a test.** The capture is not taken because `OpenAIExplanationProvider._parse` reads only `choices` and `model` and discards `usage`, so recording the response whole needs recording tooling that does not exist~~ and a transport or adapter change this issue does not make~~ *(clause struck 2026-09-17, M7.3, as false: the adapter's `transport=` seam suffices, and only the script was missing; ADR-0032's M7.3 amendment)*. The departure stands, and the 30 s timeout stays unmeasured for the same reason.
     - **Checked at every boundary** by checklist step 5's sub-bullet for this departure.
   - **Delivered.**
     - **`risk_engine`**, a module this entry's `Module:` line does not name: `ports/explainable_decision.py` (`ExplainableDecision`, `ExplainableSignal`); `application/explainable_decision.py`, the one fill site, with no caller in `src/` until M7.2; three `*_DEFINITION` constants in `domain/scoring.py`.
@@ -626,7 +626,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
     - **Stored:** `id`, `project_id`, `finding_ids`, the whole `ExplainableDecision` (versioned JSONB whose keys derive from `dataclasses.fields`), the whole `Explanation`, and `generated_at`. Two of FR-8's six parts. *What happened*, *recommended action* and *estimated effort* are **G74**; confidence is **G63**.
     - **Read:** one list-shaped `GET /projects/{project_id}/briefs`, joined by clients against `/scored-risks` on `finding_ids`, with no completeness envelope (**G76**). Generation is append-only and synchronous (**G73**), and does not refuse while normalization is unfinished.
     - **Authorization:** generation is member-level under G70's read-verdict option, which coincides with owner-gating at HEAD (**G75**). `brief/domain` holding the published carrier is the first cross-module import from any `domain/`, and no contract covers it (**G77**).
-    - **The first production call to `explain` does not take the capture.** The reason is in ADR-0032's 2026-09-17 amendment: `_parse` discards `usage`, and recording the response whole needs tooling and an adapter change this issue does not make.
+    - **The first production call to `explain` does not take the capture.** The reason is in ADR-0032's 2026-09-17 amendment: `_parse` discards `usage`, and recording the response whole needs tooling~~ and an adapter change this issue does not make~~. *(Clause struck 2026-09-17, M7.3, as false; ADR-0032's M7.3 amendment.)*
   - **Delivered.**
     - **`risk_engine`**: `ports/explainable_risk.py` (`ExplainableRisk`, `ExplainableRiskPort`, and three port-declared denials), and `application/explainable_risk_provider.py` (`ScoredExplainableRisks` over `ComputeRiskUseCase`). That makes `explainable_decision`'s first caller.
     - **`brief`**:
@@ -657,6 +657,14 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
   Module: `brief` · Depends on: M7.1
   - Explicit handling for the fact that raw finding/evidence text originates from scanned (potentially untrusted) source code — sanitize/constrain what gets interpolated into the LLM prompt to avoid prompt-injection-via-scanned-content.
   - **Carries G62** (added 2026-09-16): the Brief must not narrate `corroboration_signal` as two tools agreeing.
+  - **Carries G74** (added 2026-09-17): its trigger names this issue, the first place scanned content could reach a prompt.
+  - **Decided in `docs/adr/0034-what-happened-typed-members-two-calls-and-the-prompt-input-boundary.md`** (added 2026-09-17, before any of this issue's code is committed).
+    - **The material.** One new Brief part, *what happened*, written from each member's typed `title` and `Location`. No `raw_payload` is parsed, and `normalization`'s mappers and `Finding` do not change. *Recommended action*, *estimated effort* and *confidence* stay out (**G74**, **G63**). A Semgrep member contributes a rule id, a file and a line, because its title is its rule id.
+    - **The boundary.** `brief` reads members through `FindingRepositoryPort.get_by_id`, after `ExplainableRiskPort`'s verdict, into its own `BriefMember`. `ExplainableDecision` does not change, so the stored decision's version does not.
+    - **Two calls.** `explain`'s prompt stays byte-identical (`m7.1-1`) and holds no attacker-controlled bytes. A new `describe` call narrates the members first; both succeed or nothing is written.
+    - **The sanitizer.** Caps chosen from the measured per-surface aggregate (largest: `urllib3`, 12 members, 1,599 characters), Unicode control and format characters stripped, members JSON-encoded, and `describe` output validated without ever rejecting on text the members supplied. Every mechanism names the test that fails without it.
+    - **The list** keeps *what happened* whole. **The capture** is taken by a script over the adapter's existing `transport=` seam, run by the owner, and lands in its own commit.
+    - **Commits:** this ADR; the implementation; the capture and its replay.
 
 ---
 
@@ -1930,6 +1938,15 @@ Deferral rationale: **the missing parts need an input that no issue has sent yet
 
 Trigger: **M7.3**, the prompt-safety issue and the first place scanned content could reach the prompt; or any proposal to render `Finding` fields into a Brief deterministically.
 
+Note (2026-09-17, M7.3 design commit): **the trigger fired, and M7.3 builds one of the three parts and records the other two as not built** (ADR-0034 decision 1).
+- **Built.** *What happened*, written by a model from each member's typed `title` and `Location` only. **A Semgrep member's contribution is thin and true**: its title is its rule id, so it supplies a rule id, a file path and a line.
+- **Not built: *recommended action*.** Fix guidance exists only inside `Evidence.raw_payload`, and M7.3 parses no payload (`CLAUDE.md`'s sanitization and format-leak rules, ADR-0022 decision 1's opaque payload, and **G7**, which would put matched source lines into a prompt). **Producing it needs typed remediation fields in `normalization`**, with a migration on `findings` and a change to ADR-0019's refresh set.
+- **Not built: *estimated effort*.** The question this entry names, whether an LLM may supply one, stays undecided: M7.3's only new input is titles and locations, which say nothing about effort.
+- **Confidence** stays **G63**'s.
+- **Who owns the remaining work.** Not decided here, and no issue is created: creating one is a roadmap decision. **The owning issue is named at the M7→M8 boundary review, step 3.**
+- **It is forced before M8.3 whatever it is called.** M8.3's bullet specifies Security Brief cards rendering *"why it matters, supporting evidence, recommended action, estimated effort, confidence"*.
+
+Trigger: **the M7→M8 boundary review, step 3**; or any proposal to add a typed remediation field to `Finding`.
 ### G75 — Member-level Brief generation coincides with owner-gating only because nothing in `src/` creates a non-OWNER membership
 Confirmed: M7.2 design commit · Status: open
 Blocks-if-unresolved: **the day a non-owner membership can exist, every such member can spend billed provider calls, and nothing in the system changes colour.**
@@ -1998,6 +2015,17 @@ Deferral rationale: **the missing half is systemic, and its fix is a gate change
 
 Trigger: **M10.3**, the secrets management pass; or **the next key added to `_DEV_ONLY_DEFAULTS`**, whichever is first.
 
+### G79 — The 9,888-character largest-payload figure does not reproduce from the committed fixtures
+Confirmed: M7.3 design commit · Status: open
+Blocks-if-unresolved: **a number quoted as a measurement in five places reproduces from none of them, in the one argument that refuses a stored `Evidence.truncated` column.** Nothing is wrong with that refusal: its conclusion is *"49% of the cap, so the slice has never fired"*, and one character moves neither half. What is wrong is that a reader who re-runs the measurement, as this register asks, gets a different figure and no record of why.
+- **The two measurements.** **9,888** characters, recorded at M4.5 *"across the three committed fixtures"*. **9,887**, measured 2026-09-17 at `63f33cd` by running the three real mappers over all seven committed fixtures (`tests/fixtures/scanners/*.json` and `tests/integration/fixtures/active_scan/zap_active_scan.json`); the largest payload is `trivy_scan.json`'s CVE-2026-21441, and it is the same over the three real captures alone.
+- **An adjacent figure disagrees by the same amount.** `scripts/seed_findings_benchmark.py` cites a range of *"360 chars (semgrep) to 9,888"*. The same run measures the Semgrep capture's one payload at **359**. Both cited figures are exactly one above today's reading, which suggests a difference in how they were measured rather than a change in the corpus. **That cause is not verified.**
+- **The five sites.** `docs/adr/0022-findings-read-api-surface.md` (decision 1, the `payload_truncated` subsection); `docs/ROADMAP.md`, twice (M4.5's `payload_truncated` bullet, and **G16**'s `Deferral rationale:`); `src/verion/modules/normalization/application/get_finding_evidence.py` (`payload_is_truncated`'s docstring); and `scripts/seed_findings_benchmark.py` (the comment above `_PAYLOAD_SIZES`, whose tuple also carries `360` and `9_888`).
+- **How it was found.** M7.3's reconnaissance measured single-field lengths and read 9,887 where ADR-0022 says 9,888. It is not M7.3's to fix, and the number is not changed quietly at any site.
+
+Deferral rationale: **correcting five sites to a figure whose disagreement is unexplained would replace one unverified number with another.** The first step is establishing which measurement is wrong. The M4.5 corpus predates the G23 re-capture, so the check is to re-run the mappers over `git show <pre-G23 sha>:tests/fixtures/scanners/trivy_scan.json` and see which figure it gives. Nothing downstream depends on the exact value.
+
+Trigger: **any change to `MAX_RAW_PAYLOAD_CHARS` or to how a mapper truncates**, which is **G16**'s; **any new citation of either figure**; or **the M7→M8 boundary review, step 2**.
 ## V2 Backlog (explicitly out of this roadmap)
 
 Tracked separately, not scheduled: AI-driven automated remediation, attack graph modeling, MCP/LLM security scanning, cloud/CSPM integration, runtime telemetry, additional scanners, team collaboration, Jira/Slack integrations, advanced analytics, fix-effort prediction as a scored dimension.

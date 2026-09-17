@@ -221,8 +221,8 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
   - **Why.** Measuring needs real calls, and the only planned real call is the capture that ends
     decision 7's departure. That capture is not taken in M7.2: `OpenAIExplanationProvider._parse`
     reads only `choices` and `model` and discards `usage`, so recording the response whole needs
-    recording tooling that does not exist in `scripts/`, and a transport or adapter change M7.2 does
-    not make.
+    recording tooling that does not exist in `scripts/`~~, and a transport or adapter change M7.2 does
+    not make~~. *(Clause STRUCK 2026-09-17 as false; see the M7.3 amendment below.)*
   - **Result.** The timeout stays **30 s and UNMEASURED**, and its measurement moves to that capture.
     The Consequences paragraph on narration cost is unaffected.
 - **2026-09-17 (M7.2, ADR-0033): decision 1's closing sentence is qualified, not struck.**
@@ -232,6 +232,26 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     as data rather than as an address, so no Risk address exists (ADR-0033 decisions 1 and 6).
   - **What still holds.** The obligation the sentence states, that the port carry what identifies the
     Risk at generation.
+- **2026-09-17 (M7.3, ADR-0034): the first amendment's second reason is struck as false.**
+  - **What it said.** Recording a response whole needs *"recording tooling that does not exist in
+    `scripts/`, and a transport or adapter change M7.2 does not make"*.
+  - **What is true.** Only the first half. No shipped code has to change: the adapter's `transport=`
+    parameter, shipped in M7.1 as the test seam, is enough. M7.3's reconnaissance passed a recording
+    wrapper through the **unmodified** adapter, offline over `MockTransport`, and got a valid
+    `Explanation` while the wrapper held `usage` whole. The one pitfall found is the wrapper's, not the
+    adapter's: rebuilding a gzip-encoded response with its `content-encoding` header fails to decode
+    (ADR-0034's Context). No real call has been made.
+  - **Where the false clause came from.** It was drafted in the M7.2 planning session and approved there
+    by the owner. M7.2's design commit, `a1661dc`, wrote it into this ADR's amendment, ADR-0033's
+    Consequences and `ROADMAP.md`'s M7.2 bullet. M7.2's implementation commit, `22c001b`, added it to
+    `openai_adapter.py`'s timeout comment and to `ROADMAP.md`'s M7.1 departure bullet. It was not
+    verified against the seam at either point. *(Located with `git log -S` on each wording.)*
+  - **What changes.** The reason the capture was not taken in M7.2 is the missing script alone. The
+    capture is taken in M7.3 by that script (ADR-0034 decision 7).
+- **2026-09-17 (M7.3, ADR-0034): the Consequences paragraph *"What leaves Verion"* is true of M7.1 and
+  no longer of the Explanation Layer.** From M7.3, each Brief member's typed `title` and `Location`
+  reach OpenAI through `describe`'s prompt. `explain`'s prompt, which this ADR designed, still carries
+  none of them. No finding id, no `raw_payload` and nothing parsed from it is sent.
 
 ## Alternatives considered
 
