@@ -17,3 +17,23 @@ class ExplanationUnavailable(BriefError):
     raise it `from None` for the same reason: a chained cause is part of the traceback a log
     prints.
     """
+
+
+class SecurityBriefAccessDenied(BriefError):
+    """The caller may not read this project's Briefs.
+
+    Like the verdict beneath it (`ProjectAccessPort`), it does not distinguish "no such project"
+    from "not a member", so a route answers 404 for both (ADR-0022 decision 2).
+    """
+
+
+class StoredBriefUnreadable(BriefError):
+    """A stored Brief's `decision` has a shape this code does not read.
+
+    Raised for a missing or unknown `version`, or a value that does not reconstruct. **It is
+    never skipped past**: a list that silently omitted it would hide data loss behind a shorter
+    page. So one unreadable row fails its project's whole list read, until the row is migrated
+    or a reader for its version ships (ADR-0033 decision 9).
+
+    The message carries a version number at most, never the stored content.
+    """

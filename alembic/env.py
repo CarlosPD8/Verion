@@ -6,6 +6,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from verion.modules.brief.adapters.outbound.db.models import SecurityBriefModel  # noqa: F401
 from verion.modules.identity.adapters.outbound.db.models import (  # noqa: F401
     GitHubConnectionModel,
     UserModel,

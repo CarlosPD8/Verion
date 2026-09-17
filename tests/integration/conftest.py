@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 # single test file in isolation and the metadata is otherwise nearly empty, so
 # both degrade silently to doing almost nothing. The same explicit-import list
 # `alembic/env.py` keeps, for the same reason.
+from verion.modules.brief.adapters.outbound.db import models as _brief_models  # noqa: F401
 from verion.modules.identity.adapters.outbound.db import models as _identity_models  # noqa: F401
 from verion.modules.normalization.adapters.outbound.db import (  # noqa: F401
     models as _normalization_models,

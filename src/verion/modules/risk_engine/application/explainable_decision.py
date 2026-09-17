@@ -32,9 +32,10 @@ def explainable_decision(surface: ScoredSurface) -> ExplainableDecision:
     `ports/` for the reason `CorrelationCandidateRisks` constructs `CandidateRiskAccessDenied`
     in `correlation/application/`: a port module declares; it does not compute.
 
-    **Nothing in `src/` calls this at M7.1.** The port that hands the result to `brief` is
-    M7.2's, because what it returns must also carry a Risk address, and that is **G68**'s
-    decision rather than this issue's.
+    **Called by `ScoredExplainableRisks` since M7.2**, the implementation of
+    `ExplainableRiskPort`. That port hands this result to `brief` together with the surface's
+    `finding_ids`, which a Brief holds as data rather than as a Risk address (ADR-0033
+    decisions 1 and 6, resolving **G68**).
     """
     reasoning = surface.reasoning
     return ExplainableDecision(

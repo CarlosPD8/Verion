@@ -58,7 +58,9 @@ class CorrelateFindingsUseCase:
 
     Does not persist and does not decide resolution (M9.1). **Nothing persists a candidate Risk**
     — ADR-0025 decision 1 makes it a projection, and decision 2 puts the first forced write at
-    M8.1, the first issue with a value that cannot be recomputed. *(This line named M5.2 as the
+    M8.1, the first issue with a value that cannot be recomputed and must stay attached to a
+    Risk when its membership changes (ADR-0025's 2026-09-17 amendment; M7.2's stored Brief is
+    an earlier value that cannot be recomputed, and writes no Risk). *(This line named M5.2 as the
     issue that would persist, until that issue decided not to.)*
     """
 

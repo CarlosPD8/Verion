@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from arq.connections import RedisSettings, create_pool
 from fastapi import FastAPI
 
+from verion.modules.brief.adapters.inbound.api.router import router as briefs_router
 from verion.modules.correlation.adapters.inbound.api.router import router as risks_router
 from verion.modules.identity.adapters.inbound.api.router import router as identity_router
 from verion.modules.normalization.adapters.inbound.api.router import router as findings_router
@@ -54,6 +55,10 @@ def create_app() -> FastAPI:
     # literal segment sitting where a future {risk_id} would go is a collision
     # waiting for M8.1 (ADR-0030 decision 1).
     app.include_router(scored_risks_router, prefix="/projects", tags=["risks"])
+    # `brief`'s routes, M7.2. Same prefix again; /briefs is disjoint from /risks and
+    # /scored-risks. Both are project-scoped and take no Risk in the path, because a Risk has
+    # no identifier and a member set is not an address (ADR-0033 decisions 1 and 4).
+    app.include_router(briefs_router, prefix="/projects", tags=["briefs"])
     app.include_router(scanning_router, prefix="/scanning", tags=["scanning"])
 
     return app

@@ -15,9 +15,11 @@ from verion.modules.risk_engine.ports.explainable_decision import ExplainableDec
 # key could be sent somewhere else, and nothing needs one (GitHubAdapter's precedent).
 _CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
-# UNMEASURED. No real call path exists at M7.1 and nothing in CI calls OpenAI, so this is
-# a placeholder bound, not a measured latency. M7.2's first real call path is where it is
-# measured (ADR-0032).
+# UNMEASURED. Nothing in CI calls OpenAI, so this is a placeholder bound, not a measured
+# latency. M7.2's `POST /projects/{project_id}/briefs` is the first production call path and
+# does not measure it either: measuring needs real calls, and the capture that would provide
+# them is not taken, because `_parse` discards `usage` and recording a response whole needs
+# tooling and an adapter change M7.2 does not make (ADR-0032's 2026-09-17 amendment).
 _TIMEOUT_SECONDS = 30.0
 
 # OpenAI's reasoning guide: "reserve at least 25,000 tokens for reasoning and outputs when

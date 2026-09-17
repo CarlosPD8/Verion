@@ -1,13 +1,16 @@
 """`ExplanationProviderPort`'s contract, held by the fake AND the real adapter alike.
 
-**Why the fake is tested at all.** M7.2 will test its use case against
+**Why the fake is tested at all.** M7.2 tests its use case and routes against
 `FakeExplanationProvider`, and a fake nobody checks against the real implementation proves
 only the consumer's side of a contract (G65). Running the same assertions over both is what
 lets a test built on the fake stand on something. The real adapter runs over
 `MockTransport`, so this is its code against the port's promises — not OpenAI's behaviour,
 which nothing in CI reaches (ADR-0032, M7.1's departure).
 
-M7.2 moves the fake if its tests need to import it from elsewhere.
+**The fake lives in `tests/conftest.py` since M7.2**, reached through the
+`explanation_provider_factory` fixture, because `tests/` is not a package and M7.2's tests
+needed it too. The parametrization below is by name and resolves the fake through that
+fixture, so it is the same class every consumer uses.
 """
 
 import httpx2
@@ -24,31 +27,6 @@ from verion.modules.risk_engine.domain.scoring import SurfaceMember, score_surfa
 from verion.modules.risk_engine.ports.explainable_decision import ExplainableDecision
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
-
-
-class FakeExplanationProvider:
-    """`ExplanationProviderPort`, deterministic. Records its calls, and the calls are READ.
-
-    Its text restates only the decision's own numbers, so a test using it can never be
-    passing on prose the Risk Engine did not decide. `fail=True` stands in for every
-    provider failure, which the real adapter collapses to the same one exception.
-    """
-
-    def __init__(self, *, fail: bool = False) -> None:
-        self._fail = fail
-        self.calls: list[ExplainableDecision] = []
-
-    async def explain(self, *, decision: ExplainableDecision) -> Explanation:
-        self.calls.append(decision)
-        if self._fail:
-            raise ExplanationUnavailable("fake provider failure")
-        text = (
-            f"{decision.priority} at {decision.priority_score}: severity "
-            f"{decision.severity.value} + exposure {decision.exposure.value} + corroboration "
-            f"{decision.corroboration.value}."
-        )
-        return Explanation(text=text, model="fake", prompt_version=PROMPT_VERSION)
-
 
 _COMPLETION = {
     "id": "chatcmpl-contract",
@@ -74,10 +52,15 @@ def _real(*, fail: bool = False) -> OpenAIExplanationProvider:
     )
 
 
-_PROVIDERS = {
-    "fake": FakeExplanationProvider,
-    "openai-over-mock-transport": _real,
-}
+_PROVIDER_NAMES = ["fake", "openai-over-mock-transport"]
+
+
+@pytest.fixture
+def make(request, explanation_provider_factory):
+    """The provider constructor named by the test's `provider` parameter."""
+    return {"fake": explanation_provider_factory, "openai-over-mock-transport": _real}[
+        request.param
+    ]
 
 
 def _decision(*members: SurfaceMember) -> ExplainableDecision:
@@ -93,7 +76,7 @@ _FIX_NOW = (
 _QUIET = (SurfaceMember(finding_id="f-3", source=ScannerTool.TRIVY, severity=Severity.UNKNOWN),)
 
 
-@pytest.mark.parametrize("make", _PROVIDERS.values(), ids=_PROVIDERS.keys())
+@pytest.mark.parametrize("make", _PROVIDER_NAMES, indirect=True)
 @pytest.mark.parametrize("members", [_FIX_NOW, _QUIET], ids=["fix-now", "all-signals-zero"])
 async def test_a_provider_returns_a_non_empty_explanation_with_its_producer(make, members):
     explanation = await make().explain(decision=_decision(*members))
@@ -104,15 +87,15 @@ async def test_a_provider_returns_a_non_empty_explanation_with_its_producer(make
     assert explanation.prompt_version == PROMPT_VERSION
 
 
-@pytest.mark.parametrize("make", _PROVIDERS.values(), ids=_PROVIDERS.keys())
+@pytest.mark.parametrize("make", _PROVIDER_NAMES, indirect=True)
 async def test_a_failing_provider_raises_only_explanation_unavailable(make):
     with pytest.raises(ExplanationUnavailable):
         await make(fail=True).explain(decision=_decision(*_FIX_NOW))
 
 
-async def test_the_fake_records_exactly_the_decision_it_was_given():
+async def test_the_fake_records_exactly_the_decision_it_was_given(explanation_provider_factory):
     """M6.2's lesson: a fake that "records its calls" proves nothing until a test reads them."""
-    fake = FakeExplanationProvider()
+    fake = explanation_provider_factory()
     decision = _decision(*_FIX_NOW)
 
     await fake.explain(decision=decision)
@@ -121,7 +104,7 @@ async def test_the_fake_records_exactly_the_decision_it_was_given():
     assert fake.calls[0] is decision
 
 
-async def test_the_fake_narrates_only_the_numbers_it_was_given():
-    explanation = await FakeExplanationProvider().explain(decision=_decision(*_FIX_NOW))
+async def test_the_fake_narrates_only_the_numbers_it_was_given(explanation_provider_factory):
+    explanation = await explanation_provider_factory().explain(decision=_decision(*_FIX_NOW))
 
     assert explanation.text == "fix_now at 6: severity 4 + exposure 1 + corroboration 1."

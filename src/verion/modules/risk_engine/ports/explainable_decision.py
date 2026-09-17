@@ -49,6 +49,10 @@ class ExplainableDecision:
     `PkgName`, a ZAP path or a route derived from scanned source — and scanned content in a
     prompt is M7.3's scope. A test asserts this field set EQUALS its enumeration, so adding
     one of them fails rather than widening the boundary silently (ADR-0032 decision 2).
+
+    **Stored whole by `brief` since M7.2** (ADR-0033 decision 2). A change to this type's
+    fields, or to `ExplainableSignal`'s, fails `brief`'s pinned v1 test, and must bump the
+    stored version and keep a reader for existing rows.
     """
 
     priority: str

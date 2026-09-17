@@ -5,10 +5,16 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from verion.modules.brief.adapters.outbound.db.repository import PostgresSecurityBriefRepository
 from verion.modules.brief.adapters.outbound.explanation.openai_adapter import (
     OpenAIExplanationProvider,
 )
+from verion.modules.brief.application.generate_security_brief import (
+    GenerateSecurityBriefUseCase,
+)
+from verion.modules.brief.application.list_security_briefs import ListSecurityBriefsUseCase
 from verion.modules.brief.ports.explanation_provider import ExplanationProviderPort
+from verion.modules.brief.ports.security_brief_repository import SecurityBriefRepositoryPort
 from verion.modules.correlation.application.candidate_risk_provider import (
     CorrelationCandidateRisks,
 )
@@ -98,7 +104,11 @@ from verion.modules.projects.ports.serving_declaration_repository import (
 )
 from verion.modules.projects.ports.vcs_provider import VcsProviderPort
 from verion.modules.risk_engine.application.compute_risk import ComputeRiskUseCase
+from verion.modules.risk_engine.application.explainable_risk_provider import (
+    ScoredExplainableRisks,
+)
 from verion.modules.risk_engine.application.list_scored_risks import ListScoredRisksUseCase
+from verion.modules.risk_engine.ports.explainable_risk import ExplainableRiskPort
 from verion.modules.scanning.adapters.outbound.db.repository import (
     PostgresScanRepository,
     PostgresScanResultRepository,
@@ -771,9 +781,10 @@ ListScoredRisksUseCaseDep = Annotated[
 # `brief`'s outbound port to an LLM (M7.1, ADR-0032). Not @lru_cache'd, for the reason
 # `get_vcs_provider` gives: it takes SettingsDep, which is not hashable.
 #
-# Nothing consumes this at M7.1 — M7.2's use case is the first caller, on M6.2's precedent
-# of wiring a conformance site before its consumer. So this return annotation is the only
-# place `mypy --strict` checks OpenAIExplanationProvider against ExplanationProviderPort.
+# Wired at M7.1 with no consumer, on M6.2's precedent of wiring a conformance site before its
+# consumer. Since M7.2 it is consumed by `get_generate_security_brief_use_case` below, the
+# first production caller of `explain`. This return annotation is still the only place
+# `mypy --strict` checks OpenAIExplanationProvider against ExplanationProviderPort.
 # That checks SHAPE only: both constructor arguments are `str`, so swapping them type-checks,
 # which is why `tests/unit/test_di_wiring.py` sends a request through this factory and
 # asserts which value landed in the header and which in the body (G65).
@@ -782,3 +793,59 @@ def get_explanation_provider(settings: SettingsDep) -> ExplanationProviderPort:
 
 
 ExplanationProviderDep = Annotated[ExplanationProviderPort, Depends(get_explanation_provider)]
+
+
+# `risk_engine`'s second published port and `brief`'s first use cases (M7.2, ADR-0033). None is
+# @lru_cache'd: each reaches DbSessionDep, directly or through what it depends on, and caching
+# one would leak a stale session across requests (rule 15).
+#
+# The port factory's return annotation is the only place `mypy --strict` checks
+# ScoredExplainableRisks against ExplainableRiskPort. Unlike `get_explanation_provider`, no
+# factory below takes two arguments of one type, so a swapped wiring fails the type check
+# rather than needing a test to see it.
+def get_explainable_risk_port(compute: ComputeRiskUseCaseDep) -> ExplainableRiskPort:
+    return ScoredExplainableRisks(compute)
+
+
+ExplainableRiskPortDep = Annotated[ExplainableRiskPort, Depends(get_explainable_risk_port)]
+
+
+def get_security_brief_repository(session: DbSessionDep) -> SecurityBriefRepositoryPort:
+    return PostgresSecurityBriefRepository(session)
+
+
+SecurityBriefRepositoryDep = Annotated[
+    SecurityBriefRepositoryPort, Depends(get_security_brief_repository)
+]
+
+
+def get_generate_security_brief_use_case(
+    explainable_risks: ExplainableRiskPortDep,
+    explanations: ExplanationProviderDep,
+    briefs: SecurityBriefRepositoryDep,
+    clock: ClockDep,
+    ids: IdGeneratorDep,
+) -> GenerateSecurityBriefUseCase:
+    return GenerateSecurityBriefUseCase(
+        explainable_risks=explainable_risks,
+        explanations=explanations,
+        briefs=briefs,
+        clock=clock,
+        ids=ids,
+    )
+
+
+GenerateSecurityBriefUseCaseDep = Annotated[
+    GenerateSecurityBriefUseCase, Depends(get_generate_security_brief_use_case)
+]
+
+
+def get_list_security_briefs_use_case(
+    project_access: ProjectAccessDep, briefs: SecurityBriefRepositoryDep
+) -> ListSecurityBriefsUseCase:
+    return ListSecurityBriefsUseCase(project_access=project_access, briefs=briefs)
+
+
+ListSecurityBriefsUseCaseDep = Annotated[
+    ListSecurityBriefsUseCase, Depends(get_list_security_briefs_use_case)
+]

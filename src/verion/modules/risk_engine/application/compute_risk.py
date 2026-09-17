@@ -24,8 +24,11 @@ class ComputeRiskUseCase:
     score is derived from stored inputs exactly as the grouping is, so there is no `risks`
     table, no upsert, and **G37**'s protected-column obligation stays latent. M8.1 is the
     first issue forced to persist a Risk, because a dismissal is the first value about one
-    that cannot be recomputed; **M6.3 could have written a row and declined to** (ADR-0030),
-    so G37 is unmoved and M8.1 remains the forced one.
+    that cannot be recomputed and must stay attached to it when its membership changes (the
+    wording of ADR-0025's 2026-09-17 amendment: M7.2's stored Brief narrative is an earlier
+    value that cannot be recomputed, and it does not follow the Risk). **M6.3 could have
+    written a row and declined to** (ADR-0030), and M7.2 writes a Brief row but no Risk row
+    (ADR-0033), so G37 is unmoved and M8.1 remains the forced one.
 
     **Returns `correlation`'s group order, NOT a priority order.** Ranking is
     `ListScoredRisksUseCase`'s, above this one, and sorting here would pre-empt it —

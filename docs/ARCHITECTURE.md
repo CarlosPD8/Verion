@@ -290,11 +290,25 @@ RiskReasoning
  # designed-not-built: this adds a function and a signal set, not a table.
  # `fix_now` has exactly one reachable route, so no package surface can reach it — G64.
 
-SecurityBrief
- ├── id, risk_id
- ├── what_happened, why_it_matters, recommended_action
- ├── estimated_effort, confidence
+SecurityBrief   # M7.2 — brief; SHIPPED (ADR-0033). Append-only: one row per generation
+ ├── id, project_id
+ ├── finding_ids                 # the Risk's members, held as DATA and never as an address:
+ │                               # FR-9's link, and what a client joins on against /scored-risks
+ ├── decision: ExplainableDecision   # what the narrator was shown, whole; stored as versioned
+ │                                   # JSONB whose keys derive from dataclasses.fields
+ ├── explanation: Explanation    # text (why it matters), model, prompt_version
  └── generated_at
+ # Designed until 2026-09-17 as `id, risk_id, what_happened, why_it_matters,
+ # recommended_action, estimated_effort, confidence, generated_at`. What changed:
+ #  - risk_id: a Risk has no identifier (ADR-0025 decision 1), so a Brief has its own id and
+ #    holds the member set instead. POST /projects/{id}/briefs selects the current surface by
+ #    that exact set and fails closed when membership has changed.
+ #  - what_happened, recommended_action: need scanned content, and nothing produces them (G74).
+ #  - estimated_effort: no producer, and whether an LLM may ever supply one is undecided (G74).
+ #  - confidence: none is emitted (G63).
+ # Two of FR-8's six parts ship: why it matters, and evidence sources as finding ids.
+ # `brief/domain` importing `risk_engine.ports` is the first cross-module import from any
+ # domain/ package, and no contract covers it (G77).
 ```
 
 ### 4.2 Entity relationship overview
@@ -316,10 +330,12 @@ erDiagram
     FINDING ||--o{ FINDING_SIGHTING : sighted_in
     SCAN ||--o{ FINDING_SIGHTING : observes
     FINDING ||--|| EVIDENCE : backed_by
-    %% RISK and everything below it is designed, not stored: a candidate Risk is a projection (ADR-0025)
+    %% RISK and RISK_EVENT are designed, not stored: a candidate Risk is a projection (ADR-0025)
     FINDING }o--o{ RISK : correlated_into
-    RISK ||--|| SECURITY_BRIEF : explained_by
     RISK ||--o{ RISK_EVENT : logs
+    %% SECURITY_BRIEF is stored (M7.2, ADR-0033). It relates to its findings by an array of ids with no FK (G11), not to a Risk row
+    PROJECT ||--o{ SECURITY_BRIEF : narrates
+    FINDING }o--o{ SECURITY_BRIEF : narrated_members
 ```
 
 ---
@@ -344,7 +360,8 @@ erDiagram
 | `DeclareServingUseCase` / `GetServingDeclarationUseCase` | Declare, owner-only and as a compare-and-set against the currently configured values, that the scanned URL serves the connected repository; read it back with its in-force verdict (M5.5, ADR-0028) |
 | `ComputeRiskUseCase` | Score and prioritize correlated Risks. **Scores a SURFACE** — the package or route path the match key names — as a pure function of `severity` + a DAST-member exposure term + a distinct-`source` corroboration term, bucketed `fix_now`/`plan`/`monitor`, persisting nothing (M6.1, ADR-0005). Reads two ports and names neither's types: `correlation`'s candidate-Risk port, and `normalization`'s `FindingRepositoryPort`, because a group carries `finding_ids` and no severity. *(Consumed since M6.3 by `ListScoredRisksUseCase`; it still returns `correlation`'s group order itself, and ranking happens above it)* |
 | `ListScoredRisksUseCase` | A **ranked** page of a project's scored Risks, plus the normalization state that says whether the list is complete. Composes `ComputeRiskUseCase` rather than re-scoring, so scoring and the access check each have one site, and applies `rank_surfaces` on top — **ranking enters here and nowhere below it**, because `ComputeRiskUseCase` deliberately returns `correlation`'s group order. The whole set is ranked **before** paging, or a page would be the top of an arbitrary order labelled a priority. Returns a projection: nothing persists a Risk at M6.3 either, so no item carries an id (M6.3, ADR-0030) |
-| `GenerateSecurityBriefUseCase` | Produce the developer-facing explanation |
+| `GenerateSecurityBriefUseCase` | Produce the developer-facing explanation and store it (M7.2, ADR-0033). **Selects one current scored Risk by its exact finding-id set** through `risk_engine`'s `ExplainableRiskPort`, which fails closed when membership has changed. Then narrates through `ExplanationProviderPort`, then appends a `SecurityBrief`; nothing is written on any failure. Member-level, inherited through that port, which coincides with owner-gating only because nothing creates a non-owner membership (**G75**). Synchronous and billed per call, with nothing bounding repeats (**G73**) |
+| `ListSecurityBriefsUseCase` | A page of a project's Briefs, newest first, each carrying the `finding_ids` a client joins on against the scored listing (M7.2, ADR-0033). Consumes `ProjectAccessPort` directly, because it reads only `brief`'s own table. **No completeness envelope**: no pipeline owes a Brief (**G76**) |
 | `ResolveRiskUseCase` / `DismissRiskUseCase` | Change risk lifecycle state, with reason |
 | `GetProjectDashboardUseCase` | Read model for the UI |
 
@@ -358,7 +375,7 @@ erDiagram
 | `OAuthStateSignerPort` | Sign/verify the OAuth CSRF `state` param | `GitHubOAuthStateSigner` |
 | `ProjectRepositoryPort` | Persist/query projects | Postgres adapter |
 | `ProjectMembershipRepositoryPort` | Persist/query project RBAC memberships | Postgres adapter |
-| `ProjectAccessPort` | **Whether a caller may read a project — the verdict, not the rows** (M4.5). The port ANOTHER module uses to authorize a project-scoped read; `ProjectMembershipRepositoryPort` above is persistence and is the wrong one for that, because consuming it puts "authorization means a membership row exists" in every consuming module. Returns one `bool`, so no consumer can distinguish "no such project" from "not a member" and every one of them answers 404. The rule stays in `projects/domain/authorization.may_read`. ADR-0022 decision 2; the shape M5.2/M7.2/M8.2 copy *(M6.3 was in this list until 2026-09-16 and is now removed: `risk_engine` consumes this port **not at all**. Its scored route inherits the same 404-for-both shape INDIRECTLY, through `CandidateRiskPort`'s own denial, which is what keeps the authorization rule at one site rather than adding a second consumer — ADR-0030 decision 1)* | `PostgresProjectAccessReader` |
+| `ProjectAccessPort` | **Whether a caller may read a project — the verdict, not the rows** (M4.5). The port ANOTHER module uses to authorize a project-scoped read; `ProjectMembershipRepositoryPort` above is persistence and is the wrong one for that, because consuming it puts "authorization means a membership row exists" in every consuming module. Returns one `bool`, so no consumer can distinguish "no such project" from "not a member" and every one of them answers 404. The rule stays in `projects/domain/authorization.may_read`. ADR-0022 decision 2; the shape M5.2/M7.2/M8.2 copy *(M6.3 was in this list until 2026-09-16 and is now removed: `risk_engine` consumes this port **not at all**. Its scored route inherits the same 404-for-both shape INDIRECTLY, through `CandidateRiskPort`'s own denial, which is what keeps the authorization rule at one site rather than adding a second consumer — ADR-0030 decision 1)* *(M7.2, 2026-09-17: `brief`'s list route consumes it directly, because it reads only `brief`'s own table. Generation inherits it through `ExplainableRiskPort`, ADR-0033 decision 7)* | `PostgresProjectAccessReader` |
 | `ConnectedRepoRepositoryPort` | Persist/query connected repositories | Postgres adapter |
 | `SecurityContextRepositoryPort` | Persist/query a project's Security Context | Postgres adapter (M2.3) |
 | `ScannerConfigRepositoryPort` | Persist/query which scanners a project runs; read by `scanning` (M3.7) | Postgres adapter |
@@ -374,7 +391,9 @@ erDiagram
 | candidate-Risk port | `correlation`'s first published port, and the reason `risk_engine` need not import its `application/` (**G35**). Returns `correlation`'s own groups; `risk_engine/application/` takes them by inference and passes **scalars** into its domain, so no module names another's types (M6.1, ADR-0005 decision 2). **Built at M6.2**: `CandidateRiskPort`, implemented by `CorrelationCandidateRisks` over `CorrelateFindingsUseCase`. Its denial, `CandidateRiskAccessDenied`, is declared in the port module rather than in `correlation/domain/`, because the consumer may not name that package (rule 3) and would otherwise be unable to handle a refusal. **Consumed on a real request path since M6.3**, where `risk_engine`'s route catches that denial by its exact type and answers 404 — the fourth route to do so (ADR-0030 decision 1, **G17**) — which is also what finally exercises `CorrelationCandidateRisks` outside `platform/di.py` (**G65**) | `CorrelationCandidateRisks` |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
 | `VcsProviderPort` | Read repo metadata, register webhooks; since M5.6 commit 4 also fetch the default branch as one source archive, read in memory under size caps (`fetch_source_archive`, ADR-0029) | `GitHubAdapter` |
-| `ExplanationProviderPort` | Narrate an already-decided priority: `explain(*, decision: ExplainableDecision) -> Explanation`, raising only `ExplanationUnavailable`. **Its input is `risk_engine`'s published carrier and nothing scanned**: the bucket, score, thresholds and three signals with their definitions, and no package, URL, finding id or finding text (M7.1, ADR-0032). Provider-agnostic as a port; one adapter ships. *(Read "from structured Risk data" until 2026-09-17.)* | `OpenAIExplanationProvider` |
+| `ExplanationProviderPort` | Narrate an already-decided priority: `explain(*, decision: ExplainableDecision) -> Explanation`, raising only `ExplanationUnavailable`. **Its input is `risk_engine`'s published carrier and nothing scanned**: the bucket, score, thresholds and three signals with their definitions, and no package, URL, finding id or finding text (M7.1, ADR-0032). Provider-agnostic as a port; one adapter ships. *(Read "from structured Risk data" until 2026-09-17.)* **Consumed since M7.2** by `GenerateSecurityBriefUseCase`, its first production caller. The OpenAI capture that call makes owed is not taken, because `_parse` discards `usage` (ADR-0032's 2026-09-17 amendment) | `OpenAIExplanationProvider` |
+| `ExplainableRiskPort` | `risk_engine`'s second published port (M7.2, ADR-0033 decision 6). `explainable_risk(*, project_id, user_id, finding_ids) -> ExplainableRisk`: one current scored surface whose finding ids equal the given set, with its `ExplainableDecision`. It recomputes the project's scored set on every call (**G61**). Declares its three denials (`ExplainableRiskAccessDenied`, `NoCurrentRisk`, `ExplainableRiskInconsistent`) in the port module so `brief` can catch them by type | `ScoredExplainableRisks` |
+| `SecurityBriefRepositoryPort` | Append and page a project's `SecurityBrief`s, newest first (M7.2, ADR-0033). No update and no upsert. A stored decision that does not read back fails the page rather than being skipped | Postgres adapter |
 | `JobQueuePort` | Enqueue a scan job (`scanning`) | Redis/arq adapter |
 | `NormalizationQueuePort` | Enqueue a normalization job (`normalization`, M4.4). A separate port rather than a method on `JobQueuePort`, because the job belongs to this module. **Losing a message here is not an error**: the `normalization_runs` row is the durable record and the sweep recovers it (ADR-0017 decision 2) | Redis/arq adapter |
 | `DnsResolverPort` | Resolve a hostname to its IP addresses, for `ZapAdapter`'s DNS-rebinding SSRF check | `SystemDnsResolver` |
@@ -391,6 +410,7 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
 ### 6.1 Inbound adapters
 - **REST API** (FastAPI routers) — translates HTTP requests into calls on inbound ports/use cases. Contains no business logic — only request validation (Pydantic) and response shaping.
 - **GitHub webhook receiver** — translates push/PR events into `TriggerScanUseCase` calls.
+- **Brief routes** (M7.2, ADR-0033) — `POST /projects/{project_id}/briefs` generates and stores a Brief for an exact finding-id set. `GET /projects/{project_id}/briefs` pages the stored ones. Both answer 404 for both denials (**G17**).
 - **CI hook** (GitHub Actions step) — same, triggered from pipeline. *(Names an adapter absent from `src/`, marked 2026-09-16: the webhook receiver above is the only thing that starts a scan, and no route starts one on demand either. See **G70**.)*
 
 ### 6.2 Outbound adapters
@@ -400,7 +420,7 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
   - `TrivyAdapter` → runs Trivy, parses JSON output for SCA/container findings.
   - `ZapAdapter` → drives the ZAP Automation Framework via a YAML plan, parses the report.
 - **GitHubAdapter** — GitHub REST/GraphQL API client for repo metadata, PR status checks. *(Names capabilities absent from `src/`: no GraphQL client and no PR status checks. See the review log row of 2026-09-15.)*
-- **LLM Explanation adapter** — `OpenAIExplanationProvider` (M7.1) calls OpenAI Chat Completions by raw `httpx2` to turn `risk_engine`'s `ExplainableDecision` into narrative text, which M7.2's `SecurityBrief` is to carry. *(Read "structured `RiskReasoning`" until 2026-09-17: `RiskReasoning` carries no bucket, so the narrated input also carries the bucket, score and thresholds — ADR-0032.)* Structured data (scores, evidence) is computed entirely in the domain **before** this call — the LLM explains, it does not decide priority.
+- **LLM Explanation adapter** — `OpenAIExplanationProvider` (M7.1) calls OpenAI Chat Completions by raw `httpx2` to turn `risk_engine`'s `ExplainableDecision` into narrative text, which M7.2's `SecurityBrief` carries as `explanation`. *(Read "structured `RiskReasoning`" until 2026-09-17: `RiskReasoning` carries no bucket, so the narrated input also carries the bucket, score and thresholds — ADR-0032.)* Structured data (scores, evidence) is computed entirely in the domain **before** this call — the LLM explains, it does not decide priority.
 - **Redis queue adapter** — background job dispatch for scan orchestration.
 
 ---
@@ -430,6 +450,8 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
 │       │   ├── correlation/
 │       │   ├── risk_engine/
 │       │   ├── brief/
+│       │   │   ├── adapters/inbound/api/            # M7.2: POST and GET /projects/{id}/briefs
+│       │   │   ├── adapters/outbound/db/            # M7.2: security_briefs, versioned JSONB
 │       │   │   └── adapters/outbound/explanation/
 │       │   │       ├── openai_adapter.py    # M7.1; was drawn as llm_adapter.py
 │       │   │       └── prompt.py
@@ -516,9 +538,10 @@ sequenceDiagram
     Risk->>Corr: candidate Risks (correlation's published port — M6.2)
     Risk->>DB: read Findings AGAIN — a group carries ids, not severities (G61)
     Risk-->>Risk: score (severity + exposure + corroboration), persisting nothing (ADR-0005)
+    Brief->>Risk: explainable_risk(finding_ids) — ExplainableRiskPort, exact set or 404 (M7.2)
     Brief->>Exp: explain(ExplainableDecision) — decided bucket + signals, nothing scanned (M7.1)
     Exp-->>Brief: narrative text
-    Brief->>DB: persist SecurityBrief
+    Brief->>DB: append SecurityBrief (finding_ids, decision, explanation) — no Risk row (ADR-0033)
 ```
 
 Three properties this diagram is drawn to make visible, each load-bearing:
@@ -530,7 +553,7 @@ Three properties this diagram is drawn to make visible, each load-bearing:
 - **Normalization's own progress is a state machine, and `completed` is its only terminal state.** The job claims the row in a transaction of its own before doing any work, so a worker killed mid-flight leaves an observable `running` row rather than being indistinguishable from one that never started — which is what the sweep needs in order to recover it. `failed` is deliberately re-claimable: the job writes it and re-raises for a transient failure, and a terminal `failed` would make arq's retry silently do nothing (ADR-0021 decision 3).
 - **The sweep is a backstop, not the trigger, and it selects on `normalization_runs` alone.** The enqueue above is what makes normalization prompt; the sweep only bounds how late a *lost* message is noticed. It must never read `Scan.status` — ADR-0017 decision 2 states that as an invariant, because a sweep filtering on a derived, human-facing summary would put the decision of whether to run the stage downstream of exactly what ADR-016 decision 2 forbids the stage itself to read.
 
-Stages after normalization are drawn as designed, not as built — with the exceptions named below, which have grown: `brief` is M7 and how it is triggered is that milestone's decision. *(Marked 2026-09-15: M5 decided correlation's, and it has none — `ListProjectRisksUseCase` recomputes groups per request on the API path, not in the worker chain. The diagram does not draw its `ServingDeclarationPort` and `RouteMapPort` reads, or the route-map write at Security Context build.)* M5 inherits the handoff pattern above as a precedent, not as a constraint (ADR-0017).
+Stages after normalization are drawn as designed, not as built — with the exceptions named below, which have grown: `brief` is M7 and how it is triggered is that milestone's decision. *(Decided 2026-09-17, M7.2, ADR-0033 decision 8: a member's `POST /projects/{project_id}/briefs` runs the three `Brief` lines synchronously on the request path. There is no queue trigger, the provider call is billed per request, and the request's session stays open across it (**G73**).)* *(Marked 2026-09-15: M5 decided correlation's, and it has none — `ListProjectRisksUseCase` recomputes groups per request on the API path, not in the worker chain. The diagram does not draw its `ServingDeclarationPort` and `RouteMapPort` reads, or the route-map write at Security Context build.)* M5 inherits the handoff pattern above as a precedent, not as a constraint (ADR-0017).
 
 *(Updated 2026-09-16, M6.3: the three `Risk` lines now also sit on an **API path**, not only in this diagram's worker chain. `GET /projects/{project_id}/scored-risks` runs `ComputeRiskUseCase` per request through `ListScoredRisksUseCase`, exactly as `ListProjectRisksUseCase` runs the grouping — so correlation and scoring are both request-time projections and neither has a queue trigger. The `Risk->>DB: read Findings AGAIN` line is measured as of this commit: **108.8 ms median end to end**, the larger term in the gap between the two Risk routes, which is **G61**'s escalation and evidence against ADR-0025 decision 1 by that ADR's own standard.)*
 
