@@ -1980,6 +1980,24 @@ Note (2026-09-17, M7.2 commit 2): **the instance ships.**
 - **Measured.** `uv run lint-imports` reports **17 kept, 0 broken** with it in place, which is the blindness this entry records, observed rather than argued.
 - **Why the count is unchanged.** The first cross-module import from a `domain/` is this one, so the trigger's *second* has not happened.
 
+### G78 — `infra/.env.example` does not list every `_DEV_ONLY_DEFAULTS` key, and nothing checks that it does
+Confirmed: M7.2 · Status: open
+Blocks-if-unresolved: **a developer who sets up from the example cannot learn that a dev-only secret exists, or that it must be set, until the thing that needs it fails without naming it.**
+- **The count.** `platform/settings.py`'s `_DEV_ONLY_DEFAULTS` has four keys. The example listed an uppercase line for **2 of 4** (`JWT_SECRET_KEY`, `GITHUB_CLIENT_SECRET`) before the commit that opens this entry. It lists **3 of 4** after it, which adds `OPENAI_API_KEY`. **`GITHUB_WEBHOOK_SECRET` is still missing.**
+- **The failure, local.** In `app_env='local'` every placeholder boots. The failure then lands at the first use, with nothing pointing at the missing variable.
+  - **Read from the code, not run against a deployment:** the OpenAI placeholder makes every `POST /projects/{project_id}/briefs` that reaches the provider return the fixed 502. A denial or a set that is not a current Risk still gets its 404 first, because those checks run before the provider is called.
+  - **By the same reading:** a real GitHub delivery signed with a real secret fails `verify_signature` against the placeholder, and returns `scanning`'s 401 `"Invalid signature"`.
+- **The failure, outside local.** Rule 11 fails fast at startup, which names the field but not the example as its source.
+- **Why a second copy went stale.** The example is a copied list of these fields, and **`CLAUDE.md` rule 11 already records that a copied list of them went stale**: *"the fields are deliberately not listed here, since the copied list went stale — it named two of the three entries, and M7.1's fourth would have made it two of four"*. That copy was removed from `CLAUDE.md`. This one was never checked, and it drifted the same way.
+- **How it was found.** M7.2's reconnaissance found the OpenAI line missing. It was **scoped out of M7.2 on the owner's instruction**, a credential-safety clause read literally. That instruction was given in the M7.2 planning session and is recorded in no file, so no tracked text has a clause to find. It was **not registered at the time**, which is what `CLAUDE.md`'s rule for a gap found and not fixed required. It is registered now, in the commit that adds the OpenAI lines.
+
+Deferral rationale: **the missing half is systemic, and its fix is a gate change, not a line.**
+- **Why not just add the line.** Adding `GITHUB_WEBHOOK_SECRET` by hand repeats the defect's own shape: a copy correct until the next key is added.
+- **The fix's shape.** An **eighth `check_claims` check** asserting that every `_DEV_ONLY_DEFAULTS` key has an uppercase `KEY=` line in `infra/.env.example`. It changes `check_claims`' `CHECKS` and its tests, so it belongs with the pass whose subject is these secrets.
+- **Adjacent.** **G71**, the rule-11 guard echoing secrets on its failure path, is triggered by the same pass.
+
+Trigger: **M10.3**, the secrets management pass; or **the next key added to `_DEV_ONLY_DEFAULTS`**, whichever is first.
+
 ## V2 Backlog (explicitly out of this roadmap)
 
 Tracked separately, not scheduled: AI-driven automated remediation, attack graph modeling, MCP/LLM security scanning, cloud/CSPM integration, runtime telemetry, additional scanners, team collaboration, Jira/Slack integrations, advanced analytics, fix-effort prediction as a scored dimension.
