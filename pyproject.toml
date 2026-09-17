@@ -18,6 +18,13 @@ dependencies = [
     "arq>=0.28.0",
     "asyncpg>=0.31.0",
     "fastapi>=0.141.1",
+    # httpx2: the HTTP client every outbound HTTP adapter in src/ uses
+    # (GitHubOAuthClient, GitHubAdapter, and since M7.1 OpenAIExplanationProvider).
+    # Verified per ADR-009 - that ADR's own Context is this package's verification.
+    # It sat in the dev group until M7.1 while two production adapters imported it, so
+    # a --no-dev install failed on import and CI, which installs dev, could not see it.
+    # Moving it here fixes that instance as a by-product; the blind spot is G72.
+    "httpx2>=2.12.0",
     "pydantic-settings>=2.15.0",
     "pyjwt>=2.13.0",
     # PyYAML: serializes ZapAdapter's Automation Framework plan file. Verified
@@ -40,7 +47,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.12.0",
     "import-linter>=2.13",
     # mypy: the CI type-checking gate (ADR-015). Verified per ADR-009 against
     # primary sources, not memory: org-owned repo (github.com/python/mypy),

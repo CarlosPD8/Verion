@@ -5,6 +5,10 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from verion.modules.brief.adapters.outbound.explanation.openai_adapter import (
+    OpenAIExplanationProvider,
+)
+from verion.modules.brief.ports.explanation_provider import ExplanationProviderPort
 from verion.modules.correlation.application.candidate_risk_provider import (
     CorrelationCandidateRisks,
 )
@@ -762,3 +766,19 @@ def get_list_scored_risks_use_case(
 ListScoredRisksUseCaseDep = Annotated[
     ListScoredRisksUseCase, Depends(get_list_scored_risks_use_case)
 ]
+
+
+# `brief`'s outbound port to an LLM (M7.1, ADR-0032). Not @lru_cache'd, for the reason
+# `get_vcs_provider` gives: it takes SettingsDep, which is not hashable.
+#
+# Nothing consumes this at M7.1 — M7.2's use case is the first caller, on M6.2's precedent
+# of wiring a conformance site before its consumer. So this return annotation is the only
+# place `mypy --strict` checks OpenAIExplanationProvider against ExplanationProviderPort.
+# That checks SHAPE only: both constructor arguments are `str`, so swapping them type-checks,
+# which is why `tests/unit/test_di_wiring.py` sends a request through this factory and
+# asserts which value landed in the header and which in the body (G65).
+def get_explanation_provider(settings: SettingsDep) -> ExplanationProviderPort:
+    return OpenAIExplanationProvider(api_key=settings.openai_api_key, model=settings.openai_model)
+
+
+ExplanationProviderDep = Annotated[ExplanationProviderPort, Depends(get_explanation_provider)]

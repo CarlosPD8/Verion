@@ -2,7 +2,7 @@
 
 **Status:** Draft v1.0
 **Related:** `PRODUCT_SPEC.md`
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-17
 
 ---
 
@@ -281,6 +281,8 @@ RiskReasoning
  # confidence, and M7.1 is where the scale gets chosen — by the consumer that
  # renders it. FR-7's second output is therefore unmet by shipped code; G63 and
  # ADR-0004's dated amendment both say so.
+ # M7.1 (2026-09-17, ADR-0032 decision 3) did NOT choose it: either scale reaches a
+ # third module, so the absence is recorded and G63 re-points to M7.2.
  #
  # SHIPPED at M6.2, in risk_engine/domain/scoring.py: `ScoredSurface` is the scored
  # projection above — project_id, the key's package/url, finding_ids, priority_score,
@@ -372,7 +374,7 @@ erDiagram
 | candidate-Risk port | `correlation`'s first published port, and the reason `risk_engine` need not import its `application/` (**G35**). Returns `correlation`'s own groups; `risk_engine/application/` takes them by inference and passes **scalars** into its domain, so no module names another's types (M6.1, ADR-0005 decision 2). **Built at M6.2**: `CandidateRiskPort`, implemented by `CorrelationCandidateRisks` over `CorrelateFindingsUseCase`. Its denial, `CandidateRiskAccessDenied`, is declared in the port module rather than in `correlation/domain/`, because the consumer may not name that package (rule 3) and would otherwise be unable to handle a refusal. **Consumed on a real request path since M6.3**, where `risk_engine`'s route catches that denial by its exact type and answers 404 — the fourth route to do so (ADR-0030 decision 1, **G17**) — which is also what finally exercises `CorrelationCandidateRisks` outside `platform/di.py` (**G65**) | `CorrelationCandidateRisks` |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
 | `VcsProviderPort` | Read repo metadata, register webhooks; since M5.6 commit 4 also fetch the default branch as one source archive, read in memory under size caps (`fetch_source_archive`, ADR-0029) | `GitHubAdapter` |
-| `ExplanationProviderPort` | Generate natural-language brief text from structured Risk data | LLM adapter (provider-agnostic) |
+| `ExplanationProviderPort` | Narrate an already-decided priority: `explain(*, decision: ExplainableDecision) -> Explanation`, raising only `ExplanationUnavailable`. **Its input is `risk_engine`'s published carrier and nothing scanned**: the bucket, score, thresholds and three signals with their definitions, and no package, URL, finding id or finding text (M7.1, ADR-0032). Provider-agnostic as a port; one adapter ships. *(Read "from structured Risk data" until 2026-09-17.)* | `OpenAIExplanationProvider` |
 | `JobQueuePort` | Enqueue a scan job (`scanning`) | Redis/arq adapter |
 | `NormalizationQueuePort` | Enqueue a normalization job (`normalization`, M4.4). A separate port rather than a method on `JobQueuePort`, because the job belongs to this module. **Losing a message here is not an error**: the `normalization_runs` row is the durable record and the sweep recovers it (ADR-0017 decision 2) | Redis/arq adapter |
 | `DnsResolverPort` | Resolve a hostname to its IP addresses, for `ZapAdapter`'s DNS-rebinding SSRF check | `SystemDnsResolver` |
@@ -398,7 +400,7 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
   - `TrivyAdapter` → runs Trivy, parses JSON output for SCA/container findings.
   - `ZapAdapter` → drives the ZAP Automation Framework via a YAML plan, parses the report.
 - **GitHubAdapter** — GitHub REST/GraphQL API client for repo metadata, PR status checks. *(Names capabilities absent from `src/`: no GraphQL client and no PR status checks. See the review log row of 2026-09-15.)*
-- **LLM Explanation adapter** — calls the model provider to turn structured `RiskReasoning` into the `SecurityBrief` narrative. Structured data (scores, evidence) is computed entirely in the domain **before** this call — the LLM explains, it does not decide priority.
+- **LLM Explanation adapter** — `OpenAIExplanationProvider` (M7.1) calls OpenAI Chat Completions by raw `httpx2` to turn `risk_engine`'s `ExplainableDecision` into narrative text, which M7.2's `SecurityBrief` is to carry. *(Read "structured `RiskReasoning`" until 2026-09-17: `RiskReasoning` carries no bucket, so the narrated input also carries the bucket, score and thresholds — ADR-0032.)* Structured data (scores, evidence) is computed entirely in the domain **before** this call — the LLM explains, it does not decide priority.
 - **Redis queue adapter** — background job dispatch for scan orchestration.
 
 ---
@@ -429,7 +431,8 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
 │       │   ├── risk_engine/
 │       │   ├── brief/
 │       │   │   └── adapters/outbound/explanation/
-│       │   │       └── llm_adapter.py
+│       │   │       ├── openai_adapter.py    # M7.1; was drawn as llm_adapter.py
+│       │   │       └── prompt.py
 │       │   └── history/
 │       ├── shared_kernel/               # cross-cutting Protocols + shared vocabulary
 │       └── platform/                    # framework wiring: FastAPI app, DI container,
@@ -513,7 +516,7 @@ sequenceDiagram
     Risk->>Corr: candidate Risks (correlation's published port — M6.2)
     Risk->>DB: read Findings AGAIN — a group carries ids, not severities (G61)
     Risk-->>Risk: score (severity + exposure + corroboration), persisting nothing (ADR-0005)
-    Brief->>Exp: explain(structured RiskReasoning)
+    Brief->>Exp: explain(ExplainableDecision) — decided bucket + signals, nothing scanned (M7.1)
     Exp-->>Brief: narrative text
     Brief->>DB: persist SecurityBrief
 ```

@@ -185,6 +185,19 @@ so this ADR is owed.
 No finding id, package, URL or finding text, so no scanned content and nothing identifying a
 project reaches OpenAI through M7.1.
 
+**What a narration costs is UNMEASURED, and the number the model was chosen against leaves
+out the part a reasoning model bills.** *(Added 2026-09-17, in M7.1's implementation commit.)*
+`gpt-5-mini` spends reasoning tokens that are billed as output and never appear in `content`,
+so an estimate built from the visible text (the figure `gpt-5-mini` was chosen against assumed
+250 output tokens) undercounts by exactly the unseen part. Only the request's ceiling is fixed
+here: `max_completion_tokens` is 25,000, reasoning included. **The measurement comes from the
+capture that ends decision 7's departure**, which keeps the response's `usage` object whole —
+`prompt_tokens`, `completion_tokens`, and `completion_tokens_details.reasoning_tokens` — rather
+than trimming the fixture to the fields the adapter reads. Those figures are recorded here when
+taken, with the condition they hold under: the request sends no `reasoning_effort`, so they
+measure the model's default effort. **`Explanation` does not carry usage**: nothing consumes it,
+and ADR-016 decision 3 and ADR-0021 refuse fields with no consumer.
+
 **Register.** Opened by the commit that lands this ADR: **G71**, **G72**. Owed dated notes by the
 implementation commit: **G33** (its trigger names M7.1), **G62**, **G63** (its trigger names M7.1),
 **G65**, **G68**, and G71 and G72 themselves, for what that commit measures and fixes.

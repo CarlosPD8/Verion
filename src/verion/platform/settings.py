@@ -21,16 +21,22 @@ _DEFAULT_SEMGREP_RULESET = str(
 _DEV_ONLY_JWT_SECRET_KEY = "dev-secret-change-in-production-32b"
 _DEV_ONLY_GITHUB_CLIENT_SECRET = "dev-github-client-secret-placeholder"
 _DEV_ONLY_GITHUB_WEBHOOK_SECRET = "dev-github-webhook-secret-placeholder"
+_DEV_ONLY_OPENAI_API_KEY = "dev-openai-api-key-placeholder"
 
 # Sensitive settings that must never silently boot with their dev-only
 # placeholder outside app_env='local'. Add a new (field_name, dev_value)
 # pair here for any future sensitive setting instead of writing a new
 # model_validator — this generalization is the "second instance" the
 # original jwt_secret_key-only validator's comment said to watch for.
+#
+# NOTE (G71): this guard's own failure path is a leak. The ValidationError it
+# produces carries pydantic's truncated `input_value`, which can hold the real
+# values of the OTHER secrets above. Registered, not fixed here.
 _DEV_ONLY_DEFAULTS = {
     "jwt_secret_key": _DEV_ONLY_JWT_SECRET_KEY,
     "github_client_secret": _DEV_ONLY_GITHUB_CLIENT_SECRET,
     "github_webhook_secret": _DEV_ONLY_GITHUB_WEBHOOK_SECRET,
+    "openai_api_key": _DEV_ONLY_OPENAI_API_KEY,
 }
 
 
@@ -80,6 +86,17 @@ class Settings(BaseSettings):
     # the ruleset file's own comment). The same file backs both this
     # production default and the scanning integration tests.
     semgrep_ruleset: str = _DEFAULT_SEMGREP_RULESET
+
+    # The Explanation Layer's provider credential (M7.1, ADR-0032). Same dev-only
+    # treatment as github_client_secret, see _DEV_ONLY_DEFAULTS: a placeholder
+    # credential is exactly rule 11's case. The adapter sends it only in the
+    # Authorization header and never in a URL, an exception or a log.
+    openai_api_key: str = _DEV_ONLY_OPENAI_API_KEY
+    # Not sensitive. Verified 2026-09-17 against OpenAI's model page
+    # (developers.openai.com/api/docs/models/gpt-5-mini): id `gpt-5-mini`, default
+    # snapshot gpt-5-mini-2025-08-07, v1/chat/completions listed as supported. A model
+    # id is a moving target, so re-verify it rather than trusting this date.
+    openai_model: str = "gpt-5-mini"
 
     # How long a normalization_runs row may sit pending or running before the
     # reconciliation sweep re-enqueues it (ADR-0021).

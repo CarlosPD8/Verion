@@ -14,6 +14,28 @@ SEVERITY_SIGNAL = "severity_signal"
 EXPOSURE_SIGNAL = "exposure_signal"
 CORROBORATION_SIGNAL = "corroboration_signal"
 
+# What each signal MEANS, in words a reader outside this module can be given verbatim —
+# today the Explanation Layer's prompt (M7.1, ADR-0032). Declared here, beside the
+# functions that compute them, so this module stays the single owner of what its numbers
+# claim: `brief` forwards these strings and never writes its own description of a signal.
+# Each one states the limit of its signal, because a narrative can overstate a number
+# only where the number's meaning is left to the narrator.
+SEVERITY_DEFINITION = (
+    "The highest severity any scanner stated for a finding on this surface, as a rank "
+    "from 1 (info) to 5 (critical). A finding whose severity the scanner did not know "
+    "contributes nothing."
+)
+EXPOSURE_DEFINITION = (
+    "1 when a dynamic (DAST) scanner reached this surface over the network, otherwise 0. "
+    "It is not a statement about how exposed the deployed application is."
+)
+CORROBORATION_DEFINITION = (
+    "1 when findings on this surface were reported by two or more different scanners, "
+    "otherwise 0. It means only that more than one scanner reported something on the "
+    "same surface. It does not mean the scanners agree, confirm each other, or found the "
+    "same vulnerability."
+)
+
 
 class Priority(StrEnum):
     """The bucket a scored surface lands in. FR-7's first output."""
@@ -67,15 +89,15 @@ class RiskReasoning:
     """The three signals behind a bucket. FR-7's traceability, ADR-0003's constraint.
 
     **Carries no `explanation_text`.** `ARCHITECTURE.md` §4.1's design block names one, but
-    prose is M7.1's — the LLM narrates a reasoning already decided and may never alter the
-    priority (rule 6, ADR-0004). A text field here with nothing to put in it would invite
-    exactly that.
+    prose is the Explanation Layer's — the LLM narrates a reasoning already decided and may
+    never alter the priority (rule 6, ADR-0004). A text field here with nothing to put in it
+    would invite exactly that. What crosses to that layer is a copy of this reasoning,
+    `risk_engine/ports/explainable_decision.py`, filled inside this module (ADR-0032).
 
     **Carries no `confidence` either, and that absence is a decision rather than an
     oversight** — see **G63**. FR-7 and ADR-0003 both require one; ADR-0005 deferred the
-    scale and M6.2 records that it emits none, because choosing between a
-    grouping-confidence and an evidence-confidence needs the consumer that renders it
-    (M7.1).
+    scale, M6.2 emitted none, and M7.1 — the consumer that was to choose it — recorded the
+    absence rather than choosing, because either scale reaches a third module (ADR-0032).
     """
 
     severity: Signal
@@ -186,7 +208,8 @@ def _corroboration_signal(members: Sequence[SurfaceMember]) -> Signal:
     unrelated to the SAST finding they are grouped with. No field on any member separates
     that from a substantive pair, so this fires identically on both. The name is
     `corroboration` rather than `agreement` for that reason, and no narrative built on it
-    may say "two tools agree".
+    may say "two tools agree" — which is why `CORROBORATION_DEFINITION` states that limit
+    in the words the Explanation Layer forwards to its model (M7.1, ADR-0032).
 
     `produced_by` carries **one representative per distinct source** — the lowest id in
     each — so a reader can see which tools the point came from rather than only that it was
