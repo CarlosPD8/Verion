@@ -8,8 +8,8 @@ Each ADR documents one consequential architectural or process decision: the situ
 |---|---|---|
 | [0001](0001-modular-monolith.md) | Modular monolith over microservices | Accepted |
 | [0002](0002-hexagonal-architecture.md) | Hexagonal architecture (ports & adapters) at the module level | Accepted |
-| [0003](0003-explainable-scoring.md) | Explainable risk scoring over black-box ML | Accepted (amended M6.1) |
-| [0004](0004-llm-downstream-of-scoring.md) | LLM explanation layer strictly downstream of risk scoring | Accepted (amended M6.2) |
+| [0003](0003-explainable-scoring.md) | Explainable risk scoring over black-box ML | Accepted (amended M6.1, corrected M7.1) |
+| [0004](0004-llm-downstream-of-scoring.md) | LLM explanation layer strictly downstream of risk scoring | Accepted (amended M6.2, M7.1) |
 | [0005](0005-risk-scoring-model.md) | The risk scoring model: what a Risk is, the function over it, and what a score may not claim | Accepted |
 | [0006](0006-src-layout.md) | `src/verion/` layout instead of a flat repo-root package | Accepted |
 | [0007](0007-import-linter.md) | import-linter for mechanical architecture enforcement | Accepted (amended M5→M6 boundary, M8.3 early start) |
@@ -37,3 +37,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0029](0029-route-extractor-placement-re-derivation-and-key-entry.md) | Where the route extractor lives, what its route map is re-derived against, and how a derived location enters the match key | Accepted (amended M5.6) |
 | [0030](0030-scored-risk-read-surface.md) | The scored Risk read surface: where ranking lives, what a response must carry to be re-derivable, and what the first measurement of a scored request does not show | Accepted |
 | [0031](0031-frontend-token-holding-transport-and-npm-dependency-scope.md) | The frontend's token holding, its transport to the API, and what ADR-0009 covers in an npm tree | Accepted (decision 2 confirmed by P1, 2026-09-16) |
+| [0032](0032-explanation-provider-port-openai-adapter-and-prompt-boundary.md) | The Explanation Layer's port, its OpenAI adapter, and where the prompt's input ends | Accepted |
