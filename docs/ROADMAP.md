@@ -611,15 +611,21 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
   Module: `brief` · Depends on: M7.1
   - `GenerateSecurityBriefUseCase`, `SecurityBrief` entity, Postgres adapter.
   - Endpoint returning the full Brief with evidence links (evidence traceability, FR-9).
-  - **Inherits ADR-0022 decision 2** (added 2026-09-15; that ADR names this issue and this entry did not): authorize through `ProjectAccessPort`, never a `projects` persistence port, and answer 404 for both denials.
+  - **Inherits ADR-0022 decision 2** (added 2026-09-15; that ADR names this issue and this entry did not): authorize through `ProjectAccessPort`, never a `projects` persistence port, and answer 404 for both denials. ***(Marked 2026-09-17, ADR-0033 decision 7: right about the obligation and true of one route only. The list route consumes `ProjectAccessPort` directly. Generation inherits the verdict through the new `risk_engine` port, ADR-0030 decision 1's mechanism, rather than consuming it a second time. Both answer 404 for both denials.)***
   - **Carries G68** (added 2026-09-16): keying a `SecurityBrief` on a derived Risk address amends ADR-0025, and storing a Risk brings G37 and G11 forward, so it is decided before implementation, not inside it.
   - **Carries G61** (added 2026-09-16): with no Risk identity, briefing one Risk recomputes the project's scored set, so the doubled findings read happens per Brief generated.
   - **Carries G67** (added 2026-09-16): `brief` is the third module that needs the completeness envelope and may not name `NormalizationRun`; the completeness envelope does not move into `shared_kernel/`.
   - **Inherits ADR-0032** (added 2026-09-17, M7.1):
-    - **FR-8's parts with no source yet.** M7.1's narrative explains the bucket and nothing else. *What happened*, *evidence sources*, *recommended action*, *estimated effort* and *confidence* have no input: the first three need `Finding` content, which is M7.3's to make safe, and the last two have no deterministic producer anywhere. M7.1's prompt forbids the model from supplying either; rule 6's text names only priority, so whether an LLM may ever supply an effort estimate is undecided, and this issue's to decide.
-    - **The port that hands `ExplainableDecision` to `brief` is this issue's**, because what it returns must also carry the Risk address **G68** decides.
-    - **The first production call to `ExplanationProviderPort.explain` owes a captured OpenAI response**, or a one-line reason why not — the M7.1 departure's re-dating point. The captured 200 keeps `usage` intact, `completion_tokens_details.reasoning_tokens` included, because it is the first measurement of what a Brief's narration costs (M7.1's departure record). The 30 s timeout is unmeasured until that call path exists.
+    - **FR-8's parts with no source yet.** M7.1's narrative explains the bucket and nothing else. *What happened*, *evidence sources*, *recommended action*, *estimated effort* and *confidence* have no input: the first three need `Finding` content, which is M7.3's to make safe, and the last two have no deterministic producer anywhere. M7.1's prompt forbids the model from supplying either; rule 6's text names only priority, so whether an LLM may ever supply an effort estimate is undecided, and this issue's to decide. ***(Marked 2026-09-17, ADR-0033 decision 2: deferred rather than decided. No producer exists, and the question cannot be decided against an input no issue has sent yet. Registered as **G74**, with its trigger at M7.3.)***
+    - **The port that hands `ExplainableDecision` to `brief` is this issue's**, because what it returns must also carry the Risk address **G68** decides. ***(Marked 2026-09-17, ADR-0033 decisions 1 and 6: the port returns the Risk's ordered `finding_ids`, which a Brief holds as data and not as an address. No Risk address exists.)***
+    - **The first production call to `ExplanationProviderPort.explain` owes a captured OpenAI response**, or a one-line reason why not — the M7.1 departure's re-dating point. The captured 200 keeps `usage` intact, `completion_tokens_details.reasoning_tokens` included, because it is the first measurement of what a Brief's narration costs (M7.1's departure record). The 30 s timeout is unmeasured until that call path exists. ***(Marked 2026-09-17, ADR-0032's amendment: the call path arrives with this issue and the timeout stays unmeasured. Measuring it needs the capture, which this issue does not take because `_parse` discards `usage`.)***
     - M7.1 puts `FakeExplanationProvider` in `tests/integration/test_explanation_provider_contract.py`; move it if this issue's tests import it.
+  - **Decided in `docs/adr/0033-security-brief-address-read-surface-and-authorization.md`** (added 2026-09-17, before any of this issue's code is committed).
+    - **G68: a Brief gets a surrogate id and holds its Risk's ordered finding-id set as data, not as an address.** The set selects a surface once, inside `POST /projects/{project_id}/briefs`, and fails closed with a 404 when membership has changed. No Risk row is written. ADR-0025 decision 1 is untouched, and decision 2's *"first values … that cannot be recomputed"* clause is struck and replaced in that ADR's Amendments.
+    - **Stored:** `id`, `project_id`, `finding_ids`, the whole `ExplainableDecision` (versioned JSONB whose keys derive from `dataclasses.fields`), the whole `Explanation`, and `generated_at`. Two of FR-8's six parts. *What happened*, *recommended action* and *estimated effort* are **G74**; confidence is **G63**.
+    - **Read:** one list-shaped `GET /projects/{project_id}/briefs`, joined by clients against `/scored-risks` on `finding_ids`, with no completeness envelope (**G76**). Generation is append-only and synchronous (**G73**), and does not refuse while normalization is unfinished.
+    - **Authorization:** generation is member-level under G70's read-verdict option, which coincides with owner-gating at HEAD (**G75**). `brief/domain` holding the published carrier is the first cross-module import from any `domain/`, and no contract covers it (**G77**).
+    - **The first production call to `explain` does not take the capture.** The reason is in ADR-0032's 2026-09-17 amendment: `_parse` discards `usage`, and recording the response whole needs tooling and an adapter change this issue does not make.
 
 - **M7.3 — Prompt safety**
   Module: `brief` · Depends on: M7.1
@@ -635,7 +641,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 - **M8.1 — History/audit domain**
   Module: `history` · Depends on: M6
   - `RiskEvent` log, `ResolveRiskUseCase` / `DismissRiskUseCase` with required reason.
-  - **This issue inherits two things together, and they are listed in one place deliberately** — added 2026-08-26 by ADR-0025, whose decision 2 makes M8.1 the first issue *forced* to persist a Risk, because a dismissal is the first value about one that cannot be recomputed. M6.3 may choose to write a row earlier; if it does, it takes both of these with it. ***(Marked 2026-09-16, M6→M7 boundary: M6.3 did not, and **M7.2** may be forced to, depending on how it keys a `SecurityBrief` — **G68**. Whichever issue writes first takes both.)***
+  - **This issue inherits two things together, and they are listed in one place deliberately** — added 2026-08-26 by ADR-0025, whose decision 2 makes M8.1 the first issue *forced* to persist a Risk, because a dismissal is the first value about one that cannot be recomputed. M6.3 may choose to write a row earlier; if it does, it takes both of these with it. ***(Marked 2026-09-16, M6→M7 boundary: M6.3 did not, and **M7.2** may be forced to, depending on how it keys a `SecurityBrief` — **G68**. Whichever issue writes first takes both.)*** ***(Marked 2026-09-17, ADR-0033 decision 1: M7.2 is not forced to. A Brief holds its Risk's finding-id set as data and writes no Risk row, so this issue is again the first forced Risk write, and both items stay here. This bullet's *"a dismissal is the first value about one that cannot be recomputed"* copies a clause ADR-0025's 2026-09-17 amendment strikes, because a stored Brief narrative is an earlier such value. Read it as *"the first value about one that cannot be recomputed and must stay attached to it when its membership changes"*.)***
     1. **The protected-field set.** ADR-0020 decision 3 names a dismissal, an owner and a suppression as exactly the fields that break an upsert transcription, and assigns them to `Risk`. Decide which columns a re-correlation may not overwrite and make that a property of the statement rather than a convention — the shape ADR-0020 decision 1 chose for `findings` by omitting the identity inputs from `set_`. Registered as **G37**.
     2. **G11's fourth table.** A `Risk`→`Finding` link is cross-module, so it carries no foreign key. That forecast was written against M5.2 and moved here when M5.2 shipped no table.
 
@@ -966,6 +972,7 @@ Note (2026-08-26, M5.2): **the forecast below did not land, and the count is sti
 Note (post-M4): **the count grows again at M5.2, and the growth is the thing this entry tracks.** A `Risk` correlates `Finding`s across a module boundary, so its link table references `findings.id` from `correlation` — cross-module, therefore no foreign key by ADR-0017 decision 1's rule, therefore a **fourth** table depending on rows never being deleted. Recorded as a forecast rather than a `Confirmed:` entry, since M5.2 has not been built and this register counts milestones where a gap was re-encountered *and deferred again*. What it means for the M9.1 re-read below: by then the question is not "should three tables have FKs" but whether an entire second module's data hangs off the same unconstrained assumption.
 Note: half of this is already stated in `dedup.py`'s own comment and in ADR-0019 decision 6, which is exactly why it is registered — prose has no `Blocks-if-unresolved:` field and no escalation check, the lesson G1, G2 and G4 each record. What M4.3 changes is the count: before this issue the dependency was one comment about a hypothetical migration; now three tables hold real rows that depend on it.
 Note (2026-09-16, M6→M7 boundary): **That M8.1 is the first issue forced to persist a Risk is QUALIFIED, not struck.** M7.2 persists a `SecurityBrief` about a Risk and may be forced to store the Risk to key it, depending on a decision it has not taken (**G68**). If it is, this entry's fourth-table forecast moves to M7.2.
+Note (2026-09-17, M7.2 commit 1): **the qualification above is discharged: M7.2 writes no Risk row.** ADR-0033 decision 1 gives a Brief its own id and holds its Risk's finding-id set as data, so the `Risk`→`Finding` link forecast stays at M8.1. Whether the table the implementation commit adds is a new dependency of this entry's kind is a separate question, and it is recorded here when that commit lands.
 
 ### G12 — `pre-commit` and CI run different versions of ruff, so a green hook does not mean a green build
 Confirmed: M4.3, post-M4 · Status: **resolved → M5.0**
@@ -1344,6 +1351,10 @@ Deferral rationale: **there is nothing to fix yet, and building the protection n
 
 Note (2026-09-16, M6.1): **M6 does not write the first `Risk` row, so this stays latent and its trigger is unmoved.** ADR-0005 decision 3 scores per request and persists nothing, which is ADR-0025 decisions 1 and 2 applied rather than reopened — so the optional write this entry names at **M6.3** is still optional and still untaken, and **M8.1** remains the forced one. Recorded because this entry's whole exposure is that somebody writes a `Risk` upsert by copying the `findings` one, and M6 was the first milestone with a plausible reason to; it did not.
 Note (2026-09-16, M6→M7 boundary): **M8.1 as the first forced write is QUALIFIED, not struck.** M7.2 may be forced to store a Risk to key a `SecurityBrief` on it (**G68**); if it is, this protected-field obligation arrives with that write, one milestone early.
+Note (2026-09-17, M7.2 commit 1): **the qualification above is discharged. M7.2 writes no Risk row.**
+- **The decision.** ADR-0033 decision 1 gives a Brief its own surrogate id and holds the Risk's ordered finding-id set as data.
+- **Why no protected field arises.** A narrative describes one member set and must not follow the Risk when membership changes. ADR-0025's 2026-09-17 amendment replaces decision 2's premise with *"cannot be recomputed and must stay attached to it when its membership changes"*, and only values of that second kind make a protected field necessary.
+- **Result.** The trigger stays *the first `Risk` row written*, and M8.1 is again the forced issue.
 
 ### G38 — ADR-0017 asserts twice that M5's correlation is scan-scoped, which ADR-0023 falsified two commits before anything noticed
 Confirmed: M5.2 · Status: open
@@ -1744,6 +1755,18 @@ Deferral rationale: the choice belongs to the issue that faces it, not to a boun
 
 Note (2026-09-17, M7.1): **M7.1 settles the reasoning half of what `brief` receives and deliberately none of the address half.** `ExplainableDecision` carries the bucket, the score, the thresholds and the signals, and no `project_id`, `package`, `url` or `finding_ids`; its field set is asserted equal to that enumeration (ADR-0032 decisions 1 and 2). So this entry's *"it needs M7.1's port shape settled first"* is now met for the narrative and not for the key: **the port that delivers the carrier to `brief` is M7.2's**, and what it returns alongside the carrier is exactly the Risk address this entry asks M7.2 to decide. Nothing here chose one of the three options. Status and trigger unchanged.
 
+Note (2026-09-17, M7.2 commit 1): **the trigger fired and the fork is decided in ADR-0033 decision 1, without giving a Risk an identifier.** The entry resolves when the implementation commit ships it.
+
+**Correction to this entry's `Blocks-if-unresolved:`.** It says *"FR-8 requires a persisted Brief"*, which is false. FR-8's text is *"system generates a structured explanation"*. The persistence requirement comes from M7.2's bullet (*"Postgres adapter"*), from `ARCHITECTURE.md` §4.1's `SecurityBrief` design block and from §8's `persist SecurityBrief`. FR-9's link requirement is as stated.
+
+**Four options, not three.**
+- **Generate without storing:** rejected, because every view is a billed call and non-deterministic, and FR-9 cannot link back to it.
+- **Persist a Risk:** permitted by ADR-0025 decision 2 but an amendment in substance, and rejected because a maintained Risk row needs everything ADR-0025's Alternatives rejects.
+- **Key on the match key:** rejected on a captured collision. Two surfaces with no key signal have equal keys, and their `ExplainableDecision`s differ only in `produced_by`.
+- **The ordered finding-id set: chosen**, held as data behind a surrogate Brief id, never as an address.
+
+**What that does to ADR-0025.** Decision 1 is untouched. Decision 2's premise clause is struck and replaced in that ADR's Amendments. This entry's *"the second and third reverse decision 1's ruling"* does not apply, because the set is not an address.
+
 ### G69 — The frontend ships with no gate: type errors, lint violations and suppressions in `frontend/` pass CI, and the check that keeps Tier 1 honest cannot see a frontend step
 Confirmed: M8.3 early start · Status: open
 Blocks-if-unresolved: **every class of defect a Tier 1 gate exists to stop in `src/` reaches `main` green in `frontend/`.** Four things, each read from the artifact that would have to change:
@@ -1801,6 +1824,81 @@ Blocks-if-unresolved: **a deployment built without dev dependencies fails on imp
 Deferral rationale: **the check is a CI job's shape, not a line.** An import smoke test under `uv sync --no-dev`, or installing the built wheel into a clean environment and importing every adapter, is a new CI step — `check_claims`' Tier 1 table and `ci.yml` both change — and M7.1 is an adapter issue. Trigger: **M11.3**, the deployment; or any `--no-dev` install or wheel installation, whichever is first.
 
 Note (2026-09-17, M7.1): **the instance is fixed and the entry stays open, as it said it would.** `httpx2` moved to `[project] dependencies`, with a `pyproject.toml` comment citing ADR-0009's Context and this entry. `uv lock` changed four lines of `uv.lock`, all inside `verion`'s own dependency lists and none a version; `uv tree --frozen --no-dev --depth 1` now lists `httpx2 v2.12.0`. Nothing about CI changed, so the next dev-only import in a production adapter is exactly as invisible as this one was.
+
+### G73 — Generating a Brief is synchronous, billed and unbounded: it holds the request's database session across a provider call, and nothing limits repeats
+Confirmed: M7.2 design commit · Status: open
+Blocks-if-unresolved: **the first deployment where more than a handful of Briefs are generated at once: pooled connections held idle for up to the provider's timeout, and a provider bill with no ceiling.** Two mechanisms combine.
+- **The session.** ADR-0033 decision 8 runs generation inside `POST /projects/{project_id}/briefs`. `platform/db.py`'s `get_db_session` opens one session per request and commits after the handler returns, and generation reads findings before it calls the provider. So the session, and on the reading here its pooled connection, stays open for the whole call. `OpenAIExplanationProvider`'s `_TIMEOUT_SECONDS` is 30 s and unmeasured. **This is read from the code, not measured**, since no call path has run against a real provider.
+- **The repeats.** ADR-0033 decision 3 makes generation append-only with no deduplication. Every POST is one billed call, and nothing bounds how many a member sends.
+
+Deferral rationale: **neither fix belongs to the issue that first calls the provider.**
+- Releasing the connection across the call needs a session-control seam the use-case layer does not have, or a queued generation job. That is a pipeline stage this project has never designed, for a latency nobody has measured.
+- Bounding repeats is request rate limiting, which ADR-0022 decision 1 places at M10.2 (*"independently rate-limitable at M10.2"*).
+- No deployment exists.
+
+Trigger: **M10.2**, the RBAC and rate-limit pass; **M11.3**, the first deployment; or the first captured OpenAI response, which gives the call its first latency figure. Whichever comes first.
+
+### G74 — Three of FR-8's parts have no producer, and whether an LLM may ever supply an effort estimate is undecided
+Confirmed: M7.2 design commit · Status: open
+Blocks-if-unresolved: **FR-8, which the Brief meets in two of six parts.**
+- **What ships.** ADR-0033 decision 2 ships *why it matters* (the narrative) and *evidence sources* (`finding_ids`).
+- **What does not ship.**
+  - *What happened* and *recommended action* need scanned content. The facts are in `Finding` fields; fix guidance such as Trivy's fixed version or ZAP's `solution` exists only inside `Evidence.raw_payload`. No shipped prompt receives any of it (ADR-0032 decision 2).
+  - *Estimated effort* has no deterministic producer, and M7.1's prompt forbids guessing *"how much effort a fix takes"*.
+  - Confidence is **G63**'s and is not repeated here.
+- **The undecided question.** M7.2's bullet named *"whether an LLM may ever supply an effort estimate"* as that issue's to decide. It was not decided.
+
+Deferral rationale: **the missing parts need an input that no issue has sent yet, so a decision now would be made against nothing.**
+- Adding empty columns for them is the speculative shape ADR-016 decision 3 and ADR-0021 refused.
+- Whether an LLM may originate an effort estimate turns on what it is shown, which is exactly what widening the prompt to scanned content decides.
+- ADR-0033's Consequences accepts that adding these parts later re-fires rule 16's migration, frozen-type and response clauses.
+
+Trigger: **M7.3**, the prompt-safety issue and the first place scanned content could reach the prompt; or any proposal to render `Finding` fields into a Brief deterministically.
+
+### G75 — Member-level Brief generation coincides with owner-gating only because nothing in `src/` creates a non-OWNER membership
+Confirmed: M7.2 design commit · Status: open
+Blocks-if-unresolved: **the day a non-owner membership can exist, every such member can spend billed provider calls, and nothing in the system changes colour.**
+- **How generation is authorized.** ADR-0033 decision 7 authorizes generation through `may_read_project`, via the new `risk_engine` port. `may_read` is *"membership is not None"*.
+- **Why that equals ownership today.**
+  - The only membership construction site in `src/` is `CreateProjectUseCase` (`role=Role.OWNER`).
+  - `scripts/seed_findings_benchmark.py` also writes `Role.OWNER`.
+  - So member-level and owner-gated are indistinguishable, and ADR-0016 decision 3's owner-gating of writes that cost compute is satisfied **by coincidence, not by design**.
+- **Why the pin does not help.** The route test M7.2 adds, pinning a `Role.MEMBER` generation at 201, keeps passing when a non-owner producer lands. It pins the decision; it does not announce that the decision's premise has changed.
+
+Deferral rationale: **the alternative is G70's open question, not this issue's.** Owner-gating generation needs a second verdict on `ProjectAccessPort`. G70's Deferral rationale names accepting the read verdict as the other option, and ADR-0033 takes that option for a write that costs money and nothing else. Taking the owner verdict instead would design G70's port inside M7.2.
+
+Trigger: **the first producer in `src/` of a membership whose role is not OWNER**, whatever motivates it; or G70's port decision, if it adds an owner verdict.
+
+### G76 — A Brief is generated and stored with nothing recording whether normalization was complete when its decision was computed
+Confirmed: M7.2 design commit · Status: open
+Blocks-if-unresolved: **a narrative, stored and billed, of a bucket understated because a constituent finding was never produced, presented with nothing marking it.**
+- **What is not recorded.** ADR-0033 decision 4 gives neither Brief route a completeness envelope, and no Brief row records the normalization state at `generated_at`.
+- **G15's second-order exposure, one layer further.** Its post-M4 note says a Risk can *"look fully evidenced while a constituent finding was never produced"*. A Brief then turns that Risk's bucket into prose and keeps it.
+- **Why generation does not refuse** (ADR-0033 decision 5). `count_unfinished_by_project_id` counts `failed`, and the sweep never re-enqueues a failed run, so a refusal would lock a project out of generation permanently.
+- **Where the gap is covered today, and where it is not.** A client that chose the finding-id set from `/scored-risks` saw that listing's envelope. A consumer reading `GET …/briefs` alone sees nothing.
+
+Deferral rationale: **the honest fix is a per-Brief snapshot of normalization state, and it has no consumer yet.**
+- It would be the third copy of `NormalizationRun`'s fields (**G67**) and a stored derivable summary (ADR-0019 decision 1).
+- A live envelope on the list would describe read time, not `generated_at`, and so would answer a different question.
+- What to render depends on the screen that shows a Brief.
+
+Trigger: **M8.3**, the first rendering of a Brief; or the first consumer of `GET /projects/{project_id}/briefs` that does not also read `/scored-risks`.
+
+### G77 — `brief/domain` is the first `domain/` package to import another module, and no contract can see the edge
+Confirmed: M7.2 design commit · Status: open
+Blocks-if-unresolved: **a reviewer reads the `layers-*` contracts as governing what a module's `domain/` depends on, and they do not. The next cross-module import into a `domain/` passes the architecture check green.**
+- **The edge.** ADR-0033 decision 2 has `SecurityBrief` hold `risk_engine.ports.explainable_decision.ExplainableDecision`.
+- **It is the first of its kind.** Measured at `1582c6c`: across every `domain/` package in `src/` there are 22 `verion.modules` import lines, and 0 of them name another module.
+- **It is legal.** Rule 3 permits a published port, rule 1 concerns frameworks, and `cross-module-brief` forbids `risk_engine.domain` and `.adapters`, not `.ports`.
+- **No contract covers it.** `layers-brief` declares `containers = ["verion.modules.brief"]`, so a contract named *"brief: adapters -> application -> ports -> domain"* relates layers inside `brief` only. It stays green whatever `brief/domain` imports from another module's `ports/`.
+- **The same shape as G35.** A rule enforced in words with the contract silent; G35 is the `.application` edge, and this is the first instance at the domain→ports edge.
+
+Deferral rationale: **forbidding the edge would forbid the design ADR-0033 argued for, and scoping a contract to allow exactly one import is G35's repair, not this issue's.**
+- A `forbidden` contract from `*.domain` to other modules' `.ports` would break `SecurityBrief` today.
+- An `ignore_imports` exception for it would make the contract list its own violations.
+- The deciding question is shared with G35: whether cross-module contracts should enumerate permitted edges rather than forbidden ones. That is a repository-wide contract change.
+
+Trigger: **the second cross-module import from any `domain/` package**, measured by the same grep; or **any change to the `cross-module-*` or `layers-*` contracts**, G35's fix included.
 
 ## V2 Backlog (explicitly out of this roadmap)
 

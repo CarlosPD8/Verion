@@ -210,6 +210,29 @@ M5.7 departure sentence, and `ROADMAP.md`'s M5.7 copy of it, both forecasting *"
 network-bound integration test"* that M7.1 does not ship. **In the implementation commit:**
 `CLAUDE.md` rule 11's field list; `ARCHITECTURE.md` §5.2, §6.2, §7 and §8.
 
+## Amendments
+
+- **2026-09-17 (M7.2, ADR-0033): decision 5's measurement promise is falsified. The decision itself
+  is unchanged.**
+  - **What decision 5 said.** *"The timeout is **30 s and UNMEASURED**, since no call path exists;
+    M7.2's is where it is measured."*
+  - **What happens instead.** M7.2's call path, `POST /projects/{project_id}/briefs` (ADR-0033), is
+    the first production caller, and M7.2 does not measure the timeout.
+  - **Why.** Measuring needs real calls, and the only planned real call is the capture that ends
+    decision 7's departure. That capture is not taken in M7.2: `OpenAIExplanationProvider._parse`
+    reads only `choices` and `model` and discards `usage`, so recording the response whole needs
+    recording tooling that does not exist in `scripts/`, and a transport or adapter change M7.2 does
+    not make.
+  - **Result.** The timeout stays **30 s and UNMEASURED**, and its measurement moves to that capture.
+    The Consequences paragraph on narration cost is unaffected.
+- **2026-09-17 (M7.2, ADR-0033): decision 1's closing sentence is qualified, not struck.**
+  - **What decision 1 says.** The delivering port's return *"must also carry a Risk address, which is
+    **G68**'s decision"*.
+  - **How G68 was decided.** The port returns the Risk's ordered `finding_ids`, and a Brief holds them
+    as data rather than as an address, so no Risk address exists (ADR-0033 decisions 1 and 6).
+  - **What still holds.** The obligation the sentence states, that the port carry what identifies the
+    Risk at generation.
+
 ## Alternatives considered
 
 **Re-exporting `RiskReasoning` through `risk_engine/ports/`.** Rejected in decision 1.

@@ -30,11 +30,12 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted |
 | [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted (amended M5.1, 2026-08-25, M5.8, M5.6, M6.1) |
 | [0024](0024-active-scanning-consent-and-scan-policy.md) | Where active-scanning consent lives, what it is bound to, and the bounds on the `activeScan` job | Accepted (amended M5.4, M5.9) |
-| [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted |
+| [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted (amended M7.2) |
 | [0026](0026-fixture-shape-conformance-check.md) | Checking a hand-written fixture's shape against the committed corpus | Accepted (amended 2026-08-27) |
 | [0027](0027-standing-the-demo-target-up-and-what-an-active-scan-run-proves.md) | How M5.9 stands the demo target up, where the active capture lives, and what a green active-scan run proves | Accepted (amended M5.9, M5.6) |
 | [0028](0028-declaring-that-the-scanned-url-serves-the-scanned-tree.md) | Declaring that the scanned URL serves the scanned tree: where the record lives, what voids it, and what it does not assert | Accepted (amended M5.5, M5→M6 boundary) |
 | [0029](0029-route-extractor-placement-re-derivation-and-key-entry.md) | Where the route extractor lives, what its route map is re-derived against, and how a derived location enters the match key | Accepted (amended M5.6) |
 | [0030](0030-scored-risk-read-surface.md) | The scored Risk read surface: where ranking lives, what a response must carry to be re-derivable, and what the first measurement of a scored request does not show | Accepted |
 | [0031](0031-frontend-token-holding-transport-and-npm-dependency-scope.md) | The frontend's token holding, its transport to the API, and what ADR-0009 covers in an npm tree | Accepted (decision 2 confirmed by P1, 2026-09-16) |
-| [0032](0032-explanation-provider-port-openai-adapter-and-prompt-boundary.md) | The Explanation Layer's port, its OpenAI adapter, and where the prompt's input ends | Accepted |
+| [0032](0032-explanation-provider-port-openai-adapter-and-prompt-boundary.md) | The Explanation Layer's port, its OpenAI adapter, and where the prompt's input ends | Accepted (amended M7.2) |
+| [0033](0033-security-brief-address-read-surface-and-authorization.md) | How a Security Brief refers to its Risk, what it stores, how it is read, and who may generate one | Accepted |

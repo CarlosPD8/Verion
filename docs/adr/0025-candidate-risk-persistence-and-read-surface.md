@@ -311,6 +311,40 @@ Recorded in its roadmap entry rather than only here, on M9.1's precedent.
 **`shared_kernel/` is not touched.** The envelope type is correlation's own, per ADR-0018's
 criterion as ADR-0023 alternative 4 already applied it.
 
+## Amendments
+
+- **2026-09-17 (M7.2, ADR-0033): one clause of decision 2 is struck and replaced. Decision 1 is
+  untouched. This is not cost-forced persistence.**
+  - **Struck.** Decision 2's *"Those are also the first values about a Risk that cannot be
+    recomputed"*.
+    - **Why struck, not qualified.** The clause is a claim about which values come first. M7.2
+      supplies a counterexample: a stored Security Brief narrative is a value about a Risk, and it
+      cannot be recomputed from the findings, since the provider call claims no determinism
+      (ADR-0032 decision 5). It arrives before M8.1, so the clause is false as written.
+  - **Replacement.** *"Those are also the first values about a Risk that cannot be recomputed **and
+    must stay attached to it when its membership changes**, which makes the landmine and the
+    trigger the same event."*
+  - **Why decision 2's conclusion survives.** The conclusion (M8.1 is the first issue forced to write
+    a Risk row) rests on the property the counterexample lacks.
+    - A dismissal, an owner or a suppression is about the Risk and must follow it when a finding
+      joins.
+    - A narrative describes one decision over one fixed member set and must not follow it. ADR-0033
+      stores it against that set, and a changed set fails closed rather than inheriting it.
+    - So M7.2 writes a Brief row and no Risk row, and nothing here moves **G37** or **G11**'s
+      Risk-link forecast off M8.1.
+  - **Why decision 1 is untouched.** No derived address is created.
+    - A Brief's identity is a surrogate id.
+    - Its `finding_ids` are stored as data that clients join on, and no route, URL or held reference
+      resolves a Risk by them.
+    - The set acts as a selector exactly once, inside the generation request, resolved against this
+      projection in the same request. So the failure decision 1 names for an address, *"silently
+      repoints a held URL"*, has no held URL to act on. A membership change produces a 404 at the
+      only moment the set is read.
+    - The Risk still has no identifier, and there is still no per-Risk route.
+  - **Not cost-forced.** The amendment this document's Consequences names for cost (*"persistence is
+    forced by cost rather than by state"*) is not taken. **G61**'s escalation and its owner, M8.2,
+    are unaffected.
+
 ## Alternatives considered
 
 **Identity derived from the match key**, the `dedup_hash` analogue. Rejected in decision 1 on
