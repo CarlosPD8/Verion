@@ -16,7 +16,10 @@ from verion.modules.normalization.ports.finding_repository import FindingReposit
 from verion.modules.risk_engine.ports.explainable_risk import ExplainableRiskPort
 from verion.shared_kernel.ports import ClockPort, IdGeneratorPort
 
-# M6's length check. **Unmeasured**: the capture in ADR-0034 decision 7 measures real lengths.
+# M6's length check. **Live, not theoretical**, by M7.3's capture: `describe` on the 12-member
+# `urllib3` surface wrote about 410 visible tokens at the medians, an ESTIMATED 1,600 characters
+# — the capture records no text, so the rate comes from the one committed `describe` body
+# (ADR-0034's M7.3 capture amendment). Not moved.
 MAX_WHAT_HAPPENED_CHARS = 2_000
 
 _PRIORITY_TOKEN = re.compile(r"fix[_ ]now", flags=re.IGNORECASE)

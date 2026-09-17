@@ -385,6 +385,17 @@ that first calls `explain`.
   bulk, and ADR-0022 decision 1 drew the bulk line at `raw_payload`.
 - **2026-09-17 (M7.3): the Consequences clause *"and a transport or adapter change this issue does not
   make"* is struck in place as false**, for the reason in ADR-0032's M7.3 amendment striking the adapter-change clause.
+- **2026-09-17 (M7.3 capture commit, ADR-0034): decision 8's second ground is false, and decision 8
+  stands until something replaces it.**
+  - **What decision 8 said.** A queue trigger is not built: *"a pipeline stage this project has not
+    designed, for a latency nobody has measured"*.
+  - **What changed.** The latency is measured. Over 59 real calls the median is 16.46 s per call, a Brief
+    is two calls, and one call hit the 30 s bound (ADR-0032's Consequences). The Consequences sentences
+    calling the provider term and the timeout unmeasured describe M7.2 and are superseded.
+  - **What stands.** Decision 8's first ground: the queue is undesigned, and some write path must ship.
+  - **Where it goes.** ADR-0032's M7.3 capture amendment hands the timeout's value to the work that makes
+    generation asynchronous, **G73**'s queued job. That work re-decides this decision, and no issue
+    schedules it.
 
 ## Alternatives considered
 

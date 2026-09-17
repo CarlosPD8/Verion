@@ -372,6 +372,46 @@ capture commit: **G65** again.
 - `ARCHITECTURE.md`'s `SecurityBrief` entity, use-case and port rows, LLM adapter bullet and sequence
   diagram; `README.md`'s status line; `CLAUDE.md`'s sanitization pointer.
 
+## Amendments
+
+- **2026-09-17 (M7.3 capture commit): decision 7, as executed.**
+  - **59 calls, not 60.** One `describe` timed out at the 30 s bound, so its exercise never called
+    `explain`. The figures, with n, are in ADR-0032's Consequences. The timeout decision is ADR-0032's
+    M7.3 capture amendment.
+  - **The pooled maximum is censored.** It is the timed-out call, so decision 7's bound on the mixture's
+    95th percentile holds only in the form *"at least 30 s"*.
+  - **The 401 needed a redaction nobody planned.** It echoed the throwaway key's first eight and last
+    four characters (**G71**). The first run's leak scan reported both, and the script aborted to a
+    temp directory, writing nothing into the repository: correct behaviour, not a failure. The script
+    now rewrites that exact echo to fixed markers, keeping the asterisks, **then** scans, then writes.
+    *"Nothing is written into the fixtures directory unless every pattern reports zero"* still holds,
+    applied after redaction. The field is never dropped or truncated, because its shape is what the
+    fixture is for. `tests/integration/fixtures/openai/README.md` carries the redaction table.
+- **2026-09-17 (M7.3 capture commit): decision 3's atomicity is verified against the real provider.**
+  In exercise 20 of the ten-repetition pass, `describe` on `/calculate` timed out, and `explain` was
+  never called. The evidence is that the recorded call count went from 38 to 39 across that exercise, and
+  that `explain /calculate` has n=9. That nothing was stored follows from the order and is pinned by
+  `test_a_describe_failure_never_calls_explain_and_writes_nothing`. The capture's storage port was an
+  in-memory fake, and its contents were not recorded.
+- **2026-09-17 (M7.3 capture commit): M6's check (ii), the 2,000-character cap, is re-read against
+  measurement. It is live, not theoretical, and it is not moved.**
+  - **Visible tokens are completion minus reasoning.** On `describe urllib3`, the 12-member surface, the
+    medians give 1,338 − 928 = 410; per call the median is 422 and the maximum 423.
+  - **Roughly 1,600 characters, estimated.** `measurements.json` records no content, so characters
+    were not measured. The one committed `describe` body is 271 characters for 73 visible tokens,
+    about 3.7 per token, which puts 422 tokens near 1,570 characters.
+  - **Unmeasured:** whether a surface nearer the 20-member cap crosses it. The largest input was 12
+    members.
+- **2026-09-17 (M7.3 capture commit): what `m6_rejections=0` shows, and what it does not.** Across the
+  ten-repetition pass, 29 `describe` outputs reached M6 (30 were sent, and one timed out without a body),
+  and none was rejected. M6 checks a control or format character, the 2,000-character bound, and a
+  `fix_now` the members did not supply. **It does not show that the model obeyed the rest of the
+  instructions.** No asserted priority, no implied agreement, the four-sentence limit and the identifier
+  rule were read by hand, by the owner, over the three paragraphs of the one-repetition pass: n=3.
+  **G62** and **G65** carry the same distinction.
+- **2026-09-17 (M7.3 capture commit): Consequences' register line.** The capture commit notes **G62**,
+  **G65**, **G71**, **G73** and **G78**, and opens **G80** and **G81**.
+
 ## Alternatives considered
 
 **Recommended action from `raw_payload`, now.** Rejected in decision 1.

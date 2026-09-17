@@ -96,8 +96,9 @@ def build_messages(decision: ExplainableDecision) -> list[dict[str, str]]:
     `developer` rather than `system`: openai-python's `ChatCompletionDeveloperMessageParam`
     documents that "with o1 models and newer, `developer` messages replace the previous
     `system` messages", and OpenAI's text guide ranks `developer` ahead of `user`. Whether
-    `gpt-5-mini` itself accepts the role is stated on no model page and is verified only by
-    a real call, which nothing in CI makes (ADR-0032).
+    `gpt-5-mini` itself accepts the role is stated on no model page. **Verified by a real call
+    on 2026-09-17**: M7.3's capture sent 58 requests carrying this role and every one returned
+    200 (ADR-0032's Consequences). Nothing in CI makes such a call.
     """
     return [
         {"role": "developer", "content": DEVELOPER_INSTRUCTIONS},

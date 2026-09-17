@@ -198,6 +198,38 @@ taken, with the condition they hold under: the request sends no `reasoning_effor
 measure the model's default effort. **`Explanation` does not carry usage**: nothing consumes it,
 and ADR-016 decision 3 and ADR-0021 refuse fields with no consumer.
 
+**Measured 2026-09-17, by M7.3's capture** *(added by M7.3's capture commit; the paragraph above is
+left as written)*. `scripts/capture_openai_responses.py` ran `describe` then `explain` over three
+surfaces of the committed demo corpus, 10 repetitions each. Requested model `gpt-5-mini`; every body
+returned `gpt-5-mini-2025-08-07`. **No `reasoning_effort` was sent**, so every figure measures the
+model's default effort, and changing it invalidates them. **59 calls, not 60**: one `describe` timed
+out, so its exercise never called `explain`. Wall time is the client's, around the transport,
+connection included. Token medians are over calls that returned a body. Median / maximum:
+
+| call | surface (members) | n | wall s | prompt tokens | completion tokens | reasoning tokens |
+|---|---|---|---|---|---|---|
+| `describe` | `Flask` (2) | 10 | 6.67 / 10.47 | 302 / 302 | 457 / 649 | 384 / 576 |
+| `describe` | `/calculate` (7) | 10, 9 with a body | 18.40 / 30.32 | 519 / 519 | 1,510 / 1,821 | 1,280 / 1,600 |
+| `describe` | `urllib3` (12) | 10 | 16.59 / 28.14 | 941 / 941 | 1,338 / 2,086 | 928 / 1,664 |
+| `explain` | `Flask` | 10 | 18.34 / 25.47 | 406 / 406 | 1,522.5 / 2,529 | 1,344 / 2,304 |
+| `explain` | `/calculate` | 9 | 15.45 / 19.86 | 390 / 390 | 1,232 / 1,739 | 1,024 / 1,536 |
+| `explain` | `urllib3` | 10 | 19.41 / 24.65 | 406 / 406 | 1,673 / 2,127 | 1,472 / 1,920 |
+| `describe`, pooled | | 30, 29 with a body | 14.47 / 30.32 | 519 / 941 | 1,127 / 2,086 | 832 / 1,664 |
+| `explain`, pooled | | 29 | 18.00 / 25.47 | 406 / 406 | 1,446 / 2,529 | 1,280 / 2,304 |
+| all calls | | 59, 58 with a body | 16.46 / 30.32 | 406 / 941 | 1,362.5 / 2,529 | 1,120 / 2,304 |
+
+- **The token totals are a FLOOR: 28,731 prompt and 76,518 completion tokens**, of which 64,192
+  reasoning (84%), over the 58 calls that returned a body. The timed-out call returned none, so its
+  usage is absent from both totals, while it was almost certainly billed.
+- **Reasoning is most of what a narration costs.** The pooled medians are 1,120 reasoning tokens and
+  1,362.5 completion tokens, over 58 calls — two medians of one set of calls, not one call's pair; per
+  call the ratio's median is 0.85. Either way it dwarfs the 250 output tokens the model was chosen
+  against. A Brief is two calls, and the two pooled per-call completion medians sum to 2,573.
+- **The 30.32 s maximum is a censored value**: the call was cut off at the bound, so the pooled maximum
+  bounds nothing above 30 s. The `/calculate` `describe` wall median includes it.
+- **`openai-processing-ms` was sent** on all 58 responses with a body, which ADR-0034 decision 7 had
+  as unverified.
+
 **Register.** Opened by the commit that lands this ADR: **G71**, **G72**. Owed dated notes by the
 implementation commit: **G33** (its trigger names M7.1), **G62**, **G63** (its trigger names M7.1),
 **G65**, **G68**, and G71 and G72 themselves, for what that commit measures and fixes.
@@ -252,6 +284,30 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
   no longer of the Explanation Layer.** From M7.3, each Brief member's typed `title` and `Location`
   reach OpenAI through `describe`'s prompt. `explain`'s prompt, which this ADR designed, still carries
   none of them. No finding id, no `raw_payload` and nothing parsed from it is sent.
+- **2026-09-17 (M7.3 capture commit, ADR-0034): decision 5's timeout is measured, stays 30 s, and its
+  value is handed to the work that makes generation asynchronous. This is ONE decision, not two.**
+  - **The evidence.** One call of 59 exceeded the bound: `describe` on `/calculate`, at 30.32 s of
+    client wall time. The next highest was 28.14 s. Figures with n are in the Consequences above.
+  - **Why no new value.** A value cannot be derived from a single exceedance. The tail past 30 s is
+    unmeasured, because the call was cut off there, so any number above it would be invented.
+  - **What bounds a synchronous call.** What a user will wait for, not what the model takes, and by that
+    criterion 30 s is already too long. The pooled median is 16.46 s per call, and a Brief is two calls.
+  - **Therefore.** The exceedance is not a mis-set bound. It is evidence that generation does not belong
+    in a request. **The VALUE is handed to the work that makes generation asynchronous, where a generous
+    bound is free** because nobody waits on it. That work is **G73**'s queued generation job, which
+    re-decides ADR-0033 decision 8 (ADR-0033's M7.3 capture amendment). No issue schedules it. Until
+    then the bound is 30 s, and a Brief whose call exceeds it answers the fixed 502 and stores nothing.
+  - **Superseded.** The first amendment's *"Result. The timeout stays **30 s and UNMEASURED**"*: it is
+    measured.
+- **2026-09-17 (M7.3 capture commit, ADR-0034): decision 7's departure has ended.**
+  - **The end condition, met.** A 200 captured from the real API for each prompt, `usage` whole, and a
+    captured 401, both redacted and committed under `tests/integration/fixtures/openai/`, are replayed by
+    the same tests: `test_openai_explanation_provider.py`, and the contract test for the `explain` 200.
+  - **What had to be redacted, unforeseen.** The 401 echoed the throwaway key's first eight and last
+    four characters, confirming the behaviour decision 6 was designed against (**G71**). The fixture
+    carries markers in their place, with the message's shape kept.
+  - **Decision 6, verified against a real body.** The adapter's exception carried no fragment of the key.
+  - **What stays unexercised.** What OpenAI sends on any later day. Nothing in CI calls it (**G65**).
 
 ## Alternatives considered
 

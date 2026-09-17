@@ -1,0 +1,35 @@
+{
+  "id": "chatcmpl-REDACTED",
+  "object": "chat.completion",
+  "created": 1789665245,
+  "model": "gpt-5-mini-2025-08-07",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "trivy reported \"CVE-2023-30861: flask: Possible disclosure of permanent session cookie due to missing Vary: Cookie header\" at requirements.txt. trivy reported \"CVE-2026-27205: flask: Flask: Information disclosure via improper caching of session data\" at requirements.txt.",
+        "refusal": null,
+        "annotations": []
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 302,
+    "completion_tokens": 457,
+    "total_tokens": 759,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 384,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}

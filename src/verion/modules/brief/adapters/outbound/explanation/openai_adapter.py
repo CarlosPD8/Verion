@@ -20,12 +20,13 @@ from verion.modules.risk_engine.ports.explainable_decision import ExplainableDec
 # key could be sent somewhere else, and nothing needs one (GitHubAdapter's precedent).
 _CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
-# UNMEASURED. Nothing in CI calls OpenAI, so this is a placeholder bound, not a measured
-# latency. M7.2's `POST /projects/{project_id}/briefs` is the first production call path and
-# did not measure it: measuring needs real calls, and no script to record them existed. No
-# adapter change is needed for that — the `transport=` seam below suffices (ADR-0032's first M7.3
-# amendment strikes the earlier claim that one was). M7.3's capture measures it over both
-# `explain` and `describe` (ADR-0034 decision 7).
+# MEASURED ONCE, and deliberately NOT moved. M7.3's capture sent 59 real calls with no
+# `reasoning_effort` (figures and n in ADR-0032's Consequences). One, a `describe`, hit this bound
+# at 30.32 s of client wall time; the tail past it is unmeasured, so any larger value would be
+# invented. A synchronous bound answers to what a user will wait for, and by that 30 s is already
+# too long. So the exceedance is evidence that generation does not belong in a request, and this
+# value belongs to whatever makes generation asynchronous (**G73**), as one decision with it
+# (ADR-0032's M7.3 capture amendment). httpx applies it per phase, not to the whole call.
 _TIMEOUT_SECONDS = 30.0
 
 # OpenAI's reasoning guide: "reserve at least 25,000 tokens for reasoning and outputs when
@@ -45,10 +46,11 @@ class OpenAIExplanationProvider:
     in the URL, never in an exception, never in a log (rules 12 and 13's spirit).
 
     **Every failure is `ExplanationUnavailable` with a fixed message, raised `from None`,**
-    and the response body is never read into it. OpenAI's 401 `error.message` has been
-    reported echoing the key's prefix and last four characters (user-pasted, AutoGPT #1422);
-    forwarding it, or chaining an exception that holds it, would put part of a credential in
-    a traceback. That is **G71**'s second path, closed here and pinned by
+    and the response body is never read into it. OpenAI's 401 `error.message` echoes the
+    key's first eight and last four characters: reported in a user-pasted body (AutoGPT
+    #1422), and observed by M7.3's capture on 2026-09-17, when this class held. Forwarding
+    it, or chaining an exception that holds it, would put part of a credential in a traceback.
+    That is **G71**'s second path, closed here and pinned by
     `tests/integration/test_openai_explanation_provider.py`.
 
     **Request body, exactly four keys.** `store: false` explicitly, because no default is
@@ -56,9 +58,9 @@ class OpenAIExplanationProvider:
     the output is deterministic, and per-model support is unverified (ADR-0032).
 
     `transport` is the test seam, on `GitHubAdapter`'s precedent; production passes `None`.
-    What that seam exercises is this class's own code. **OpenAI's real contract is exercised
-    by nothing in CI** — the fixtures follow openai-python's types, not a capture (**G65**,
-    and the M7.1 departure in `ROADMAP.md`).
+    What that seam exercises is this class's own code, against responses captured from OpenAI
+    on 2026-09-17 (M7.3), which ended the M7.1 departure in `ROADMAP.md`. **No test in CI
+    reaches OpenAI**, so what it sends on any later day is unexercised (**G65**).
     """
 
     def __init__(

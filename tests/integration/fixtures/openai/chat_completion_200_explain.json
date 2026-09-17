@@ -1,0 +1,35 @@
+{
+  "id": "chatcmpl-REDACTED",
+  "object": "chat.completion",
+  "created": 1789665256,
+  "model": "gpt-5-mini-2025-08-07",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Priority: plan (score 4). The score equals severity_signal (4) + exposure_signal (0) + corroboration_signal (0). Severity_signal is the highest severity any scanner stated for a finding on this surface, as a rank from 1 (info) to 5 (critical); a finding whose severity the scanner did not know contributes nothing. Exposure_signal is 1 when a dynamic (DAST) scanner reached this surface over the network, otherwise 0; it is not a statement about how exposed the deployed application is, and corroboration_signal is 1 when findings on this surface were reported by two or more different scanners, otherwise 0; thresholds are: fix_now at 6 or more, plan at 4 or more, monitor below 4.",
+        "refusal": null,
+        "annotations": []
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 406,
+    "completion_tokens": 1446,
+    "total_tokens": 1852,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 1280,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}

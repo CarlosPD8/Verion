@@ -4,14 +4,17 @@
 `FakeExplanationProvider`, and a fake nobody checks against the real implementation proves
 only the consumer's side of a contract (G65). Running the same assertions over both is what
 lets a test built on the fake stand on something. The real adapter runs over
-`MockTransport`, so this is its code against the port's promises — not OpenAI's behaviour,
-which nothing in CI reaches (ADR-0032, M7.1's departure).
+`MockTransport`, replaying a response captured from OpenAI (M7.3), so this is its code against
+the port's promises. OpenAI's behaviour on any other day is reached by nothing in CI (G65).
 
 **The fake lives in `tests/conftest.py` since M7.2**, reached through the
 `explanation_provider_factory` fixture, because `tests/` is not a package and M7.2's tests
 needed it too. The parametrization below is by name and resolves the fake through that
 fixture, so it is the same class every consumer uses.
 """
+
+import json
+from pathlib import Path
 
 import httpx2
 import pytest
@@ -32,19 +35,13 @@ from verion.modules.risk_engine.ports.explainable_decision import ExplainableDec
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
-_COMPLETION = {
-    "id": "chatcmpl-contract",
-    "object": "chat.completion",
-    "created": 1_758_067_200,
-    "model": "gpt-5-mini-2025-08-07",
-    "choices": [
-        {
-            "index": 0,
-            "message": {"role": "assistant", "content": "A narrative.", "refusal": None},
-            "finish_reason": "stop",
-        }
-    ],
-}
+# The captured `explain` 200 (M7.3), replayed whole. The contract below asserts only the port's
+# promises, so which captured body serves both methods does not matter to it.
+_COMPLETION = json.loads(
+    (Path(__file__).parent / "fixtures" / "openai" / "chat_completion_200_explain.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 def _real(*, fail: bool = False) -> OpenAIExplanationProvider:

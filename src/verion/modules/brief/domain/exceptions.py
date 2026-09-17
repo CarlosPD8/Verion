@@ -11,8 +11,9 @@ class ExplanationUnavailable(BriefError):
     decision stands and its narrative is missing (rule 6, ADR-0004).
 
     **Its message carries at most a status code or a `finish_reason`, and never a provider's
-    response body.** OpenAI's 401 `error.message` has been reported echoing a key's prefix
-    and last four characters (a user-pasted body, AutoGPT issue #1422), so a body forwarded
+    response body.** OpenAI's 401 `error.message` echoes a key's first eight and last four
+    characters (a user-pasted body, AutoGPT issue #1422; observed by M7.3's capture on
+    2026-09-17), so a body forwarded
     here would be a credential in an exception (rule 12, **G71**'s second path). Adapters
     raise it `from None` for the same reason: a chained cause is part of the traceback a log
     prints.

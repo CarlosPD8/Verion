@@ -1,26 +1,36 @@
-"""`OpenAIExplanationProvider` over `httpx2.MockTransport`, and this module's rule-12 tests.
+"""`OpenAIExplanationProvider` over `httpx2.MockTransport`, replaying CAPTURED responses.
 
-**What this file exercises, and what it does not.** It runs the adapter's OWN code: the
-request it builds, where the credential goes, how every failure is translated, and that no
-response body reaches an exception. **It does not exercise OpenAI's real contract.** The
-fixtures below follow openai-python's typed models (`ChatCompletion`,
-`ChatCompletionMessage`) and OpenAI's documented error shape, not a captured response — a
-weaker footing than `test_github_adapter.py`'s captured payloads, and G19's shape. That is
-the M7.1 departure from CLAUDE.md's definition of done, recorded with its end condition in
-`ROADMAP.md`'s M7.1 entry (ADR-0032).
+**What this file exercises.** The adapter's own code (the request it builds, where the
+credential goes, how every failure is translated, that no response body reaches an
+exception) against response bodies OpenAI actually sent. `tests/integration/fixtures/openai/`
+holds a 200 per prompt and a 401, captured 2026-09-17 by `scripts/capture_openai_responses.py`
+and redacted as that directory's README records. This is `test_github_adapter.py`'s footing,
+and it ends the M7.1 departure (`ROADMAP.md`'s M7.1 entry; ADR-0032's M7.3 capture amendment).
 
-The 401 body carries a key's prefix and last four characters inside `error.message`,
-because that is what a user-pasted OpenAI 401 showed (AutoGPT issue #1422, 2023). Whether
-today's API still does so is unverified; the test assumes the worse case.
+**What it still does not exercise.** A replay proves the adapter reads what OpenAI sent on one
+day, for one model at its default reasoning effort. It does not prove OpenAI sends that
+tomorrow, and no test here reaches the API (**G65**).
+
+**Most unusable-200 cases are a captured body with a field changed**, because OpenAI produced no
+`length`, refusal or blank answer during the capture, and a replay cannot show a shape nobody
+observed. The refusal case changes two fields, and the empty-choices and not-an-object cases are
+built from scratch, because no capture can express a body that is not a completion.
+
+**The 401 echoes the key it was sent**, as observed in the capture (**G71**): its first eight
+characters, asterisks, and its last four. The fixture holds markers in their place, and
+`_ECHOING_401` puts this module's key's fragments back, so the leak tests run against the real
+message with a real echo in it.
 
 No skip anywhere: nothing here needs a credential, and no request leaves the process. Like
 every file in `tests/integration/`, it does need the Postgres service, because
 `conftest.py`'s autouse `_clean_all_tables` fixture migrates and cleans that database.
 """
 
+import copy
 import json
 import logging
 import traceback
+from pathlib import Path
 
 import httpx2
 import pytest
@@ -50,9 +60,23 @@ from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
 _KEY = "sk-proj-KEYSENTINEL0123456789abcdefWXYZ"
-# The fragments an echoing 401 would show: the visible prefix and the last four characters.
-_KEY_FRAGMENTS = ("sk-proj-KEYSENTINEL", "WXYZ")
+# The fragments the captured 401 echoes: the first eight characters and the last four.
+_KEY_FRAGMENTS = (_KEY[:8], _KEY[-4:])
 _MODEL = "gpt-5-mini"
+
+_FIXTURES = Path(__file__).parent / "fixtures" / "openai"
+# What `scripts/capture_openai_responses.py` writes in place of the throwaway key's echo.
+_KEY_FIRST_8_MARKER = "[REDACTED-KEY-FIRST-8]"
+_KEY_LAST_4_MARKER = "[REDACTED-KEY-LAST-4]"
+
+
+def _captured(name: str):
+    return json.loads((_FIXTURES / name).read_text(encoding="utf-8"))
+
+
+_EXPLAIN_200 = _captured("chat_completion_200_explain.json")
+_DESCRIBE_200 = _captured("chat_completion_200_describe.json")
+_CAPTURED_401 = _captured("chat_completion_401.json")
 
 
 def _decision():
@@ -69,35 +93,28 @@ def _decision():
     )
 
 
-def _completion(*, content="The priority is fix_now.", finish_reason="stop", refusal=None):
-    """A body in openai-python's `ChatCompletion` shape. Schema-derived, not captured."""
-    return {
-        "id": "chatcmpl-test",
-        "object": "chat.completion",
-        "created": 1_758_067_200,
-        "model": "gpt-5-mini-2025-08-07",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": content, "refusal": refusal},
-                "finish_reason": finish_reason,
-            }
-        ],
-        "usage": {"prompt_tokens": 400, "completion_tokens": 120, "total_tokens": 520},
-    }
+_KEEP = object()
 
 
-_ECHOING_401 = {
-    "error": {
-        "message": (
-            "Incorrect API key provided: sk-proj-KEYSENTINEL****************WXYZ. "
-            "You can find your API key at https://platform.openai.com/account/api-keys."
-        ),
-        "type": "invalid_request_error",
-        "param": None,
-        "code": "invalid_api_key",
-    }
-}
+def _completion(*, base=None, content=_KEEP, finish_reason=_KEEP, refusal=_KEEP):
+    """A captured 200, whole, with at most the named fields changed. Defaults to explain's."""
+    body = copy.deepcopy(_EXPLAIN_200 if base is None else base)
+    choice = body["choices"][0]
+    if content is not _KEEP:
+        choice["message"]["content"] = content
+    if finish_reason is not _KEEP:
+        choice["finish_reason"] = finish_reason
+    if refusal is not _KEEP:
+        choice["message"]["refusal"] = refusal
+    return body
+
+
+# The captured 401, with THIS module's key echoed where OpenAI echoed the throwaway key.
+_ECHOING_401 = json.loads(
+    json.dumps(_CAPTURED_401)
+    .replace(_KEY_FIRST_8_MARKER, _KEY[:8])
+    .replace(_KEY_LAST_4_MARKER, _KEY[-4:])
+)
 
 
 def _provider(handler):
@@ -116,6 +133,49 @@ def _provider(handler):
 def _leaks(exc: BaseException) -> list[str]:
     rendered = "".join(traceback.format_exception(exc)) + repr(exc)
     return [fragment for fragment in (_KEY, *_KEY_FRAGMENTS) if fragment in rendered]
+
+
+# --- the captured fixtures -------------------------------------------------------------
+
+
+async def test_the_captured_explain_200_replayed_unchanged_is_its_own_text_and_model():
+    provider, _ = _provider(lambda _: httpx2.Response(200, json=_EXPLAIN_200))
+
+    explanation = await provider.explain(decision=_decision())
+
+    assert explanation.text == _EXPLAIN_200["choices"][0]["message"]["content"].strip()
+    assert explanation.model == _EXPLAIN_200["model"]
+    assert explanation.prompt_version == PROMPT_VERSION
+
+
+async def test_the_captured_describe_200_replayed_unchanged_is_its_own_text_and_model():
+    provider, _ = _provider(lambda _: httpx2.Response(200, json=_DESCRIBE_200))
+
+    explanation = await provider.describe(members=_members(), member_count=2)
+
+    assert explanation.text == _DESCRIBE_200["choices"][0]["message"]["content"].strip()
+    assert explanation.model == _DESCRIBE_200["model"]
+    assert explanation.prompt_version == DESCRIBE_PROMPT_VERSION
+
+
+@pytest.mark.parametrize("body", [_EXPLAIN_200, _DESCRIBE_200], ids=["explain", "describe"])
+def test_a_captured_200_keeps_usage_whole_and_its_id_redacted(body):
+    """The M7.1 departure's condition: `usage` is not trimmed to the fields the adapter reads."""
+    usage = body["usage"]
+    assert {"prompt_tokens", "completion_tokens", "total_tokens"} <= set(usage)
+    assert isinstance(usage["completion_tokens_details"]["reasoning_tokens"], int)
+    assert body["id"] == "chatcmpl-REDACTED"
+
+
+def test_the_captured_401_holds_each_marker_once_and_the_replay_echoes_this_modules_key():
+    """Keeps the leak tests below from passing vacuously over a 401 that echoes nothing."""
+    captured = json.dumps(_CAPTURED_401)
+    assert captured.count(_KEY_FIRST_8_MARKER) == 1
+    assert captured.count(_KEY_LAST_4_MARKER) == 1
+    echoed = _ECHOING_401["error"]["message"]
+    assert all(fragment in echoed for fragment in _KEY_FRAGMENTS)
+    # The substitution really happened: a fixture holding no marker would leave this equal.
+    assert echoed != _CAPTURED_401["error"]["message"]
 
 
 # --- the request ------------------------------------------------------------------------
@@ -298,7 +358,7 @@ def _members() -> tuple[BriefMember, ...]:
 
 
 async def test_describe_is_one_post_with_the_same_four_body_keys_and_its_own_messages():
-    provider, requests = _provider(lambda _: httpx2.Response(200, json=_completion()))
+    provider, requests = _provider(lambda _: httpx2.Response(200, json=_DESCRIBE_200))
 
     explanation = await provider.describe(members=_members(), member_count=2)
 
@@ -360,7 +420,7 @@ async def test_an_echoing_401_on_describe_leaks_no_part_of_the_key(caplog):
 
 async def test_an_unusable_describe_200_is_unavailable():
     provider, _ = _provider(
-        lambda _: httpx2.Response(200, json=_completion(finish_reason="length"))
+        lambda _: httpx2.Response(200, json=_completion(base=_DESCRIBE_200, finish_reason="length"))
     )
 
     with pytest.raises(ExplanationUnavailable, match="finish_reason length"):
