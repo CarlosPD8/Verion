@@ -754,7 +754,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
     - **The ground.** Next.js was chosen over a throwaway static page, so this work is kept rather than discarded (`PRODUCT_SPEC.md` §13).
     - **What it is NOT.** It does not mark this issue done or partly done.
       - This issue requires a project list, Security Brief cards (why it matters, recommended action, estimated effort, confidence) and drill-down into raw evidence. None of them ships.
-      - Confidence and every Brief field exist in no API (**G63**, M7.2).
+      - ~~Confidence and every Brief field exist in no API (**G63**, M7.2).~~ *(Struck 2026-09-18 as falsified: `why_it_matters` has shipped on both Brief routes since M7.2, and `what_happened` since M7.3.)* Confidence exists in no API (**G63**). Recommended action and estimated effort have no producer (**G74**).
       - Any field the screen wants added to `/scored-risks` is an ADR-0030 change first, because that ADR's decision 3 field list is bound by a key-set equality assertion.
     - **The departure ends at the first of:**
       1. **M8.2 lands.** Its commit says whether the screen moves to M8.2's read model, and this issue resumes as a normal issue.
@@ -2059,7 +2059,7 @@ Note (2026-09-17, M7.1): **the instance is fixed and the entry stays open, as it
 ### G73 — Generating a Brief is synchronous, billed and unbounded: it holds the request's database session across a provider call, and nothing limits repeats
 Confirmed: M7.2 design commit, M7.3 · Status: open
 Kind: owed · Blocks: ship
-Blocks-if-unresolved: **the first deployment where more than a handful of Briefs are generated at once: pooled connections held idle for up to the provider's timeout, and a provider bill with no ceiling.** Two mechanisms combine.
+Blocks-if-unresolved: **the first deployment where more than a handful of Briefs are generated at once: pooled connections held idle ~~for up to the provider's timeout~~, and a provider bill with no ceiling.** *(Clause struck 2026-09-18 as falsified: the timeout does not bound the hold. See the post-M7 note below.)* Two mechanisms combine.
 - **The session.** ADR-0033 decision 8 runs generation inside `POST /projects/{project_id}/briefs`. `platform/db.py`'s `get_db_session` opens one session per request and commits after the handler returns, and generation reads findings before it calls the provider. So the session, and on the reading here its pooled connection, stays open for the whole call. `OpenAIExplanationProvider`'s `_TIMEOUT_SECONDS` is 30 s~~ and unmeasured. **This is read from the code, not measured**, since no call path has run against a real provider~~ *(struck 2026-09-17, M7.3 commit 3: the call path arrived at M7.2 and the latency is measured, median 16.46 s per call over 59 calls, with one call hitting the bound. What is still read from the code and not measured is the session being held, which no load has exercised. See the M7.3 note below.)*
 - **The repeats.** ADR-0033 decision 3 makes generation append-only with no deduplication. Every POST is one billed call, and nothing bounds how many a member sends.
 
@@ -2079,6 +2079,8 @@ Note (2026-09-17, M7.3 commit 3): **the capture trigger fired. The call has its 
 - **Two claims in this entry's own body are corrected above**, because this note falsifies them: the timeout is no longer unmeasured, and *"a latency nobody has measured"* is struck from the deferral rationale.
 - **Token totals are a floor**: 28,731 prompt and 76,518 completion tokens over the 58 calls that returned a body. The timed-out call's usage is absent, and it was almost certainly billed.
 - **Trigger**: **M10.2** or **M11.3**, whichever comes first. The capture clause is spent.
+
+Note (2026-09-18, post-M7 boundary review) · Confirms: none: **the 30 s timeout does not bound the call, and that STRENGTHENS this entry.** `_TIMEOUT_SECONDS` applies to each network read rather than to the response, and nothing sets an overall deadline (ADR-0032's 2026-09-18 amendment, read from the installed `httpx2` and its transport `httpcore2`). So the case for the queued job no longer rests on measured latency. It rests on this: **nothing in the code stops a request holding its pooled connection indefinitely** while a response arrives in chunks less than 30 s apart. The realistic sender is OpenAI or the network path, not an attacker, because the URL is a module constant. The Blocks-if-unresolved clause that priced the hold at the timeout is struck above. Trigger unchanged.
 
 ### G74 — Three of FR-8's parts have no producer, and whether an LLM may ever supply an effort estimate is undecided
 Confirmed: M7.2 design commit, M7.3 · Status: open
@@ -2242,6 +2244,12 @@ Confirmed: M8.0 commit 2 · Status: open
 Kind: owed · Blocks: internal
 Blocks-if-unresolved: **the confirmation count this register escalates on, silently.** `check_register_fields` reads `Confirms:` only on a history line whose label's parenthetical holds an ISO date on or after 2026-09-18. The rules treat an undated line as legacy, so a note written today without a date carries no `Confirms:` and nothing fires. If that note records an encounter, `Confirmed:` stays one short with every field well-formed and every check green, and the three-confirmation threshold arrives late or never. The check cannot tell a new undated line from a legacy one, because nothing in the file dates it. The dated half has input: the commit that opens this entry writes two dated lines, on **G78** and **G80**, and the check reads both. This commit gives the undated half none.
 Deferral rationale: the fix is a rule decision, not a line. Either every new history line must carry a date, which a check can enforce only by knowing which lines are new, i.e. by reading git history, which `check_claims` does not do; or the legacy clause is closed by dating or retiring the undated lines, which would edit dated records **G34** keeps frozen. Neither belongs to a field check. Trigger: **the next undated history line anybody writes**.
+
+### G83 — A new module appears in no import-linter contract, so rules 1–3 are off for it while `lint-imports` stays green
+Confirmed: post-M7 · Status: open
+Kind: owed · Blocks: internal
+Blocks-if-unresolved: **rules 1–3 for the next module, silently.** Every contract names its modules. The eight `layers-*` contracts name them in `containers`, the eight `cross-module-*` contracts in `source_modules` and `forbidden_modules`, and `framework-isolation` its 16 `source_modules`. A ninth directory under `src/verion/modules/` is in none of them. Its `domain/` may import an adapter or FastAPI, and every other module may import its `domain/` and `adapters/`, while `lint-imports` reports `17 kept, 0 broken`. `.claude/skills/new-module/SKILL.md`, the procedure for adding a module, never says to add a contract. Its one import-linter step runs `lint-imports` to confirm the new module violates nothing, which it cannot do while no contract names it. One of six holes ADR-0007's 2026-09-18 amendment enumerates.
+Deferral rationale: the fix is a check, and choosing it is this boundary review's decision, not the correction that found the hole. The candidate: **every directory under `src/verion/modules/` appears in exactly one `layers-*` contract and one `cross-module-*` contract.** No module is being added, so nothing is exposed until one is. Trigger: **the next module added**.
 
 ## V2 Backlog (explicitly out of this roadmap)
 

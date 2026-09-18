@@ -791,6 +791,14 @@ be validated" — is discharged as to what is out.)*
   section 8 required it. G46's non-ADR site, `ARCHITECTURE.md`'s ADR-0023 summary bullet,
   is corrected in the same commit.
 
+- **2026-09-18 (post-M7 boundary review): the Context's "8 of the 17 contracts have a *source* module
+  containing zero non-`__init__` Python files" is STALE. It was a true measurement at M5.1 and is
+  qualified, not struck.** At `7e1bc62`, `correlation` holds 10 non-`__init__` files, `risk_engine` 10
+  and `brief` 15, and `history` none. So **two** contracts are green over an empty source:
+  `layers-history` and `cross-module-history`. **This is the second boundary running.** The post-M6
+  review's step 6 recorded the count at 4 (`ROADMAP.md`'s review log, 2026-09-16 row), and this ADR was
+  not amended. M7's `brief` code moved it from 4 to 2.
+
 ## Alternatives considered
 
 **1. A structural `Protocol` in `correlation/domain/` describing only the fields correlation

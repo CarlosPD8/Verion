@@ -295,8 +295,9 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
   - **Therefore.** The exceedance is not a mis-set bound. It is evidence that generation does not belong
     in a request. **The VALUE is handed to the work that makes generation asynchronous, where a generous
     bound is free** because nobody waits on it. That work is **G73**'s queued generation job, which
-    re-decides ADR-0033 decision 8 (ADR-0033's M7.3 capture amendment). No issue schedules it. Until
-    then the bound is 30 s, and a Brief whose call exceeds it answers the fixed 502 and stores nothing.
+    re-decides ADR-0033 decision 8 (ADR-0033's M7.3 capture amendment). No issue schedules it. ~~Until
+    then the bound is 30 s, and a Brief whose call exceeds it answers the fixed 502 and stores nothing.~~
+    *(STRUCK 2026-09-18 as falsified; see the post-M7 boundary amendment below.)*
   - **Superseded.** The first amendment's *"Result. The timeout stays **30 s and UNMEASURED**"*: it is
     measured.
 - **2026-09-17 (M7.3 capture commit, ADR-0034): decision 7's departure has ended.**
@@ -308,6 +309,28 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     carries markers in their place, with the message's shape kept.
   - **Decision 6, verified against a real body.** The adapter's exception carried no fragment of the key.
   - **What stays unexercised.** What OpenAI sends on any later day. Nothing in CI calls it (**G65**).
+- **2026-09-18 (post-M7 boundary review): the M7.3 capture amendment's *"the bound is 30 s, and a Brief
+  whose call exceeds it answers the fixed 502 and stores nothing"* is FALSIFIED, and struck.** Read from
+  the installed code, not from documentation.
+  - **What the adapter sets.** `OpenAIExplanationProvider` builds `httpx2.AsyncClient(timeout=_TIMEOUT_SECONDS)`.
+    A scalar sets `connect`, `read`, `write` and `pool` to 30 s each (`httpx2`'s `Timeout`).
+  - **What the read timeout bounds.** `httpx2` 2.12.0's transport is `httpcore2` 2.12.0, whose
+    `_async/http11.py` passes it to every `_receive_event`, in the response-body loop included, and
+    `_receive_event` applies it to each `_network_stream.read`. It bounds the wait for the next
+    bytes, not the response: a response delivering a chunk every 29 s never times out.
+  - **No overall deadline exists.** Nothing in the adapter, the use case or the route wraps the call in
+    one, so the hold is bounded neither by 30 s nor by the sum of the phases. `GitHubAdapter` records the
+    same per-operation behaviour and bounds its archive fetch with `asyncio.timeout`; this adapter has no
+    counterpart. `openai_adapter.py`'s comment above `_TIMEOUT_SECONDS`, *"httpx applies it per phase,
+    not to the whole call"*, is incomplete for the same reason: within the read phase it applies per read.
+  - **What still holds.** A read that waits 30 s with nothing arriving times out, and the Brief then
+    answers the fixed 502 and stores nothing. What is false is that every call longer than 30 s ends
+    that way. The capture's one cut-off call fits a read timeout at 30.32 s but does not show one:
+    `measurements.json` records `"error": "timeout"`, which `scripts/capture_openai_responses.py`
+    writes on any `httpx2.TimeoutException`, and all four phases raise one.
+  - **Who could send such a response.** `_CHAT_COMPLETIONS_URL` is a module constant, so the realistic
+    sender is OpenAI or the network path, not an attacker choosing the endpoint.
+  - **Consequence.** It strengthens **G73**, which records it. The timeout's value stays G73's decision.
 
 ## Alternatives considered
 

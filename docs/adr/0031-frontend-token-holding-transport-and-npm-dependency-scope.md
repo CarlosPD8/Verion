@@ -220,6 +220,14 @@ The setting is therefore **not** in `next.config.mjs`: it is not load-bearing, a
 - **`next-env.d.ts` is in `.gitignore`.** Every `next dev` and `next build` regenerates it with different imports (`.next/dev/types/*` against `.next/types/*`), so a tracked copy would flip with whichever command ran last.
 - **`uv build`'s sdist includes `frontend/`'s 10 tracked files (the 9 of the screen and its build configuration, plus the rule-12 test) and nothing from `node_modules/`, `.next/` or `next-env.d.ts`**, since hatchling honours `.gitignore`. That matches what the sdist already ships under hatchling's defaults, with no `[tool.hatch]` configuration: `docs/`, `tests/`, `infra/` and `.claude/` among them. No exclusion was added. The wheel, built separately, holds 0 `frontend/` entries out of 218.
 
+## Amendments
+
+- **2026-09-18 (post-M7 boundary review): decision 3's count is STALE, not falsified.** It reads *"5 of the 19 declared there (11 runtime, 8 dev)"*, and the five packages it names still carry the comment.
+  - **At `7e1bc62` it is 6 of 19, with 12 runtime and 7 dev.** The sixth is `httpx2`. Its comment arrived in `1582c6c` (M7.1), with its move from the dev group to `[project]` dependencies (ADR-0032 decision 5), and that move is the whole of the runtime/dev shift.
+  - **Of the six, four are runtime** (`arq`, `httpx2`, `pyyaml`, `semgrep`) **and two are dev** (`mypy`, `types-PyYAML`).
+  - **How it was counted.** Per package, with each comment block read whole. PyYAML's "Verified per ADR-009" wraps across two lines, so a line-based count reads 5.
+  - **Unchanged.** Decision 3's scope for `frontend/`.
+
 ## Alternatives considered
 
 - **`localStorage` or `sessionStorage`.** Rejected in decision 1: the token is readable by any XSS for its whole lifetime, in exchange for surviving a reload within 30 minutes.

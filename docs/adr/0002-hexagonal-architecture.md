@@ -18,6 +18,13 @@ This makes the two things the product spec requires straightforward: adding `Zap
 
 It makes small, throwaway features slower to build — even a trivial endpoint requires touching four layers (route → use case → domain → port/adapter) instead of one file. It also means the boundary rules only hold as long as they're enforced; without a mechanical check (ADR-007), the discipline degrades exactly the way conventional layered architectures do. And structuring every module identically, whether or not that module ends up having complex domain logic (e.g. `identity` versus `risk_engine`), adds boilerplate to the simpler modules for the sake of uniformity.
 
+## Amendments
+
+- **2026-09-18 (post-M7 boundary review): *"This is enforced mechanically"* claims more than the mechanism does, and is qualified.** import-linter enforces an enumeration, not the rule.
+  - `domain/`'s zero imports from *"any third-party framework"* is checked only for the five packages `framework-isolation` names: `fastapi`, `sqlalchemy`, `redis`, `arq` and `uvicorn`. It is checked only in the `domain` and `application` packages of the eight modules that contract lists.
+  - Any other framework, and any module the contracts do not list, passes green.
+  - What the contracts assert about every item they name, and about every item they leave out, is ADR-0007's 2026-09-18 amendment.
+
 ## Alternatives considered
 
 **Conventional layered/MVC architecture** (routes → services → ORM models directly). Rejected: nothing in that structure stops a scanner's raw output format or a specific ORM model from leaking into correlation/risk logic — the extensibility and explainable-testability requirements from `PRODUCT_SPEC.md` §7 would depend entirely on developer discipline rather than the architecture itself.

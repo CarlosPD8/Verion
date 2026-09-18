@@ -20,6 +20,16 @@ Any module reachable from another only via `platform/di.py`'s composition root n
 
 The trade-off is real, not just textual: these 8 contracts no longer catch a hypothetical future case where two modules end up transitively coupled through some other shared file *besides* `di.py` — an indirect path through, say, a shared utility module would now pass silently where it previously would have failed loudly. That's judged an acceptable narrowing given `di.py` is already the sanctioned, sole wiring point (per ADR-008 and CLAUDE.md's "Third-party skills" section: "all wiring goes through named factory functions in `platform/di.py`"), so a new indirect coupling through some other shared file would itself be a sign of an undocumented second wiring path — a problem this ADR doesn't claim to solve, but one the project's existing conventions already discourage.
 
+## Amendments
+
+- **2026-09-18 (post-M7 boundary review): the Consequences' description is STALE, and is qualified, not struck. The mechanism is unchanged.**
+  - **What they say.** The flag lets modules reach each other through `platform/di.py`, and any other indirect path is *"a hypothetical future case"*.
+  - **What is now true.** That case is actual, and deliberate. ADR-0033 decision 6 relies on the flag for `risk_engine`'s domain exceptions reaching `brief` through `risk_engine.ports`.
+  - **Measured at `7e1bc62`.** `allow_indirect_imports` was set to `false` on `cross-module-brief` alone and reverted sha256-clean. The result was 16 kept and 1 broken. Besides the chains through `verion.platform.di`, it named two that never touch it:
+    - `brief.application.generate_security_brief` → `risk_engine.ports.explainable_risk` → `risk_engine.domain.exceptions`, which ADR-0033 names;
+    - `brief.application.generate_security_brief` → `normalization.ports.finding_repository` → `normalization.domain.finding`, which ADR-0033 does not name.
+  - **So the flag now carries two sanctioned paths:** the composition root, and a published port whose signatures name its own module's domain types. The Consequences' warning still stands for any third: an indirect path through some other shared file passes silently.
+
 ## Alternatives considered
 
 **Split `platform/di.py` into one file per module** (e.g. `platform/di/identity.py`, `platform/di/projects.py`), so each module's router only imports its own slice and never transitively touches another module's wiring. Rejected: this directly contradicts CLAUDE.md rule 15's single-composition-root convention, established just one milestone earlier (M1.2/M1.3) specifically to keep every port-to-adapter resolution readable from one file. It also doesn't remove the real dependency driving the original failure — `projects` genuinely needs identity's JWT-decoding machinery for `CurrentUserIdDep` — it would only relocate that dependency across more files, with no actual gain in decoupling, for a real cost in violating an already-established rule.
