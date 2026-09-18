@@ -16,6 +16,15 @@ thing it corrected. Flagging those would make this checker wrong, and a checker
 that cries wolf gets disabled. `check_adrs_are_indexed` reads `docs/adr/` for its
 file NAMES and its README index only, never an ADR's body, so that exclusion holds.
 
+`check_register_fields` reads the PRESENCE and SHAPE of four register fields and nothing
+about whether their values are true. It cannot check that `fact` is the right class for an
+entry, that `ship` is the right value for a blocker, that a `Reopens if:` names a condition
+that would actually falsify the entry, or that a `Confirms: none` is honest — and the last is
+the one the three-confirmation count depends on, since a note that should have confirmed and
+says `none` leaves `Confirmed:` short with every field well-formed. The same limit
+`check_adrs_are_indexed` has: it checks that an ADR has an index row, never that the row
+describes the ADR.
+
 Run: `uv run python scripts/check_claims.py`
 """
 
@@ -84,6 +93,28 @@ HISTORY_LINE = re.compile(r"^(?:Note|Rewritten|Resolution|Discharge|Assignment|S
 # justified. Three, because three is where G1 broke: M3.4 and M3.5 were
 # reasonable deferrals, and by M3.6 the repetition was information nobody acted on.
 ESCALATION_THRESHOLD = 3
+
+# The first date on which a history line must say what it confirms. Earlier lines and undated
+# lines are legacy: M8.0 commit 1 wrote the rule without retrofitting them.
+CONFIRMS_CUTOFF = "2026-09-18"
+
+# `Kind: owed · Blocks: internal` / `Kind: fact · Reopens if: <condition>`, as M8.0 commit 1
+# wrote them, on the line directly after an entry's `Confirmed:` line.
+KIND_LINE = re.compile(r"^Kind:\s*(\S*)\s*(?:·\s*(.*))?$")
+
+# A history line's header: its label, the parenthetical DIRECTLY after it, and an optional
+# `Confirms: <value>` directly after that, `·` allowed between. Anchored this tightly because
+# both looser readings fail: "the first parenthetical anywhere" dates an undated line whose
+# body holds one, and "everything before the first bold" reads a `Confirms:` in the body.
+# The value ends where a header does — at `: `, ` — ` or a bold — as it may hold a space.
+DATED_HEADER = re.compile(
+    r"^(?:Note|Rewritten|Resolution|Discharge|Assignment|Split|Update)\b\s*\(([^)]*)\)"
+    r"(?:\s*·?\s*Confirms:\s*(.*?)\s*(?=: | — |\*\*|$))?"
+)
+
+# The line's date: the first ISO date anywhere in that parenthetical, so the issue-first form
+# `Resolution (M5.8, 2026-08-26)` is dated as much as `Note (2026-09-16, M6.1)` is.
+ISO_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 
 
 def _read(relative_path: str) -> str:
@@ -592,6 +623,143 @@ def check_fired_triggers_are_recorded(findings: list[tuple[str, int, str]]) -> N
             )
 
 
+def check_register_fields(findings: list[tuple[str, int, str]]) -> None:
+    """The Deferred gaps rules' four M8.0 fields are present and well-formed.
+
+    * **`Kind:`** on the line directly after `Confirmed:`, valued `fact` or `owed`, on every
+      live entry. An entry whose `Status:` begins `resolved` (read as the Status terms in the
+      register's rules define it) is skipped: the rule requires `Kind:` on live entries only.
+    * **`Reopens if:`**, non-empty, on the `Kind:` line of every `fact`.
+    * **`Blocks:`**, valued `ship` or `internal`, on the `Kind:` line of every `owed`.
+    * **`Confirms:`** on every history line dated on or after `CONFIRMS_CUTOFF`, directly after
+      its header's parenthetical (see `DATED_HEADER`), valued `none` or a value that appears in
+      that entry's `Confirmed:`. A line is dated when that parenthetical — the one directly
+      after the label — holds an ISO date, in either order: `(2026-09-16, M6.1)` and
+      `(M5.8, 2026-08-26)` both count. Applied to resolved entries too: the rule names every
+      dated history line, and appending to a resolved `Confirmed:` is designed behaviour.
+
+    **The `Confirms:` rule's undated half has no input.** When this check was added, the only
+    history lines dated on or after the cutoff were the two its own commit wrote, on G78 and
+    G80. An UNDATED history line is never read by it at all, so a note written without a
+    date escapes it for good; that is the rule's legacy clause, and **G82** carries it.
+
+    **Not in this check, and not forgotten: the escalation tightening.** An `owed` entry at
+    three or more confirmations could be required to name an issue rather than carry a
+    `Deferral rationale:`. When this check was added, every such entry that was not already
+    assigned carried only a rationale, so turning it on would go red on each of them at once,
+    and each would be a scope decision rather than a defect. It belongs to the boundary
+    review's remaining steps, not to a field check; `check_deferred_gaps_are_escalated` is
+    unchanged.
+
+    Scope: presence and shape only — see the module docstring for the four things no field
+    check can see.
+    """
+    register = _h2_section(
+        _read(ROADMAP).splitlines(), lambda heading: heading.startswith("## Deferred gaps")
+    )
+    if register is None:
+        findings.append(
+            (ROADMAP, 1, "no '## Deferred gaps' section, so no entry's fields can be verified")
+        )
+        return
+    register_start, register_lines = register
+
+    entries: list[tuple[int, str, list[tuple[int, str]]]] = []
+    for offset, line in enumerate(register_lines):
+        number = register_start + offset + 1
+        if line.startswith("### "):
+            entries.append((number, line.removeprefix("### ").strip(), []))
+        elif entries:
+            entries[-1][2].append((number, line))
+
+    for _, title, body in entries:
+        confirmed_at = next(
+            (index for index, (_, text) in enumerate(body) if text.startswith("Confirmed:")),
+            None,
+        )
+        if confirmed_at is None:
+            continue  # `check_deferred_gaps_are_escalated` reports a missing `Confirmed:`.
+        confirmed_number, confirmed_line = body[confirmed_at]
+        # The same two readings the other register checks use, so the three cannot disagree
+        # about an entry's values or its state.
+        values = re.match(r"^Confirmed:\s*(.+?)(?:·|$)", confirmed_line)
+        raw = values.group(1) if values else ""
+        confirmed = {value.strip() for value in raw.split(",") if value.strip()}
+        status = re.match(r"^Confirmed:.*?Status:\s*(.+)$", confirmed_line)
+        status_value = (status.group(1) if status else "").strip().lstrip("*`_ ").lower()
+
+        if not status_value.startswith("resolved"):
+            _check_kind_line(findings, title, confirmed_number, body, confirmed_at)
+
+        for number, text in body:
+            header = DATED_HEADER.match(text)
+            date = ISO_DATE.search(header.group(1)) if header else None
+            if header is None or date is None or date.group(1) < CONFIRMS_CUTOFF:
+                continue
+            value = header.group(2)
+            if not value:
+                findings.append(
+                    (
+                        ROADMAP,
+                        number,
+                        f"gap '{title}' has a history line dated {date.group(1)} with no "
+                        f"'Confirms: <milestone> | none' directly after its parenthetical",
+                    )
+                )
+            elif value != "none" and value not in confirmed:
+                findings.append(
+                    (
+                        ROADMAP,
+                        number,
+                        f"gap '{title}' has a history line that confirms "
+                        f"'{value}', which its Confirmed: line does not list",
+                    )
+                )
+
+
+def _check_kind_line(
+    findings: list[tuple[str, int, str]],
+    title: str,
+    confirmed_number: int,
+    body: list[tuple[int, str]],
+    confirmed_at: int,
+) -> None:
+    """The `Kind:` line of one live entry, which must follow its `Confirmed:` line directly."""
+    after = body[confirmed_at + 1] if confirmed_at + 1 < len(body) else None
+    kind = KIND_LINE.match(after[1]) if after is not None else None
+    if after is None or kind is None:
+        findings.append(
+            (
+                ROADMAP,
+                confirmed_number,
+                f"gap '{title}' is live and the line after its Confirmed: line is not a "
+                f"'Kind: fact | owed' field",
+            )
+        )
+        return
+
+    value, companion = kind.group(1), (kind.group(2) or "").strip()
+    if value == "fact":
+        if not re.fullmatch(r"Reopens if:\s*\S.*", companion):
+            findings.append(
+                (ROADMAP, after[0], f"gap '{title}' is a fact with no non-empty 'Reopens if:'")
+            )
+    elif value == "owed":
+        blocks = re.fullmatch(r"Blocks:\s*(\S+)", companion)
+        if blocks is None or blocks.group(1) not in ("ship", "internal"):
+            findings.append(
+                (
+                    ROADMAP,
+                    after[0],
+                    f"gap '{title}' is owed with no 'Blocks: ship | internal'",
+                )
+            )
+    else:
+        findings.append(
+            (ROADMAP, after[0], f"gap '{title}' has Kind: '{value}', which is not fact or owed")
+        )
+
+
 def report_type_suppressions() -> list[str]:
     """Reports, and deliberately does not block on, type/lint suppressions.
 
@@ -636,6 +804,7 @@ CHECKS = (
     check_adrs_are_indexed,
     check_assignments_name_real_issues,
     check_fired_triggers_are_recorded,
+    check_register_fields,
 )
 
 

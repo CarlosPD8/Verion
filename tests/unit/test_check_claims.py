@@ -1,9 +1,10 @@
-"""`check_claims.py`'s ADR-index, assignment-target and fired-trigger checks, on synthetic corpora.
+"""`check_claims.py`'s ADR-index, assignment-target, fired-trigger and register-field checks,
+on synthetic corpora.
 
-These are the first tests the script has had. Its four earlier checks are verified only by
+These were the first tests the script had. Its four earlier checks are verified only by
 running against the live corpus, and there a check that works and a check that cannot fire
-both print "checks passed". Both checks here found zero violations on their first run over
-the real tree, which is exactly the case where the two cannot be told apart. So each one is
+both print "checks passed". Each check here found zero violations on its first run over the
+real tree, which is exactly the case where the two cannot be told apart. So each one is
 pointed at a small corpus built to make it fire.
 
 `scripts/` is not a package and not on `sys.path`, so the module is loaded from its file.
@@ -510,3 +511,159 @@ def test_an_issue_without_the_done_marker_has_not_fired(write: Write) -> None:
     _roadmap(write, _gap("Trigger: **M6.3's endpoint**."), milestones=milestones)
 
     assert _run(check_claims.check_fired_triggers_are_recorded) == []
+
+
+# --- check_register_fields ---------------------------------------------------------------
+
+
+def _fields(
+    write: Write,
+    *,
+    status: str = "open",
+    kind: str | None = "Kind: owed · Blocks: internal",
+    history: str = "",
+) -> Findings:
+    """One entry in M8.0 commit 1's grammar, with `kind` on the line after `Confirmed:`."""
+    lines = ["### G82 — A gap", f"Confirmed: M8.0 commit 2, M8.1 · Status: {status}"]
+    if kind is not None:
+        lines.append(kind)
+    lines.append("Blocks-if-unresolved: x")
+    if history:
+        lines.append(history)
+    _roadmap(write, "\n".join(lines) + "\n")
+    return _run(check_claims.check_register_fields)
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "Kind: owed · Blocks: internal",
+        "Kind: owed · Blocks: ship",
+        "Kind: fact · Reopens if: anybody proposes a mechanical check",
+    ],
+)
+def test_the_grammar_commit_1_wrote_passes(write: Write, kind: str) -> None:
+    assert _fields(write, kind=kind) == []
+
+
+@pytest.mark.parametrize("kind", [None, "Kind: maybe · Blocks: ship", "Kind:"])
+def test_a_live_entry_without_a_valid_kind_is_named(write: Write, kind: str | None) -> None:
+    findings = _fields(write, kind=kind)
+
+    assert len(findings) == 1
+    assert "gap 'G82 — A gap'" in findings[0][2]
+
+
+def test_a_kind_line_not_directly_after_confirmed_does_not_count(write: Write) -> None:
+    """Commit 1 placed it on the next line; a `Kind:` further down is not that field."""
+    findings = _fields(write, kind=None, history="Kind: owed · Blocks: internal")
+
+    assert len(findings) == 1
+    assert "the line after its Confirmed: line" in findings[0][2]
+
+
+@pytest.mark.parametrize("kind", ["Kind: fact", "Kind: fact · Reopens if:", "Kind: fact · x"])
+def test_a_fact_without_a_reopens_if_is_named(write: Write, kind: str) -> None:
+    findings = _fields(write, kind=kind)
+
+    assert len(findings) == 1
+    assert "is a fact with no non-empty 'Reopens if:'" in findings[0][2]
+
+
+@pytest.mark.parametrize(
+    "kind", ["Kind: owed", "Kind: owed · Blocks: critical", "Kind: owed · Reopens if: x"]
+)
+def test_an_owed_entry_without_a_valid_blocks_is_named(write: Write, kind: str) -> None:
+    findings = _fields(write, kind=kind)
+
+    assert len(findings) == 1
+    assert "is owed with no 'Blocks: ship | internal'" in findings[0][2]
+
+
+@pytest.mark.parametrize("status", ["resolved → M8.1", "**resolved → M8.1**", "RESOLVED (M8.1)"])
+def test_a_resolved_entry_needs_no_kind(write: Write, status: str) -> None:
+    """Every form the register's Status terms read as resolved, bold and uppercase included."""
+    assert _fields(write, status=status, kind=None) == []
+
+
+def test_a_dated_history_line_without_confirms_is_named(write: Write) -> None:
+    findings = _fields(write, history="Note (2026-09-18, M8.1): **it was read.**")
+
+    assert len(findings) == 1
+    assert "dated 2026-09-18 with no 'Confirms:" in findings[0][2]
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        "Note (2026-09-17, M7.3): **the day before the cutoff.**",
+        "Note: **undated, which the rule leaves as legacy.**",
+        "Note (M5.1): **dated by issue only, which is not a date.**",
+    ],
+)
+def test_lines_before_the_cutoff_or_undated_are_not_read(write: Write, history: str) -> None:
+    assert _fields(write, history=history) == []
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        "Note (2026-09-18, M8.1) · Confirms: M8.1: **read and deferred.**",
+        "Note (2026-09-20) · Confirms: none: **a forecast.**",
+        "Update (2026-09-20, M8.1) · Confirms: M8.0 commit 2 — **a value with spaces.**",
+    ],
+)
+def test_a_confirms_value_listed_in_confirmed_or_none_passes(write: Write, history: str) -> None:
+    assert _fields(write, history=history) == []
+
+
+def test_a_confirms_value_missing_from_confirmed_is_named(write: Write) -> None:
+    findings = _fields(write, history="Note (2026-09-20, M8.2) · Confirms: M8.2: **x.**")
+
+    assert len(findings) == 1
+    assert "confirms 'M8.2', which its Confirmed: line does not list" in findings[0][2]
+
+
+def test_a_confirms_after_the_first_bold_is_not_in_the_header(write: Write) -> None:
+    findings = _fields(write, history="Note (2026-09-20, M8.1): **x.** Confirms: M8.1")
+
+    assert len(findings) == 1
+    assert "with no 'Confirms:" in findings[0][2]
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        "Resolution (M8.1, 2026-09-20): **closed.**",  # issue-first, as G30's Resolution
+        "Note (2026-09-20, M8.1): see Confirms: M8.1 **x**",  # in the body, not the header
+    ],
+)
+def test_a_dated_line_is_read_whatever_its_order_and_only_in_its_header(
+    write: Write, history: str
+) -> None:
+    findings = _fields(write, history=history)
+
+    assert len(findings) == 1
+    assert "dated 2026-09-20 with no 'Confirms:" in findings[0][2]
+
+
+def test_an_issue_first_date_is_checked_against_confirmed(write: Write) -> None:
+    findings = _fields(write, history="Note (M8.1, 2026-09-20) · Confirms: M8.9: **x**")
+
+    assert len(findings) == 1
+    assert "confirms 'M8.9'" in findings[0][2]
+
+
+def test_a_date_outside_the_labels_parenthetical_leaves_the_line_undated(write: Write) -> None:
+    """The header's parenthetical is the one directly after the label, or there is none."""
+    assert _fields(write, history="Note: re-read (2026-09-20) and deferred.") == []
+
+
+def test_a_resolved_entrys_dated_line_still_needs_confirms(write: Write) -> None:
+    """The rule names every dated history line; only `Kind:` is scoped to live entries."""
+    findings = _fields(
+        write, status="resolved → M8.1", kind=None, history="Note (2026-09-20, M8.1): **x.**"
+    )
+
+    assert len(findings) == 1
+    assert "with no 'Confirms:" in findings[0][2]

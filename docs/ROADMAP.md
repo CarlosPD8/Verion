@@ -715,11 +715,13 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 
 **Goal:** the actual product surface a user interacts with. FR-10.
 
-- **M8.0 — Deferred-gaps register: classify every entry, and count confirmations by one rule**
+- **M8.0 — Deferred-gaps register: classify every entry, and count confirmations by one rule** — done
   Module: docs, `scripts/` · Depends on: — · A boundary-numbered issue on the M4.0 and M5.0 precedent: it sits at the M7→M8 boundary because it touches no feature, and it is not a design prerequisite for M8.1.
   - **Commit 1 — data.** Adds `Kind:`, `Reopens if:`, `Blocks:` and `Confirms:` to the Deferred gaps rules; writes `Kind:` and its companion field on every live entry; corrects `Confirmed:` on the live entries whose history notes record an occasion it omitted. Touches no file under `src/` and adds no check. The counting rule and the adjudication are in the review log row dated 2026-09-18.
   - **Commit 2 — the check.** A `check_claims` check over the data commit 1 wrote: `Kind:` present on every live entry; `Reopens if:` on every `fact`; `Blocks:` on every `owed`; `Confirms:` on every history line dated on or after 2026-09-18.
   - **Out of scope:** **G78** and **G80**, whose trigger is M10.3 and has not fired.
+  - **Also out of scope, deliberately: the escalation tightening.** Requiring an `owed` entry at three or more confirmations to name an issue rather than carry a `Deferral rationale:` would go red at once on every such entry not already assigned, and each is a scope decision rather than a defect. It belongs to the M7→M8 boundary review's remaining steps. `check_register_fields`' docstring says so.
+  - **Delivered.** `check_register_fields`, the eighth check in `scripts/check_claims.py`, with tests in `tests/unit/test_check_claims.py`. An undated history line bypasses its `Confirms:` rule (**G82**). The ordinal "eighth" in **G78**'s and **G80**'s deferred fixes is struck with a dated note on each; G78's 2026-09-17 note, which quotes it, is a dated record and is left as written.
 
 - **M8.1 — History/audit domain**
   Module: `history` · Depends on: M6
@@ -945,10 +947,10 @@ Rules, enforced by `scripts/check_claims.py` except where a rule says it is not:
   - *This is `check_fired_triggers_are_recorded`'s reading. `check_deferred_gaps_are_escalated` reads the same field differently, and a count taken on its reading disagrees with one taken on this — see **G58**'s 2026-09-16 note.*
   - *Not enforced: nothing requires a count to use these terms.* Measured on this definition at `b81b3b8` (commit 1 of the Rules-for-M6 promotion changes no entry): **67 entries — 14 resolved, 3 assigned, 50 open; 53 live.**
 - An entry needs a labelled trigger with a bolded target, and a `Blocks-if-unresolved:`. An observation is not an entry. *(Not enforced: `check_fired_triggers_are_recorded` reads a labelled trigger but does not require one. Promoted 2026-09-16 from "Rules for M6", and applies to entries opened from that date. Existing entries are not retrofitted: at `b81b3b8`, **17 of 53 live** entries have no line matching `check_claims.TRIGGER_LABEL` (whose lookahead requires the bold) — 15 open (G4, G6, G7, G8, G11, G13, G14, G15, G19, G20, G39, G40, G43, G44, G45) and 2 assigned (G17, G18).)*
-- **Every live entry carries `Kind: fact | owed`**, on the line after its `Confirmed:` line; an entry whose `Status:` begins `resolved` carries none, and commit 2's check applies only where `Status:` does not begin `resolved`. **owed**: you can name the action that would make the entry false, and it is within the project's scope. **fact**: naming that action requires either something the project has decided not to build, or a mechanism the entry records as not known to exist — and the entry cites that decision or that finding. Classify by the entry's SUBJECT, not by its current instance: an entry whose instance is discharged while its subject stands is not resolved (**G65**'s 2026-09-16 note). *(Not enforced until M8.0 commit 2.)*
-- **Every `fact` carries `Reopens if: <condition>`** on its `Kind:` line — the event that would put the refused action back in scope, in the form **G62** already wrote as a trigger clause. *(Not enforced until M8.0 commit 2.)*
-- **Every `owed` carries `Blocks: ship | internal`** on its `Kind:` line. **ship**: its absence stops the product being usable or deployable. **internal**: it costs the project and not the user. Distinct from `Blocks-if-unresolved:`, which says what breaks; this says who pays. *(Not enforced until M8.0 commit 2.)*
-- **Every history line dated on or after 2026-09-18 carries `Confirms: <milestone> | none`** in its header, after the parenthetical: the occasion it appends to `Confirmed:`, or `none` when the line is a forecast, a correction, a cross-reference or an origin note. **Undated history lines, and lines dated before 2026-09-18, are legacy and unchecked.** *(Not enforced until M8.0 commit 2.)*
+- **Every live entry carries `Kind: fact | owed`**, on the line after its `Confirmed:` line; an entry whose `Status:` begins `resolved` carries none, and commit 2's check applies only where `Status:` does not begin `resolved`. **owed**: you can name the action that would make the entry false, and it is within the project's scope. **fact**: naming that action requires either something the project has decided not to build, or a mechanism the entry records as not known to exist — and the entry cites that decision or that finding. Classify by the entry's SUBJECT, not by its current instance: an entry whose instance is discharged while its subject stands is not resolved (**G65**'s 2026-09-16 note). *(Enforced by `check_register_fields` since M8.0 commit 2.)*
+- **Every `fact` carries `Reopens if: <condition>`** on its `Kind:` line — the event that would put the refused action back in scope, in the form **G62** already wrote as a trigger clause. *(Enforced by `check_register_fields` since M8.0 commit 2.)*
+- **Every `owed` carries `Blocks: ship | internal`** on its `Kind:` line. **ship**: its absence stops the product being usable or deployable. **internal**: it costs the project and not the user. Distinct from `Blocks-if-unresolved:`, which says what breaks; this says who pays. *(Enforced by `check_register_fields` since M8.0 commit 2.)*
+- **Every history line dated on or after 2026-09-18 carries `Confirms: <milestone> | none`** in its header, after the parenthetical: the occasion it appends to `Confirmed:`, or `none` when the line is a forecast, a correction, a cross-reference or an origin note. **Undated history lines, and lines dated before 2026-09-18, are legacy and unchecked.** *(Enforced by `check_register_fields` since M8.0 commit 2.)*
 
 ### G1 — Multi-scanner orchestration
 Confirmed: M3.4, M3.5, M3.6 · Status: resolved → M3.7
@@ -2174,12 +2176,14 @@ Blocks-if-unresolved: **a developer who sets up from the example cannot learn th
 
 Deferral rationale: **the missing half is systemic, and its fix is a gate change, not a line.**
 - **Why not just add the line.** Adding `GITHUB_WEBHOOK_SECRET` by hand repeats the defect's own shape: a copy correct until the next key is added.
-- **The fix's shape.** An **eighth `check_claims` check** asserting that every `_DEV_ONLY_DEFAULTS` key has an uppercase `KEY=` line in `infra/.env.example`. It changes `check_claims`' `CHECKS` and its tests, so it belongs with the pass whose subject is these secrets.
+- **The fix's shape.** An ~~**eighth `check_claims` check**~~ *(struck 2026-09-18: the eighth check exists; see the M8.0 note below)* asserting that every `_DEV_ONLY_DEFAULTS` key has an uppercase `KEY=` line in `infra/.env.example`. It changes `check_claims`' `CHECKS` and its tests, so it belongs with the pass whose subject is these secrets.
 - **Adjacent.** **G71**, the rule-11 guard echoing secrets on its failure path, is triggered by the same pass.
 
 Trigger: **M10.3**, the secrets management pass; or **the next key added to `_DEV_ONLY_DEFAULTS`**, whichever is first.
 
 Note (2026-09-17, M7.3 commit 3): **a second entry converges on this one's fix.** **G80**'s deferred fix is also *"an eighth `check_claims` check"*, scanning code and the live documents for invisible Unicode characters. Two entries now defer to one mechanism. That is the escalation signal this register exists to produce, and it makes the work worth more than either entry alone: whoever builds the eighth check builds both, or says why one waits. Both are triggered by **M10.3**. Nothing here is fixed.
+
+Note (2026-09-18, M8.0 commit 2) · Confirms: none: **the ordinal in this entry's fix is FALSIFIED, and is struck rather than renumbered.** M8.0 commit 2 made `check_register_fields` the eighth check in `check_claims`' `CHECKS`, so this fix can no longer be "an eighth". Its shape is unchanged: a `check_claims` check that every `_DEV_ONLY_DEFAULTS` key has a line in `infra/.env.example`. The 2026-09-17 note above quotes the same words and is left as written, because it records what was believed that day. What it recorded stands: two entries converged on one check. That the slot they converged on is now taken is kept as evidence rather than renumbered away. Trigger unchanged.
 
 ### G79 — The 9,888-character largest-payload figure does not reproduce from the committed fixtures
 Confirmed: M7.3 design commit · Status: open
@@ -2205,16 +2209,18 @@ Blocks-if-unresolved: **text that reads differently than it is, shipped green, i
 - **The mutation-harness defect of M7.3 commit 2 is recorded here too.** The harness restored the migration mutation's file before downgrading, and left the local schema without `ck_security_briefs_what_happened_all_or_none`. The schema was repaired, and the harness now downgrades before restoring.
 
 Deferral rationale: **the fix is a gate change, and it converges with G78's.**
-- **The fix's shape: an eighth `check_claims` check over code AND the live documents.** It reuses the two walks `check_claims.py` already has rather than inventing a file list:
+- **The fix's shape: ~~an eighth `check_claims` check~~ over code AND the live documents.** *(struck 2026-09-18: the eighth check exists; see the M8.0 note below)* It reuses the two walks `check_claims.py` already has rather than inventing a file list:
   - `report_type_suppressions`' walk, `(ROOT / "src").rglob("*.py")`, **extended to `tests/`**, which that walk does not cover today;
   - `LIVE_DOCS`: `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/PRODUCT_SPEC.md`, `.claude/agents/architecture-guardian.md`.
 - **Report every occurrence, including inside string literals.** An earlier draft of this shape said *"outside string literals"*, and it would have missed occurrence 1, whose characters sat inside literals. In code the escape is the allowed form, so a literal character is always a finding.
 - **What the reused walks still miss**, stated so the scope does not narrow silently: `docs/adr/*.md` and `README.md` are not in `LIVE_DOCS`. The check either adds them or this entry keeps saying they are unscanned.
-- **Convergence.** **G78**'s deferred fix is also *"an eighth `check_claims` check"*. G78 carries a dated note saying so.
+- **Convergence.** **G78**'s deferred fix is also ~~*"an eighth `check_claims` check"*~~ *(struck 2026-09-18: the eighth check exists; see the M8.0 note below)*. G78 carries a dated note saying so.
 - **The workaround, as a technique, until the check exists.** To write an escape sequence into a file through a tool, never type the backslash sequence in the tool's input. Build the backslash at runtime with `chr(92)` (for example `chr(92) + "u" + format(ord(c), "04x")`), or build the character itself with `chr(0x202E)` in code that needs it. Tests that need hostile characters construct them with `chr()`; `tests/unit/test_describe_prompt.py` is the example.
 - **The commit that writes this entry scanned the files it wrote** for Cc (other than tab, LF and CR), Cf, Zl and Zp before staging them, `docs/ROADMAP.md` included, and its message says so. The entry that documents this failure is the first place it must not happen.
 
 Trigger: **M10.3**, with G78; or **the next occurrence**, whichever is first.
+
+Note (2026-09-18, M8.0 commit 2) · Confirms: none: **two clauses in this entry's `Deferral rationale:` are FALSIFIED, and are struck rather than renumbered.** M8.0 commit 2 made `check_register_fields` the eighth check in `check_claims`' `CHECKS`. So the fix's shape is no longer "an eighth" check, and the Convergence bullet's quotation of **G78** names a slot that is taken. The fix's shape, its two reused walks and the convergence with G78 are unchanged. Trigger unchanged.
 
 ### G81 — The unit suite builds `Settings` against the developer's real `infra/.env`, so a real credential changes outcomes and an assertion diff prints it
 Confirmed: M7.3 · Status: open
@@ -2230,6 +2236,12 @@ Deferral rationale: **the remaining half is a fixture policy, and the obvious bl
 - **Adjacent.** **G71**, whose failure path echoes the other secrets, and **G78**, whose subject is the same file's example, are both triggered by the same pass.
 
 Trigger: **M10.3**, the secrets management pass, with **G71**; or the next test that constructs `Settings`, whichever is first.
+
+### G82 — An undated history line bypasses the `Confirms:` rule entirely, so a confirmation can go unrecorded with every check green
+Confirmed: M8.0 commit 2 · Status: open
+Kind: owed · Blocks: internal
+Blocks-if-unresolved: **the confirmation count this register escalates on, silently.** `check_register_fields` reads `Confirms:` only on a history line whose label's parenthetical holds an ISO date on or after 2026-09-18. The rules treat an undated line as legacy, so a note written today without a date carries no `Confirms:` and nothing fires. If that note records an encounter, `Confirmed:` stays one short with every field well-formed and every check green, and the three-confirmation threshold arrives late or never. The check cannot tell a new undated line from a legacy one, because nothing in the file dates it. The dated half has input: the commit that opens this entry writes two dated lines, on **G78** and **G80**, and the check reads both. This commit gives the undated half none.
+Deferral rationale: the fix is a rule decision, not a line. Either every new history line must carry a date, which a check can enforce only by knowing which lines are new, i.e. by reading git history, which `check_claims` does not do; or the legacy clause is closed by dating or retiring the undated lines, which would edit dated records **G34** keeps frozen. Neither belongs to a field check. Trigger: **the next undated history line anybody writes**.
 
 ## V2 Backlog (explicitly out of this roadmap)
 
