@@ -20,6 +20,15 @@ Every port-to-adapter resolution is one `grep`-able function away — `get_clock
 
 It costs some boilerplate as the number of ports grows — each new port/adapter pair needs its own explicit factory function and `Annotated` alias, where a DI framework might resolve a new binding with one registration line and rely on autowiring for the rest. It also doesn't give you some conveniences a real DI framework provides out of the box, like automatic scoped-lifetime management tied to request boundaries beyond what `Depends()` already offers, or declarative override mechanisms beyond FastAPI's own `dependency_overrides` (which is being relied on, so this gap is more theoretical than practical for now).
 
+## Amendments
+
+- **2026-09-19 (M8.8 commit 1): the database session is function-scoped, so a 2xx means committed.** `DbSessionDep` now reads `Depends(get_db_session, scope="function")`.
+  - **Why.** `get_db_session` is the only yield dependency in `src/`, and its `commit()` runs after its `yield`. Without a scope, FastAPI 0.141.1 exits it on the request stack, after `await response(...)` (`fastapi/routing.py`'s `request_response`, read in the installed package). So a client held its 201 before the row existed, and a commit that raised came after a success had already been sent. This is **G86**, opened and resolved in this commit.
+  - **The proof is two tests, not a changelog.** `tests/integration/test_session_commit_precedes_response.py` calls the ASGI app directly and looks at `http.response.start`: a second session must see the new row there, and a commit that raises must produce a 500. Both were run failing before the scope was set, and passing after.
+  - **What it costs.** Nothing that depends on the after-response window. The full suite, 1168 tests, passed on this change alone.
+  - **The constraint it leaves.** A yield dependency with no `scope` still exits after the response. But one that depends on `DbSessionDep` must itself declare `scope="function"`: FastAPI raises `DependencyScopeError` for a request-scoped yield dependency that depends on a function-scoped one.
+  - **What it does not change.** The factory shape of rule 15, and `@lru_cache` staying off anything that depends on the session.
+
 ## Alternatives considered
 
 **A DI framework** (e.g. `dependency-injector`), using a container with declarative provider bindings and constructor injection. Rejected: this is a defensible choice for a larger team or a codebase with many more ports, but reflection/autowiring-based resolution is exactly the kind of "how did this get wired to that" opacity that ADR-002 and ADR-003 both explicitly reject for the rest of the codebase — applying a different standard to the wiring layer than to the domain/risk-scoring layers would be an inconsistency worth avoiding, not a neutral tooling choice.

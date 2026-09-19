@@ -13,7 +13,8 @@ class Base(DeclarativeBase):
 # Both public: the arq worker (platform/worker.py, M3.3) has no FastAPI
 # Depends() graph to build a per-job session through, so it opens its own
 # session per job directly from this shared factory instead of going
-# through get_db_session()'s request-scoped generator below, and disposes
+# through get_db_session()'s per-request generator below (FastAPI
+# `scope="function"`, declared on di.py's DbSessionDep), and disposes
 # `engine` itself on worker shutdown.
 engine = create_async_engine(get_settings().database_url)
 session_factory = async_sessionmaker(engine, expire_on_commit=False)

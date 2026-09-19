@@ -141,7 +141,11 @@ def get_id_generator() -> IdGeneratorPort:
 ClockDep = Annotated[ClockPort, Depends(get_clock)]
 IdGeneratorDep = Annotated[IdGeneratorPort, Depends(get_id_generator)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+# `scope="function"` is what makes a 2xx mean "committed". Without it FastAPI exits this yield
+# dependency after the response is sent, so a client holds its 201 before the row exists and a
+# commit that raises follows a success already on the wire (G86). ADR-0008's 2026-09-19 note;
+# proven by tests/integration/test_session_commit_precedes_response.py.
+DbSessionDep = Annotated[AsyncSession, Depends(get_db_session, scope="function")]
 
 
 @lru_cache

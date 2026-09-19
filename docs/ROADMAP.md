@@ -2355,6 +2355,15 @@ Deferral rationale: widening `files` either fails on the other four scripts or n
 
 Note (2026-09-19, post-M7 boundary review) · Confirms: none: **deferred under Rules for M8 rule 1**, as opened.
 
+### G86 — Every write route answered 2xx before its transaction committed
+Confirmed: M8.8 · Status: resolved → M8.8
+Blocks-if-unresolved: **a failed commit reported success for a write that never happened, on every write route, from M1.2 (`3f5c49a`, which introduced `get_db_session` and `DbSessionDep`) until M8.8.** `get_db_session`, the only yield dependency in `src/`, commits after its `yield`. `DbSessionDep` declared no `scope`, so FastAPI exited it on the request stack, after `await response(...)` (`fastapi/routing.py`'s `request_response`). A client therefore held its 201 before the row existed, and a commit that raised came after the success was already sent. By inference, and not tested: a read issued the moment the response arrived could miss the row it had just been told exists.
+- **The span rests on the lock, not on a changelog.** `pyproject.toml` has read `fastapi>=0.141.1` since `0dc115e` (M0.3, the commit that introduced FastAPI), and no later commit changed that line. All seven `uv.lock` commits that carry FastAPI, `0dc115e` to `1582c6c`, lock `0.141.1`, and the one earlier lock carries no FastAPI. So the behaviour read in 0.141.1 is the behaviour of every version this project ever ran.
+- **How it was found.** By reading FastAPI 0.141.1's source during M8.8's reconnaissance, while deciding when a scan's job could be enqueued.
+- **Why no test caught it.** `httpx2`'s `ASGITransport` awaits the whole app before returning a response, so the row-visibility half is unobservable through it. The failed-commit half was observable: with `raise_app_exceptions=False` the transport returns the 201 that `http.response.start` carried. No test in `tests/` passes that flag.
+
+Resolution (2026-09-19, M8.8 commit 1) · Confirms: none: **`DbSessionDep` reads `Depends(get_db_session, scope="function")`, so the commit runs before the response is sent.** `tests/integration/test_session_commit_precedes_response.py` proves both halves by calling the ASGI app directly: a second session sees the new row at `http.response.start`, and a commit that raises produces a 500. Both tests were run failing before the change and passing after it. The full suite, 1168 tests, passed on this change alone. ADR-0008's 2026-09-19 amendment records the decision.
+
 ## V2 Backlog (explicitly out of this roadmap)
 
 Tracked separately, not scheduled: AI-driven automated remediation, attack graph modeling, MCP/LLM security scanning, cloud/CSPM integration, runtime telemetry, additional scanners, team collaboration, Jira/Slack integrations, advanced analytics, fix-effort prediction as a scored dimension; and, cut 2026-09-19 (`PRODUCT_SPEC.md` FR-7's and FR-8's notes), a Brief's recommended action and estimated effort, and asset sensitivity, environment and reachability as scoring inputs.
