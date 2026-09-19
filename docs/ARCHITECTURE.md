@@ -355,7 +355,9 @@ erDiagram
 | `RegisterUserUseCase` / `AuthenticateUserUseCase` | Identity module |
 | `ConnectRepositoryUseCase` | Attach a GitHub repo to a project |
 | `BuildSecurityContextUseCase` | Extract/refresh Security Context for a project |
-| `TriggerScanUseCase` | Create a `Scan` and enqueue it — it does **not** orchestrate the pipeline |
+| `TriggerScanUseCase` | Create a `Scan` and enqueue it — it does **not** orchestrate the pipeline. Takes one `authorized` flag its caller derives (ADR-0035 decision 3); the enqueue is sent after the request commits (decision 5) |
+| `StartScanUseCase` | A user starts a scan: asks `ProjectAccessPort.may_manage_project` (owner-only) and hands the verdict to `TriggerScanUseCase`. Behind `POST /projects/{id}/scans` (M8.8, ADR-0035) |
+| `GetScanUseCase` | One scan's status and `failure_reason`, for any member: read verdict first, then the scan must belong to the path's project. Behind `GET /projects/{id}/scans/{scan_id}` (M8.8, ADR-0035) |
 | `RunScanUseCase` | The worker's entry point: run every enabled scanner, persist `ScanResult` rows, hand off to normalization |
 | `NormalizeScanUseCase` | The normalization job's entry point: map a scan's *succeeded* raw output into `Finding` rows, collapse by identity, record one `FindingSighting` per identity, and transition the `NormalizationRun` (M4.4) |
 | `SweepPendingNormalizationsUseCase` | The reconciliation backstop: re-enqueue normalization for runs that are owed and not progressing. Selects on `normalization_runs` alone, never `Scan.status` (M4.4) |
@@ -381,7 +383,7 @@ erDiagram
 | `OAuthStateSignerPort` | Sign/verify the OAuth CSRF `state` param | `GitHubOAuthStateSigner` |
 | `ProjectRepositoryPort` | Persist/query projects | Postgres adapter |
 | `ProjectMembershipRepositoryPort` | Persist/query project RBAC memberships | Postgres adapter |
-| `ProjectAccessPort` | **Whether a caller may read a project — the verdict, not the rows** (M4.5). The port ANOTHER module uses to authorize a project-scoped read; `ProjectMembershipRepositoryPort` above is persistence and is the wrong one for that, because consuming it puts "authorization means a membership row exists" in every consuming module. Returns one `bool`, so no consumer can distinguish "no such project" from "not a member" and every one of them answers 404. The rule stays in `projects/domain/authorization.may_read`. ADR-0022 decision 2; the shape M5.2/M7.2/M8.2 copy *(M6.3 was in this list until 2026-09-16 and is now removed: `risk_engine` consumes this port **not at all**. Its scored route inherits the same 404-for-both shape INDIRECTLY, through `CandidateRiskPort`'s own denial, which is what keeps the authorization rule at one site rather than adding a second consumer — ADR-0030 decision 1)* *(M7.2, 2026-09-17: `brief`'s list route consumes it directly, because it reads only `brief`'s own table. Generation inherits it through `ExplainableRiskPort`, ADR-0033 decision 7)* | `PostgresProjectAccessReader` |
+| `ProjectAccessPort` | **What a caller may do with a project — may it read (M4.5), may it manage (M8.8) — the verdicts, not the rows.** The port ANOTHER module uses to authorize a project-scoped read or an owner-class action; `ProjectMembershipRepositoryPort` above is persistence and is the wrong one for that, because consuming it puts "authorization means a membership row exists" in every consuming module. Returns one `bool` per verdict, so no consumer can distinguish "no such project" from "not a member" and every one of them answers 404. The rules stay in `projects/domain/authorization`: `may_read` and `may_manage`. *(M8.8, 2026-09-19: a second verdict, `may_manage_project`, owner-only, over `projects/domain/authorization.may_manage`; `scanning`'s scan trigger consumes it and its status read consumes `may_read_project`. One method per verdict, never a method per reason: ADR-0022's 2026-09-19 amendment, ADR-0035 decision 2.)* ADR-0022 decision 2; the shape M5.2/M7.2/M8.2 copy *(M6.3 was in this list until 2026-09-16 and is now removed: `risk_engine` consumes this port **not at all**. Its scored route inherits the same 404-for-both shape INDIRECTLY, through `CandidateRiskPort`'s own denial, which is what keeps the authorization rule at one site rather than adding a second consumer — ADR-0030 decision 1)* *(M7.2, 2026-09-17: `brief`'s list route consumes it directly, because it reads only `brief`'s own table. Generation inherits it through `ExplainableRiskPort`, ADR-0033 decision 7)* | `PostgresProjectAccessReader` |
 | `ConnectedRepoRepositoryPort` | Persist/query connected repositories | Postgres adapter |
 | `SecurityContextRepositoryPort` | Persist/query a project's Security Context | Postgres adapter (M2.3) |
 | `ScannerConfigRepositoryPort` | Persist/query which scanners a project runs; read by `scanning` (M3.7) | Postgres adapter |
@@ -417,7 +419,7 @@ This split is what makes the Risk Engine and Correlation Engine unit-testable wi
 - **REST API** (FastAPI routers) — translates HTTP requests into calls on inbound ports/use cases. Contains no business logic — only request validation (Pydantic) and response shaping.
 - **GitHub webhook receiver** — translates push/PR events into `TriggerScanUseCase` calls.
 - **Brief routes** (M7.2, ADR-0033) — `POST /projects/{project_id}/briefs` generates and stores a Brief for an exact finding-id set. `GET /projects/{project_id}/briefs` pages the stored ones. Both answer 404 for both denials (**G17**).
-- **CI hook** (GitHub Actions step) — same, triggered from pipeline. *(Names an adapter absent from `src/`, marked 2026-09-16: the webhook receiver above is the only thing that starts a scan, and no route starts one on demand either. See **G70**.)*
+- **CI hook** (GitHub Actions step) — same, triggered from pipeline. *(Names an adapter absent from `src/`, marked 2026-09-16: the webhook receiver above is the only thing that starts a scan, and no route starts one on demand either. See **G70**.)* *(2026-09-19, M8.8: `POST /projects/{id}/scans` now starts one on demand, ADR-0035. No CI hook exists or is scheduled: `PRODUCT_SPEC.md` FR-4's 2026-09-19 qualification.)*
 
 ### 6.2 Outbound adapters
 - **Postgres repositories** (SQLAlchemy) — one implementation per `*RepositoryPort`.
@@ -498,7 +500,7 @@ Applied so far: `ClockPort`/`IdGeneratorPort` (cross-cutting Protocols, M0.3), `
 
 ```mermaid
 sequenceDiagram
-    participant CI as GitHub (a user's push)
+    participant CI as GitHub push, or an owner's POST /projects/{id}/scans
     participant API as Inbound API Adapter
     participant Trig as TriggerScanUseCase
     participant Q as JobQueuePort (Redis/arq)
@@ -512,11 +514,13 @@ sequenceDiagram
     participant Exp as ExplanationProviderPort (LLM)
     participant DB as Repositories (Postgres)
 
-    CI->>API: trigger scan (push webhook)
-    API->>Trig: TriggerScanUseCase.execute(project_id)
+    CI->>API: trigger scan (push webhook, or the M8.8 route)
+    API->>Trig: TriggerScanUseCase.execute(project_id, user_id, authorized)
     Trig->>DB: create Scan (status=pending)
-    Trig->>Q: enqueue run_scan(scan_id)
-    API-->>CI: 202 Accepted — enqueued, nothing computed yet
+    Trig->>Q: request run_scan(scan_id) — held until the commit (ADR-0035 decision 5)
+    API->>DB: commit (get_db_session, function-scoped)
+    API->>Q: enqueue run_scan(scan_id), after the commit
+    API-->>CI: 202 Accepted — committed and enqueued, nothing computed yet
 
     Q->>Run: run_scan(scan_id)
     Run->>DB: update Scan (status=running)

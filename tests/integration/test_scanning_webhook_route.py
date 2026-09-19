@@ -15,9 +15,8 @@ from verion.modules.projects.adapters.outbound.db.repository import (
 )
 from verion.modules.projects.domain.project import ConnectedRepo, Project
 from verion.modules.scanning.adapters.outbound.db.models import ScanModel
-from verion.modules.scanning.adapters.outbound.queue.arq_job_queue import ArqJobQueue
 from verion.platform.app import app
-from verion.platform.di import get_handle_github_webhook_use_case, get_job_queue
+from verion.platform.di import get_arq_pool, get_handle_github_webhook_use_case
 from verion.platform.settings import get_settings
 
 _WEBHOOK_PATH = "/scanning/webhooks/github"
@@ -70,12 +69,14 @@ async def real_job_queue():
     # ASGITransport never runs the app's lifespan (it only ever sends an
     # "http" ASGI scope — no "lifespan" scope), so app.state.arq_redis is
     # never populated under TestClient/AsyncClient. Constructing a real pool
-    # directly and overriding get_job_queue with it keeps this test's Redis
+    # directly and overriding get_arq_pool with it keeps this test's Redis
     # interaction genuinely real without needing lifespan machinery in
     # tests — the lifespan wiring itself is covered separately (see
-    # test_app_lifespan.py).
+    # test_app_lifespan.py). The POOL is overridden rather than get_job_queue
+    # since M8.8, so the webhook runs through the real after-commit deferral
+    # (ADR-0035 decision 5).
     pool = await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
-    app.dependency_overrides[get_job_queue] = lambda: ArqJobQueue(pool)
+    app.dependency_overrides[get_arq_pool] = lambda: pool
     yield pool
     await pool.aclose()
 

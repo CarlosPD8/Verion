@@ -62,7 +62,7 @@ class GitRepoCheckout:
                 raise RepoCheckoutFailed(f"git clone of '{repo_url}' timed out") from None
 
             if process.returncode != 0:
-                message = _redact(stderr.decode(errors="replace"), access_token)
+                message = _redact(stderr.decode(errors="replace"), access_token, target_dir)
                 raise RepoCheckoutFailed(f"git clone of '{repo_url}' failed: {message}")
         except BaseException:
             _rmtree(target_dir)
@@ -74,12 +74,23 @@ class GitRepoCheckout:
         _rmtree(local_path)
 
 
-def _redact(text: str, access_token: str | None) -> str:
+_CHECKOUT_DIR_PLACEHOLDER = "<checkout-dir>"
+
+
+def _redact(text: str, access_token: str | None, target_dir: str) -> str:
     # Defensive redaction (rule 12) — the primary control is that the token
     # never reaches argv or a URL in the first place (see build_git_auth_env).
-    if not access_token:
-        return text
-    return text.replace(access_token, "***")
+    #
+    # The checkout directory too, since M8.8: git's stderr opens with
+    # "Cloning into '<target_dir>'...", printed exactly as passed (probed on
+    # Windows and in CI), and this message becomes Scan.failure_reason, which
+    # GET /projects/{id}/scans/{scan_id} returns. The path is absolute and, on
+    # Windows, carries the OS username.
+    #
+    # A deny-list of two patterns, and nothing else is caught: G89.
+    if access_token:
+        text = text.replace(access_token, "***")
+    return text.replace(target_dir, _CHECKOUT_DIR_PLACEHOLDER)
 
 
 def _rmtree(path: str) -> None:

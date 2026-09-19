@@ -129,8 +129,9 @@ class NormalizationStateResponse(BaseModel):
     failure is indistinguishable from a clean project — which is G15's own
     description of the gap this narrows.
 
-    It narrows it rather than closing it: a transient failure that exhausts arq's
-    retries is still never re-enqueued, because the sweep excludes `failed`. What
+    It narrows it rather than closing it: a transient failure is still never
+    re-enqueued, because the sweep excludes `failed`, and arq 0.28 does not retry it
+    either (G15). What
     ships here is the visibility half.
     """
 

@@ -11,7 +11,7 @@ from verion.modules.projects.adapters.outbound.db.models import (
     SecurityContextModel,
     ServingDeclarationModel,
 )
-from verion.modules.projects.domain.authorization import may_read
+from verion.modules.projects.domain.authorization import may_manage, may_read
 from verion.modules.projects.domain.exceptions import SecurityContextNotFound
 from verion.modules.projects.domain.project import ConnectedRepo, Project, ProjectMembership, Role
 from verion.modules.projects.domain.route_extraction import (
@@ -165,12 +165,12 @@ class PostgresProjectMembershipRepository:
 class PostgresProjectAccessReader:
     """`ProjectAccessPort` over `project_memberships`. See that port's docstring.
 
-    Reads the membership and hands the decision to `may_read`, rather than
-    returning `model is not None` directly. The extra hop is the point: the rule
-    lives in `domain/authorization.py` and this adapter only fetches what the rule
-    needs, so a VIEWER role would change one function and not this file.
+    Reads the membership and hands the decision to `may_read` or `may_manage`,
+    rather than deciding here. The extra hop is the point: the rules live in
+    `domain/authorization.py` and this adapter only fetches what they need, so a
+    VIEWER role would change one function and not this file.
 
-    One statement, served by the composite primary key. It does not check that the
+    One statement per verdict, served by the composite primary key. It does not check that the
     project row exists, and does not need to: a membership is created with the
     project (`CreateProjectUseCase`), so a membership implies one, and the port
     deliberately cannot report the difference anyway.
@@ -180,8 +180,14 @@ class PostgresProjectAccessReader:
         self._session = session
 
     async def may_read_project(self, *, project_id: str, user_id: str) -> bool:
+        return may_read(await self._membership(project_id=project_id, user_id=user_id))
+
+    async def may_manage_project(self, *, project_id: str, user_id: str) -> bool:
+        return may_manage(await self._membership(project_id=project_id, user_id=user_id))
+
+    async def _membership(self, *, project_id: str, user_id: str) -> ProjectMembership | None:
         model = await self._session.get(ProjectMembershipModel, (project_id, user_id))
-        return may_read(_membership_to_domain(model) if model is not None else None)
+        return _membership_to_domain(model) if model is not None else None
 
 
 class PostgresSecurityContextRepository:

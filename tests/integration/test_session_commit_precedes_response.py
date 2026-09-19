@@ -147,3 +147,45 @@ async def test_a_commit_that_raises_produces_a_500_not_a_2xx(
         )
 
     assert statuses == [500], f"a failed commit answered {statuses} first"
+
+
+# ---------------------------------------------------------------------------
+# `after_commit` (M8.8 commit 3, ADR-0035 decision 5): callbacks run after a commit, and a
+# rollback discards them. Driven through the real `get_db_session` generator, the way FastAPI
+# drives it: `__anext__` for the yield, then `athrow` or a second `__anext__` for the exit.
+# ---------------------------------------------------------------------------
+
+
+async def test_after_commit_callbacks_run_once_the_session_has_committed():
+    session_dependency = db.get_db_session()
+    session = await session_dependency.__anext__()
+    ran: list[str] = []
+
+    async def callback() -> None:
+        ran.append("sent")
+
+    db.after_commit(session, callback)
+    assert ran == [], "a callback ran before the commit"
+
+    with pytest.raises(StopAsyncIteration):
+        await session_dependency.__anext__()
+
+    assert ran == ["sent"]
+
+
+async def test_a_rollback_discards_after_commit_callbacks():
+    """A handler that raises rolls the transaction back, and the job for a row that was
+    never committed must not be sent. Kills running the callbacks on the `except` path."""
+    session_dependency = db.get_db_session()
+    session = await session_dependency.__anext__()
+    ran: list[str] = []
+
+    async def callback() -> None:
+        ran.append("sent")
+
+    db.after_commit(session, callback)
+
+    with pytest.raises(RuntimeError, match="handler failed"):
+        await session_dependency.athrow(RuntimeError("handler failed"))
+
+    assert ran == []

@@ -71,6 +71,54 @@ def explanation_provider_factory() -> type[FakeExplanationProvider]:
     return FakeExplanationProvider
 
 
+class InMemoryProjectAccess:
+    """`ProjectAccessPort` — sets of (project_id, user_id) pairs, one per verdict.
+
+    A set rather than a membership store, deliberately: the port returns verdicts
+    and cannot say WHY access was denied, so a fake that modelled memberships
+    would be modelling more than the port exposes and would invite a test to
+    assert on a distinction no consumer can observe.
+
+    **Moved here from `tests/unit/conftest.py` at M8.8**, when the port gained
+    `may_manage_project`, so `tests/integration/test_project_access_contract.py`
+    can hold this fake and `PostgresProjectAccessReader` to the same assertions
+    (G65). `permit_manage` also permits reading, because the real rule does: an
+    owner is a member.
+    """
+
+    def __init__(self, permitted: set[tuple[str, str]] | None = None) -> None:
+        self._permitted = permitted or set()
+        self._managers: set[tuple[str, str]] = set()
+        self.calls: list[tuple[str, str]] = []
+        self.manage_calls: list[tuple[str, str]] = []
+
+    def permit(self, project_id: str, user_id: str) -> None:
+        self._permitted.add((project_id, user_id))
+
+    def permit_manage(self, project_id: str, user_id: str) -> None:
+        self._permitted.add((project_id, user_id))
+        self._managers.add((project_id, user_id))
+
+    async def may_read_project(self, *, project_id: str, user_id: str) -> bool:
+        self.calls.append((project_id, user_id))
+        return (project_id, user_id) in self._permitted
+
+    async def may_manage_project(self, *, project_id: str, user_id: str) -> bool:
+        self.manage_calls.append((project_id, user_id))
+        return (project_id, user_id) in self._managers
+
+
+@pytest.fixture
+def project_access() -> InMemoryProjectAccess:
+    return InMemoryProjectAccess()
+
+
+@pytest.fixture
+def project_access_factory() -> type[InMemoryProjectAccess]:
+    """The contract-tested fake `ProjectAccessPort`, as a class to construct."""
+    return InMemoryProjectAccess
+
+
 @pytest.fixture
 def scanner_fixture() -> Callable[[str], str]:
     """Reads a captured scanner-output fixture by file name.

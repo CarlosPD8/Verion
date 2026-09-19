@@ -10,6 +10,9 @@ from verion.modules.identity.adapters.inbound.api.router import router as identi
 from verion.modules.normalization.adapters.inbound.api.router import router as findings_router
 from verion.modules.projects.adapters.inbound.api.router import router as projects_router
 from verion.modules.risk_engine.adapters.inbound.api.router import router as scored_risks_router
+from verion.modules.scanning.adapters.inbound.api.router import (
+    project_scans_router,
+)
 from verion.modules.scanning.adapters.inbound.api.router import router as scanning_router
 from verion.platform.settings import get_settings
 
@@ -20,8 +23,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # platform/worker.py's on_startup/on_shutdown shape (build-once-at-
     # process-start, dispose-once-at-process-end) for the same kind of
     # shared, stateless connection pool — created exactly once here, never
-    # lazily on first request, so di.py's get_job_queue only ever reads it
-    # (see that function's own comment). A pool-creation failure here fails
+    # lazily on first request, so di.py's get_arq_pool (get_job_queue's until
+    # M8.8) only ever reads it (see that function's own comment). A pool-creation failure here fails
     # the process at startup, before it accepts any traffic, rather than
     # surfacing as a late per-request error.
     app.state.arq_redis = await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
@@ -59,6 +62,9 @@ def create_app() -> FastAPI:
     # /scored-risks. Both are project-scoped and take no Risk in the path, because a Risk has
     # no identifier and a member set is not an address (ADR-0033 decisions 1 and 4).
     app.include_router(briefs_router, prefix="/projects", tags=["briefs"])
+    # `scanning`'s project-scoped routes, M8.8. Same prefix and the same reason: /scans is
+    # disjoint from every path above. The webhook keeps /scanning (ADR-0035 decision 1).
+    app.include_router(project_scans_router, prefix="/projects", tags=["scans"])
     app.include_router(scanning_router, prefix="/scanning", tags=["scanning"])
 
     return app

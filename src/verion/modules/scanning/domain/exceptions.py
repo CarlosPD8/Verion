@@ -2,8 +2,17 @@ class ProjectNotFound(Exception):
     pass
 
 
-class InsufficientPermissions(Exception):
-    pass
+class ProjectAccessDenied(Exception):
+    """The caller may not act on this project, and this type deliberately cannot say why.
+
+    Raised for an absent project, a non-member and, when the action is starting a scan, a
+    member who is not an owner, indistinguishably. The routes map it to **404** with a
+    message built from the path id alone (ADR-0035 decisions 2 and 4), on
+    `normalization`'s and `correlation`'s `ProjectAccessDenied` precedent. It is this
+    module's own type because `projects`' `InsufficientPermissions` lives in another
+    module's `domain/` (rule 3), and it replaced this module's own `InsufficientPermissions`
+    at M8.8, when `TriggerScanUseCase` stopped telling the two denials apart.
+    """
 
 
 class UnsupportedRepoUrl(Exception):

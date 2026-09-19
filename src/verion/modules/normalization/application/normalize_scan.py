@@ -62,13 +62,17 @@ class NormalizeScanUseCase:
     operation is a pure function of them plus the id generator and the clock.
 
     - *Transient or unanticipated* — a DB error, an unexpected exception anywhere
-      in mapping or persistence. Record `failed` and **re-raise**, so arq retries
-      with backoff. The retry re-claims (only `completed` is terminal) and re-runs
-      the identical pass.
+      in mapping or persistence. Record `failed` and **re-raise**. This was written
+      expecting arq to retry with backoff, re-claiming (only `completed` is
+      terminal) and re-running the identical pass. **arq 0.28 does not**: it
+      retries only `Retry`, `RetryJob` and `CancelledError`, so the run stays
+      `failed` on its first attempt, and the sweep, which excludes `failed`, never
+      takes it up (G15, ADR-0021's 2026-09-19 amendment).
     - *Deterministic and isolated* — a finding group that disagrees on a rule-level
       attribute. Skip that group, persist everything else, record `failed`, and
-      **do not re-raise**: a retry would fail identically, so it buys five wasted
-      attempts.
+      **do not re-raise**: a retry would fail identically. (This said "it buys
+      five wasted attempts" until M8.8; arq 0.28 would not retry the re-raise
+      at all, so the reason not to re-raise is only that a retry could not help.)
 
     **A retry cannot damage what an earlier attempt wrote**, and that is a property
     of ADR-0020 rather than of care taken here: `upsert` refreshes a set that is
@@ -109,8 +113,9 @@ class NormalizeScanUseCase:
             # per-scanner catch, which swallows because a tool's failure is that
             # tool's recorded outcome. Here there is no per-element outcome to
             # record and nothing partial worth keeping, so the run is marked
-            # failed for visibility and arq is left to retry, exactly as
-            # RunScanUseCase does for its pre-tool failures.
+            # failed for visibility and the exception re-raised, exactly as
+            # RunScanUseCase does for its pre-tool failures. arq 0.28 does not
+            # retry it (G15); the re-raise marks the arq job failed.
             #
             # If the failure was a DB error this write aborts too and the row
             # stays at its last committed value — `running`, from the claim — and

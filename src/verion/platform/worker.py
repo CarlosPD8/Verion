@@ -110,7 +110,8 @@ async def run_scan(ctx: dict[str, Any], scan_id: str) -> None:
         # blanket rollback here would silently undo that write. commit()
         # unconditionally in `finally` instead, so both the COMPLETED and
         # the FAILED outcome get persisted, then let the exception (if any)
-        # continue propagating to arq for its own retry/backoff.
+        # continue propagating to arq, which marks the job failed. arq 0.28 does
+        # not retry it: only Retry, RetryJob and CancelledError are retried (G87).
         try:
             await use_case.execute(scan_id)
         finally:
@@ -127,8 +128,10 @@ async def run_scan(ctx: dict[str, Any], scan_id: str) -> None:
     # Skipped on the exception path, because reaching it means either the
     # transaction aborted (so there is no row) or an unanticipated exception
     # committed a pending row the sweep will collect. Branching on which would add
-    # a case nobody can test cheaply to buy latency in a rare one; arq also
-    # retries run_scan, so a successful retry arrives here anyway.
+    # a case nobody can test cheaply to buy latency in a rare one. (Until M8.8 this
+    # also said arq retries run_scan, so a successful retry arrives here anyway; arq
+    # 0.28 retries no ordinary exception, so it does not, and the sweep is the
+    # whole recovery for the committed-row case: G87.)
     await _enqueue_normalization(ctx, scan_id)
 
 

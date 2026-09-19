@@ -67,7 +67,6 @@ class HandleGitHubWebhookUseCase:
         # itself is the caller — attribute the scan to the project's actual
         # owner for audit purposes (PRODUCT_SPEC.md §11.5) and treat that
         # signature-verified call as equivalent trust to the owner who set
-        # up the connection.
-        return await self._trigger_scan.execute(
-            project_id=project.id, user_id=project.owner_id, project_exists=True, is_owner=True
-        )
+        # up the connection. `authorized=True` is that trust, and the owner as
+        # user_id is what RunScanUseCase clones with (ADR-0035 decision 3).
+        return await self._trigger_scan.execute(project.id, project.owner_id, authorized=True)

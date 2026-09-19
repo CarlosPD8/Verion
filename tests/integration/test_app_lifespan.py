@@ -3,9 +3,9 @@ from verion.platform.app import app
 
 # M3.6 added this project's first FastAPI lifespan handler (platform/app.py's
 # _lifespan), creating the arq redis pool exactly once at startup and closing
-# it once at shutdown on app.state — di.py's get_job_queue only ever *reads*
-# app.state.arq_redis, it never constructs a pool itself (see that
-# function's own comment). ASGITransport (used by every route test in this
+# it once at shutdown on app.state — di.py's get_arq_pool (get_job_queue's until
+# M8.8) only ever *reads* app.state.arq_redis, it never constructs a pool itself
+# (see that function's own comment). ASGITransport (used by every route test in this
 # suite) never runs the ASGI "lifespan" scope on its own, so this test
 # exercises the lifespan context directly.
 

@@ -33,27 +33,6 @@ from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
 
-class InMemoryProjectAccess:
-    """`ProjectAccessPort` — a set of (project_id, user_id) pairs that may read.
-
-    A set rather than a membership store, deliberately: the port returns a verdict
-    and cannot say WHY access was denied, so a fake that modelled memberships
-    would be modelling more than the port exposes and would invite a test to
-    assert on a distinction no consumer can observe.
-    """
-
-    def __init__(self, permitted: set[tuple[str, str]] | None = None) -> None:
-        self._permitted = permitted or set()
-        self.calls: list[tuple[str, str]] = []
-
-    def permit(self, project_id: str, user_id: str) -> None:
-        self._permitted.add((project_id, user_id))
-
-    async def may_read_project(self, *, project_id: str, user_id: str) -> bool:
-        self.calls.append((project_id, user_id))
-        return (project_id, user_id) in self._permitted
-
-
 class ExplodingFindingRepository:
     """Every read raises. Proves a use case authorized BEFORE it touched storage.
 
@@ -579,11 +558,6 @@ class RecordingNormalizationQueue:
 @pytest.fixture
 def finding_repository() -> InMemoryFindingRepository:
     return InMemoryFindingRepository()
-
-
-@pytest.fixture
-def project_access() -> InMemoryProjectAccess:
-    return InMemoryProjectAccess()
 
 
 @pytest.fixture

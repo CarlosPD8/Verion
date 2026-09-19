@@ -45,7 +45,8 @@ class SweepPendingNormalizationsUseCase:
     a `failed` run.** `get_stale` excludes it, because the deterministic failure
     ADR-0021 decision 5 describes would fail identically on every tick — an
     infinite retry loop at five-minute intervals. But `failed` is also where a
-    *transient* failure lands once arq exhausts `max_tries`, and that one is
+    *transient* failure lands, on its first attempt, since arq 0.28 retries no
+    ordinary exception (ADR-0021's 2026-09-19 amendment), and that one is
     genuinely lost until a human reads `failure_reason`. The two are
     indistinguishable after the fact, which is why this is registered as **G15**
     rather than patched here.

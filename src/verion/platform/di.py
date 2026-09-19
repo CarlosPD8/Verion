@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Annotated
 
+from arq.connections import ArqRedis
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -114,8 +115,13 @@ from verion.modules.scanning.adapters.outbound.db.repository import (
     PostgresScanResultRepository,
     PostgresWebhookDeliveryRepository,
 )
+from verion.modules.scanning.adapters.outbound.queue.after_commit_job_queue import (
+    AfterCommitJobQueue,
+)
 from verion.modules.scanning.adapters.outbound.queue.arq_job_queue import ArqJobQueue
+from verion.modules.scanning.application.get_scan import GetScanUseCase
 from verion.modules.scanning.application.handle_github_webhook import HandleGitHubWebhookUseCase
+from verion.modules.scanning.application.start_scan import StartScanUseCase
 from verion.modules.scanning.application.trigger_scan import TriggerScanUseCase
 from verion.modules.scanning.ports.job_queue import JobQueuePort
 from verion.modules.scanning.ports.scan_repository import ScanRepositoryPort
@@ -582,7 +588,7 @@ WebhookDeliveryRepositoryDep = Annotated[
 ]
 
 
-def get_job_queue(request: Request) -> JobQueuePort:
+def get_arq_pool(request: Request) -> ArqRedis:
     # Reads the already-constructed arq pool from app.state — never
     # constructs one itself. The pool is created exactly once, at process
     # startup, by app.py's lifespan handler (the first in this project);
@@ -591,7 +597,20 @@ def get_job_queue(request: Request) -> JobQueuePort:
     # "pool creation is the caller's responsibility, no lazy-init race"
     # contract — di.py is that caller, and it constructs the pool once at
     # a well-defined point, not scattered across first-request-wins logic.
-    return ArqJobQueue(request.app.state.arq_redis)
+    # A factory of its own since M8.8, so a test overrides the POOL and still
+    # exercises the real deferral in get_job_queue below.
+    pool: ArqRedis = request.app.state.arq_redis
+    return pool
+
+
+ArqPoolDep = Annotated[ArqRedis, Depends(get_arq_pool)]
+
+
+def get_job_queue(pool: ArqPoolDep, session: DbSessionDep) -> JobQueuePort:
+    # Deferred to after the request's commit, so a worker never takes a job
+    # whose Scan row it cannot see yet (ADR-0035 decision 5). Session-dependent,
+    # so never @lru_cache (rule 15).
+    return AfterCommitJobQueue(ArqJobQueue(pool), session)
 
 
 JobQueueDep = Annotated[JobQueuePort, Depends(get_job_queue)]
@@ -658,6 +677,26 @@ def get_project_access(session: DbSessionDep) -> ProjectAccessPort:
 
 
 ProjectAccessDep = Annotated[ProjectAccessPort, Depends(get_project_access)]
+
+
+# M8.8, ADR-0035. Below ProjectAccessDep because both consume it; the trigger they
+# delegate to is wired above, beside the webhook's.
+def get_start_scan_use_case(
+    project_access: ProjectAccessDep, trigger_scan: TriggerScanUseCaseDep
+) -> StartScanUseCase:
+    return StartScanUseCase(project_access=project_access, trigger_scan=trigger_scan)
+
+
+StartScanUseCaseDep = Annotated[StartScanUseCase, Depends(get_start_scan_use_case)]
+
+
+def get_get_scan_use_case(
+    project_access: ProjectAccessDep, scans: ScanRepositoryDep
+) -> GetScanUseCase:
+    return GetScanUseCase(project_access=project_access, scans=scans)
+
+
+GetScanUseCaseDep = Annotated[GetScanUseCase, Depends(get_get_scan_use_case)]
 
 
 def get_list_project_findings_use_case(

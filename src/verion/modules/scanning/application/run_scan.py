@@ -77,8 +77,11 @@ class RunScanUseCase:
     **What raises and what doesn't.** A failure *before any tool runs* (no
     connected repo, no GitHub connection, unsupported provider, failed
     checkout, no scanners enabled, an unknown scanner) marks the Scan FAILED
-    and re-raises, so arq's retry/backoff still applies — a checkout that
-    failed on a network blip is worth retrying. A failure *of a tool* does not
+    and re-raises. **It is not retried**: arq 0.28 retries only `Retry`,
+    `RetryJob` and `CancelledError`, so the job ends failed and the Scan stays
+    FAILED until a user starts another scan (G87, ADR-0017's 2026-09-19
+    amendment). The re-raise still marks the arq job failed, which is its only
+    effect today. A failure *of a tool* does not
     raise: it is a recorded outcome on that tool's ScanResult, and the scan has
     reached a terminal, truthful state. Letting arq retry there would re-run
     every scanner and could discard output that already succeeded, which is
@@ -194,8 +197,10 @@ class RunScanUseCase:
             # transaction, so the `finally` commit raises PendingRollbackError
             # and even the RUNNING flush above rolls back, leaving the scan at
             # its last committed status (PENDING on a first attempt); any other
-            # exception commits RUNNING. Neither short-circuits, so arq's retry
-            # picks it up either way.
+            # exception commits RUNNING. Neither short-circuits, so a retry would
+            # pick it up either way — but arq 0.28 retries neither exception, so
+            # today the scan stays at that status until a user starts another
+            # (G87). The property still holds: nothing is left COMPLETED.
             #
             # Same transaction as the ScanResult rows, deliberately: one commit
             # covers both, so the row *is* the outbox and there is no
@@ -236,8 +241,10 @@ class RunScanUseCase:
                 failure_reason=str(exc),
             )
             await self._scans.update(scan)
-            # Re-raise so arq's own retry/backoff still applies — persisting
-            # FAILED is for visibility, not to stop arq from retrying.
+            # Re-raise so the arq job ends failed rather than succeeded. It is
+            # NOT retried: arq 0.28 retries only Retry, RetryJob and
+            # CancelledError (G87). Persisting FAILED is what the user sees,
+            # through GET /projects/{id}/scans/{scan_id}.
             raise
         finally:
             if local_path is not None:
@@ -263,8 +270,10 @@ class RunScanUseCase:
                 f"'{connected_repo.provider}', not 'github'"
             )
 
-        # triggered_by is always the project owner — TriggerScanUseCase
-        # requires is_owner=True before ever creating the Scan.
+        # triggered_by is always the project owner: both of TriggerScanUseCase's
+        # callers pass an owner as user_id — StartScanUseCase after
+        # may_manage_project's owner-only verdict, the webhook as
+        # project.owner_id (ADR-0035 decision 3).
         github_connection = await self._github_connections.get_by_user_id(triggered_by)
         if github_connection is None:
             raise GitHubConnectionNotFound(f"No GitHub connection for user '{triggered_by}'")

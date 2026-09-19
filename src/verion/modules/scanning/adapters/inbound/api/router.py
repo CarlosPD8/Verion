@@ -2,16 +2,33 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
-from verion.modules.scanning.adapters.inbound.api.schemas import WebhookAckResponse
+from verion.modules.scanning.adapters.inbound.api.schemas import (
+    ScanAcceptedResponse,
+    ScanResponse,
+    WebhookAckResponse,
+)
 from verion.modules.scanning.domain.exceptions import (
     InvalidWebhookPayload,
+    ProjectAccessDenied,
     ProjectNotFound,
     RepoNotConnected,
+    ScanNotFound,
 )
 from verion.modules.scanning.domain.webhook_signature import verify_signature
-from verion.platform.di import HandleGitHubWebhookUseCaseDep, WebhookSecretDep
+from verion.platform.di import (
+    CurrentUserIdDep,
+    GetScanUseCaseDep,
+    HandleGitHubWebhookUseCaseDep,
+    StartScanUseCaseDep,
+    WebhookSecretDep,
+)
 
 router = APIRouter()
+
+# A second router, mounted under /projects by platform/app.py, because the resource these
+# routes hang off is a project — the same reason findings, risks and Briefs share that
+# prefix. The webhook above stays under /scanning (ADR-0035 decision 1).
+project_scans_router = APIRouter()
 
 
 @router.post(
@@ -71,3 +88,51 @@ async def github_webhook(
     # Work was enqueued, not synchronously completed.
     response.status_code = status.HTTP_202_ACCEPTED
     return WebhookAckResponse(status="accepted")
+
+
+@project_scans_router.post(
+    "/{project_id}/scans",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ScanAcceptedResponse,
+)
+async def start_scan(
+    project_id: str, user_id: CurrentUserIdDep, use_case: StartScanUseCaseDep
+) -> ScanAcceptedResponse:
+    """Start a scan of a project the caller owns. M8's exit condition, first clause.
+
+    **202**, because the scan runs as an arq job. By the time this answers, the `Scan` row is
+    committed and its job is queued, in that order (ADR-0035 decision 5). Poll the GET below
+    for its status.
+
+    **404 for every denial**: an absent project, a non-member and a member who is not an
+    owner get the same status and the same body (ADR-0035 decision 2, **G17**).
+    """
+    try:
+        scan = await use_case.execute(project_id=project_id, user_id=user_id)
+    except ProjectAccessDenied as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return ScanAcceptedResponse(id=scan.id, status=str(scan.status))
+
+
+@project_scans_router.get(
+    "/{project_id}/scans/{scan_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=ScanResponse,
+)
+async def get_scan(
+    project_id: str, scan_id: str, user_id: CurrentUserIdDep, use_case: GetScanUseCaseDep
+) -> ScanResponse:
+    """One scan's status, for any member of its project (ADR-0035 decision 4).
+
+    404 for a project the caller may not read, and 404 for a scan that is absent or belongs
+    to another project, so a member of one project cannot probe scan ids in another.
+    """
+    try:
+        scan = await use_case.execute(project_id=project_id, user_id=user_id, scan_id=scan_id)
+    except ProjectAccessDenied as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ScanNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return ScanResponse(id=scan.id, status=str(scan.status), failure_reason=scan.failure_reason)

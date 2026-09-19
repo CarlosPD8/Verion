@@ -785,7 +785,7 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
     - `GET /auth/github/login` (`github_login`) requires that header and answers with a redirect, while a browser top-level navigation cannot attach an `Authorization` header. So the connect step cannot start as that route is written.
     - Read from the route; the browser half is not verified.
     - The options are to return the authorize URL as JSON, or to move to a cookie-based session, which changes `get_current_user_id`. Decide it here, by amendment to ADR-0031 or a new ADR (rule 16's credential-handling clause).
-    - ***(Added 2026-09-16, from ADR-0031's P1.)* `POST /projects/` is unreachable through the rewrite.** This issue's scope does not name creating a project, but connecting a repository needs one to exist, so an onboarding flow that starts from nothing would call it. That is an inference, not something this bullet's scope states. Next strips the slash, and the API answers 307 to an absolute URL on its own origin. `skipTrailingSlashRedirect` was tested and does not fix it. **The bound, as measured:** it is the only one of 19 routes whose path ends in a slash, and none of the three `RedirectResponse` constructions derives its URL from the request. Decide the fix here; a route change enters rule 16's route clause.
+    - ***(Added 2026-09-16, from ADR-0031's P1.)* `POST /projects/` is unreachable through the rewrite.** This issue's scope does not name creating a project, but connecting a repository needs one to exist, so an onboarding flow that starts from nothing would call it. That is an inference, not something this bullet's scope states. Next strips the slash, and the API answers 307 to an absolute URL on its own origin. `skipTrailingSlashRedirect` was tested and does not fix it. **The bound, as measured:** it is the only one of 19 routes whose path ends in a slash, and none of the three `RedirectResponse` constructions derives its URL from the request. Decide the fix here; a route change enters rule 16's route clause. *(2026-09-19, M8.8: the count is **23** operations in `app.openapi()["paths"]`, after M7.2's two Brief routes and M8.8's two scan routes, and `POST /projects/` is still the only one ending in a slash. Neither new scan path ends in one, by ADR-0035 decision 1.)*
 
 - **M8.5 — Confidence for a Risk**
   Module: `correlation`, `risk_engine`, `brief` · Depends on: M7.2 · Opened 2026-09-19 at the M7→M8 boundary review.
@@ -807,9 +807,9 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
   - A second Security Context write adds a second row, after which the project's reads raise.
   - One decision with **G51**, as G55's `Deferral rationale:` says. Carries **G55** and **G51**.
 
-- **M8.8 — A route that starts a scan**
+- **M8.8 — A route that starts a scan** — done
   Module: `scanning` · Depends on: M3.7 · Opened 2026-09-19 at the M7→M8 boundary review.
-  - **Trace:** the exit condition's first clause, a user starts a scan. No route starts one today: `TriggerScanUseCase` is wired, and its only caller is the GitHub webhook. Carries **G70**.
+  - **Trace:** the exit condition's first clause, a user starts a scan. No route starts one today: `TriggerScanUseCase` is wired, and its only caller is the GitHub webhook. Carries **G70**. *(True when the issue opened; the route landed in commit 3, below.)*
   - **Decisions:** `docs/adr/0035-a-route-that-starts-a-scan.md`, written before the route code. Three commits:
     1. **Platform-wide, landed as `465d036`:** the database session is function-scoped, so every write route commits before its response is sent (**G86**, ADR-0008's amendment).
     2. **Documentation:** ADR-0035; the ADR-0022 and ADR-0017 amendments; `PRODUCT_SPEC.md` FR-4's qualification; **G87**, **G88** and **G89**.
@@ -821,6 +821,24 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
     - The job is enqueued after the commit, through an after-commit hook in `get_db_session`.
     - `GitRepoCheckout` redacts its checkout directory from the failure message.
   - **Out of scope:** re-scan (M9.2), scan history (M8.2), onboarding (M8.4), a CI-hook adapter (cut by FR-4's qualification), a concurrency migration (**G88**), the frontend.
+  - **Delivered** (commit 3), as shaped above:
+    - **The routes.** `StartScanUseCase` and `GetScanUseCase`, behind a second router in `scanning`, mounted under `/projects`.
+    - **The verdict.** `ProjectAccessPort.may_manage_project` over `projects/domain/authorization.may_manage`, implemented by `PostgresProjectAccessReader`.
+    - **The ordering.** `AfterCommitJobQueue` over `platform/db.py`'s `after_commit`, wired by `get_job_queue`. `get_arq_pool` is now its own factory, so tests override the pool and keep the deferral.
+    - **The redaction.** `GitRepoCheckout` redacts its checkout directory.
+    - **The retry claims.** The nine src comments ADR-0035 decision 6 lists are corrected, and a tenth it missed: `normalize_scan.py`'s *"buys five wasted attempts"*, found by `architecture-guardian` on this commit.
+    - **The rollback half of `after_commit`.** Two tests in `test_session_commit_precedes_response.py` drive the real `get_db_session`: callbacks run after the commit, and a rollback discards them.
+    - **Tests.** `tests/integration/test_scan_routes.py`; `test_project_access_contract.py`, the first contract test holding `ProjectAccessPort`'s fake and real adapter to one verdict table; `tests/unit/test_start_scan.py`, `test_get_scan.py` and `test_project_authorization.py`; a rewritten `test_trigger_scan.py`. `InMemoryProjectAccess` moved to `tests/conftest.py`.
+    - **Mutations, each applied and killed, with the file restored by sha256:**
+      - `StartScanUseCase` asking the read verdict;
+      - `may_manage` degraded to "a membership exists";
+      - the enqueue inside the transaction;
+      - no checkout-directory redaction (the route test kills it; the token redaction's kill is the adapter unit test only, since GitHub's stderr never echoes an env-borne token);
+      - the GET without its project match;
+      - the GET's verdict moved below its read;
+      - the POST's denial mapped to 403;
+      - `after_commit` callbacks run on the rollback path.
+    - **What this does not change locally.** On a laptop with no GitHub connection, a scan of a connected GitHub repository fails at `GitHubConnectionNotFound`, which the GET now shows. `scripts/seed_demo_project.py` remains the demo path.
 
 ---
 
@@ -2109,8 +2127,7 @@ Deferral rationale: **gating the frontend is a CI design task, and it would land
 Note (2026-09-16, the early-start screen commit): **no linter is installed at all, so "lint violations pass CI" understates the gap: nothing lints `frontend/` anywhere.** `eslint` and `eslint-config-next` are on ADR-0031 decision 3's list and were not installed. `eslint@10.10.0` excludes this machine's Node v22.12.0, `eslint@9.39.5` is deprecated in the registry, and the pair brought the tree's only engine mismatch and only install script. `next build`'s TypeScript check and `npm test`'s rule-12 non-leakage test are the two local checks, and each `frontend/` commit quotes both results. Neither runs in CI, which is this entry's subject. ADR-0031's Consequences carries the evidence.
 
 ### G70 — No route starts a scan on demand: `TriggerScanUseCase` is written and wired, and its only caller is the GitHub webhook
-Confirmed: M8.3 early start · Status: assigned → M8.8
-Kind: owed · Blocks: ship
+Confirmed: M8.3 early start · Status: resolved → M8.8
 Blocks-if-unresolved: **M8.4's first bullet — "Connect repo → confirm Security Context → trigger first scan, guided flow" — has no way to trigger that first scan. M9.2's "Re-scan" action has none either, and no demonstration of the product can start a scan.** It is also an MVP requirement:
 - `PRODUCT_SPEC.md` §6 FR-4 says the system "can trigger scans (manual + on-push via GitHub Actions)", and §8's Core scope lists "Scans (manual + CI-triggered)".
 - §4's Journey 2 ("triggered manually or via CI") and Journey 4 ("Triggers re-scan (manual or automatic on push)") assume the same.
@@ -2140,6 +2157,8 @@ Note (2026-09-19, M8.8 commit 2) · Confirms: none: **the Deferral rationale's o
 - **The route and a status read.** `POST /projects/{project_id}/scans` returns the scan's id; `GET …/scans/{scan_id}` reads its status.
 - **What this entry's Evidence said the route would still not do locally holds.** For a project with a connected GitHub repository and a repository scanner enabled, a scan whose owner has no GitHub connection fails at `GitHubConnectionNotFound`. The GET will make that visible, and `scripts/seed_demo_project.py` remains the laptop path.
 - **Resolved by M8.8's code commit**, not this one.
+
+Resolution (2026-09-19, M8.8 commit 3) · Confirms: none: **a route starts a scan.** `POST /projects/{project_id}/scans` answers 202 with the scan's id to a project's owner, and `GET /projects/{project_id}/scans/{scan_id}` reports its status to any member (ADR-0035). The route reaches the same `TriggerScanUseCase` the webhook does. M8.4's "trigger first scan" and M9.2's "Re-scan" now have a route to call. What this entry's Evidence said a laptop still cannot do is unchanged: see M8.8's Delivered bullet.
 
 ### G71 — The rule-11 guard that exists to keep a dev secret out of production prints real secrets on its own failure path, and OpenAI's 401 is a second path to the same leak
 Confirmed: M7.1, M7.3 · Status: open

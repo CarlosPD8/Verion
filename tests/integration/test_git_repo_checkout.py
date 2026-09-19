@@ -80,11 +80,20 @@ def test_redact_scrubs_a_token_out_of_captured_output():
         "@github.com/o/r/': The requested URL returned error: 403"
     )
 
-    assert "super-secret-token" not in _redact(text, "super-secret-token")
+    assert "super-secret-token" not in _redact(text, "super-secret-token", "/tmp/verion-scan-x")
 
 
-def test_redact_is_a_no_op_without_a_token():
-    assert _redact("some git error", None) == "some git error"
+def test_redact_leaves_text_naming_neither_pattern_unchanged():
+    assert _redact("some git error", None, "/tmp/verion-scan-x") == "some git error"
+
+
+def test_redact_replaces_the_checkout_directory_with_a_placeholder():
+    text = "Cloning into '/tmp/verion-scan-abc123'...\nfatal: repository not found\n"
+
+    redacted = _redact(text, None, "/tmp/verion-scan-abc123")
+
+    assert "verion-scan-" not in redacted
+    assert redacted.startswith("Cloning into '<checkout-dir>'...")
 
 
 async def test_no_access_token_leaks_into_the_exception_on_a_real_failure():
@@ -97,3 +106,20 @@ async def test_no_access_token_leaks_into_the_exception_on_a_real_failure():
         )
 
     assert "super-secret-token" not in str(exc_info.value)
+
+
+async def test_the_checkout_directory_never_reaches_the_exception_on_a_real_failure():
+    """M8.8: git prints "Cloning into '<target_dir>'..." to stderr, exactly as passed, and
+    this message becomes `Scan.failure_reason`, which a route returns. The path is absolute
+    and, on Windows, names the OS user. Kills removing the `target_dir` redaction."""
+    checkout = GitRepoCheckout()
+
+    with pytest.raises(RepoCheckoutFailed) as exc_info:
+        await checkout.checkout(
+            "https://github.com/octocat/this-repo-does-not-exist-verion-test",
+            access_token=None,
+        )
+
+    message = str(exc_info.value)
+    assert "verion-scan-" not in message
+    assert "<checkout-dir>" in message
