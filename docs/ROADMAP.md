@@ -810,6 +810,17 @@ Suggested workflow with Claude Code: work one issue at a time, open a branch per
 - **M8.8 — A route that starts a scan**
   Module: `scanning` · Depends on: M3.7 · Opened 2026-09-19 at the M7→M8 boundary review.
   - **Trace:** the exit condition's first clause, a user starts a scan. No route starts one today: `TriggerScanUseCase` is wired, and its only caller is the GitHub webhook. Carries **G70**.
+  - **Decisions:** `docs/adr/0035-a-route-that-starts-a-scan.md`, written before the route code. Three commits:
+    1. **Platform-wide, landed as `465d036`:** the database session is function-scoped, so every write route commits before its response is sent (**G86**, ADR-0008's amendment).
+    2. **Documentation:** ADR-0035; the ADR-0022 and ADR-0017 amendments; `PRODUCT_SPEC.md` FR-4's qualification; **G87**, **G88** and **G89**.
+    3. **Code.**
+  - **The shape to deliver:**
+    - `POST /projects/{project_id}/scans` → 202 with `{id, status}`, authorized by a new verdict, `ProjectAccessPort.may_manage_project`, which is owner-only. Every denial is one 404.
+    - `GET /projects/{project_id}/scans/{scan_id}` → 200 with `{id, status, failure_reason}`, authorized by the read verdict. A scan of another project is 404.
+    - `TriggerScanUseCase.execute(project_id, user_id, *, authorized)` raises one exception. The webhook passes `authorized=True` and keeps the owner as `triggered_by`.
+    - The job is enqueued after the commit, through an after-commit hook in `get_db_session`.
+    - `GitRepoCheckout` redacts its checkout directory from the failure message.
+  - **Out of scope:** re-scan (M9.2), scan history (M8.2), onboarding (M8.4), a CI-hook adapter (cut by FR-4's qualification), a concurrency migration (**G88**), the frontend.
 
 ---
 
@@ -1166,7 +1177,7 @@ Deferral rationale: same window as **G13** and probably the same fix — both ne
 Note: G13 and G14 are the same window seen from two tables, and they are registered separately because their `Blocks-if-unresolved:` differ — G13 corrupts what a finding *says*, G14 corrupts *when it was seen*. M9.1 needs both, and closing one does not close the other.
 
 ### G15 — A transient normalization failure that outlives arq's retries is never recovered
-Confirmed: M4.4, M4.5, post-M4 · Status: open
+Confirmed: M4.4, M4.5, post-M4, M8.8 · Status: open
 Kind: owed · Blocks: internal
 Blocks-if-unresolved: **a scan's findings are never produced, and nothing in the system will ever produce them — recovery requires a human to notice a `normalization_runs` row and read its `failure_reason`. There is no automatic path back.** This issue's entire subject is not losing owed work silently, and it ships one path that loses it. Stated that way round deliberately: "the sweep does not select `failed` rows" describes the predicate and reads like a tuning choice, while what it *means* is that a transient failure which exhausts arq's retries is permanently unrecovered. Worse than it sounds today, because **nothing surfaces `NormalizationRun` at all** — `failure_reason` is reachable only by querying Postgres by hand until M4.5 ships an endpoint, so "a human reads it" currently means a human who already suspected something was wrong. The mechanism: ADR-0021 decision 4 splits failures on whether they are deterministic in the persisted `ScanResult` rows. A *transient* one (a DB error, a Redis blip during the work, anything unanticipated) writes `failed` and re-raises so arq retries; after `max_tries` — arq's default 5 — the row is left `failed` for good. `get_stale` deliberately excludes `failed`, because the *deterministic* failure decision 5 describes would otherwise be re-enqueued every five minutes forever. So the exclusion is right for one of the two things that write `failed` and wrong for the other, and **nothing on the row records which it was**. The scan's findings are never produced, `normalization_runs` says `failed`, and M5 correlates over a project whose latest scan contributed nothing — with nothing raising and nothing marking the result incomplete. This is the same failure shape as G4, arriving one stage later through a different door.
 Deferral rationale: the fix is a design question, not a predicate change, and the three candidates are not equivalent. (1) **Record the cause** — a marker distinguishing "deterministic, do not retry" from "transient, retry later" — which is the honest fix and means a new column plus a domain field, i.e. the shape ADR-016 decision 3 refuses to add speculatively. (2) **Bound the sweep's re-enqueues per row** — a retry count on `normalization_runs`, which turns the deterministic loop into a bounded one and needs its own limit chosen. (3) **An operator-facing requeue**, which is really an M8 dashboard feature. Choosing between them needs a production deployment to say how often transient failures actually exhaust arq, and none exists — the same reason G4 is deferred. **Nothing is broken today**: no deployment exists to fail transiently. Note the usual consolation does not fully apply — a `failed` row is *durable*, but it is not *visible* to anyone who is not already looking, which is the gap M4.5 narrows and does not close. Re-read at **M4.5** (which surfaces `NormalizationRun` and so is the first place a human could act on `failure_reason`), at **M8** (a requeue control), and immediately if a production `normalization_runs.failure_reason` is ever observed.
@@ -1176,6 +1187,12 @@ Note (post-M4): **M5.2 inherits the question M4.5 answered, and answering it onc
 
 Note (2026-09-19, post-M7 boundary review) · Confirms: none: **deferred under Rules for M8 rule 1.** M8 ships product only, and this entry does not trace to M8's exit condition. Trigger: **the M8→M9 boundary review**.
 
+Note (2026-09-19, M8.8) · Confirms: M8.8: **strengthened: "outlives arq's retries" is every transient failure, because arq 0.28 retries none of them.**
+- **The fact.** arq 0.28.0 retries a job only on `Retry`, `RetryJob` or `CancelledError`. `NormalizeScanUseCase`'s transient branch re-raises an ordinary exception, so the run is left `failed` on its first attempt. The `max_tries = 5` this entry's Blocks-if-unresolved describes never applies.
+- **What is unchanged.** The mechanism (`get_stale` excludes `failed`), the three candidate fixes, and the `--no-fix` warning against widening `get_stale`. The deferral under Rules for M8 rule 1 stands, with its trigger at the M8→M9 boundary review.
+- **Where it is recorded.** ADR-0017's and ADR-0021's 2026-09-19 amendments. The two src sites that assert the retry, `normalize_scan.py` and `sweep_pending_normalizations.py`, are corrected in M8.8's code commit.
+- **Found** by `architecture-guardian` on M8.8's documentation commit, whose first draft said normalization was not affected.
+
 ### G16 — `payload_truncated` is inferred from a parse attempt, not recorded
 Confirmed: M4.5 · Status: open
 Kind: owed · Blocks: internal
@@ -1184,7 +1201,7 @@ Deferral rationale: the honest fix is a stored `Evidence.truncated` column set b
 Note: the field is named for what it asserts — "this payload is an incomplete prefix of its source element" — rather than for the test that currently detects it, precisely so the name stays true when the derivation stops being. Naming it `payload_parses_as_json` would have made the divergence invisible, because that name would still be accurate while the useful claim silently was not. See ADR-0022 decision 1.
 
 ### G17 — Two routes answer the same authorization question differently, so neither answer holds
-Confirmed: M4.5, post-M4, M5.2, M6.3, M7.2 · Status: assigned → M10.2
+Confirmed: M4.5, post-M4, M5.2, M6.3, M7.2, M8.8 · Status: assigned → M10.2
 Kind: owed · Blocks: internal
 Blocks-if-unresolved: **the 404 conceals nothing while a sibling route still answers 403 — so the property it was chosen for is defeated by one extra request.** M4.5's findings routes answer **404** for a project that does not exist and for one the caller may not read, indistinguishably, because `ProjectAccessPort.may_read_project` returns a single bool and has no vocabulary for the difference. `projects`' own routes answer **403** for an existing project the caller is not a member of. A caller denied `GET /projects/{id}/findings` with 404 calls `GET /projects/{id}/security-context`, gets 403, and knows the project exists. The concealment is real only if every project-scoped route agrees, and today they do not. Secondary cost, smaller but present from day one: a client gets two different answers to one question depending which route it hit, which is its own leak by difference and makes error handling in M8.3's frontend inconsistent.
 Deferral rationale: the fix is a convergence and **which way to converge is G18's decision, not this entry's** — that is why the two are separate. If M10.2 decides the enumeration leak is acceptable for `projects`' routes, this entry is closed by moving the findings routes to 403; if it decides otherwise, this closes as a side effect of G18. Either way it needs the RBAC audit's own judgement about what a non-member should see across the whole surface, which is exactly M10.2's scope ("verify enforcement at every endpoint") and not something to settle inside a findings issue. Nothing is *worse* than before in the meantime: M4.5's routes are the strictly more conservative of the two, and the pre-existing leak (G18) is unchanged by them.
@@ -1197,6 +1214,11 @@ Note (2026-09-16, M6.3): **the forecast came true a second time, and the forecas
 Note (2026-09-17, M7.2): **the forecast came true twice more. Six routes now answer 404 for both denials, against `projects`' eight answering 403.**
 - **The two new routes.** `POST /projects/{project_id}/briefs` inherits the shape indirectly, through `ExplainableRiskPort` → `CandidateRiskPort`, as `/scored-risks` does. `GET /projects/{project_id}/briefs` consumes `ProjectAccessPort` directly, because it reads only `brief`'s own table.
 - **Pinned.** Both are covered by `test_a_non_member_and_an_absent_project_are_indistinguishable` in `tests/integration/test_security_brief_routes.py`. Mapping the GET denial to 403 was applied as a mutation and killed.
+- **Unchanged.** Status stays `assigned → M10.2`.
+
+Note (2026-09-19, M8.8) · Confirms: M8.8: **two more are decided, the seventh and eighth routes answering 404 for both denials, against `projects`' eight answering 403.**
+- **The two routes, landing in M8.8's code commit.** `POST /projects/{project_id}/scans` and `GET /projects/{project_id}/scans/{scan_id}` (ADR-0035 decisions 1, 2 and 4). The POST will consume the new `may_manage_project` verdict, the GET `may_read_project`, both directly.
+- **What is new about the POST.** It will be the first 404-for-both route whose denial covers a member: a member who is not an owner gets the same 404 as a stranger, although they can read the project through its other routes. That leaks nothing, since the member already knows the project exists. It does make this entry's convergence one route wider.
 - **Unchanged.** Status stays `assigned → M10.2`.
 
 ### G18 — `projects`' project-scoped routes leak project existence to a non-member
@@ -1696,7 +1718,7 @@ Note: **not folded into G47, and folding them would be an act rather than a tidy
 Note (2026-09-15, M5→M6 boundary, M5.6): **the trigger fired at M5.6 and was not recorded here.** Since `2318d87` the verdict this entry is about gates a derived group in production, so a dormant declaration returning to force now changes what production produces, not only a stored field.
 
 ### G51 — A project can hold two connected repositories, and the read every consumer uses raises when it does
-Confirmed: M5.5, M5.6 · Status: assigned → M8.7
+Confirmed: M5.5, M5.6, M8.8 · Status: assigned → M8.7
 Kind: owed · Blocks: ship
 Blocks-if-unresolved: **two owner-authorized connect calls, each individually legitimate and neither rejected, leave a project on which SCANNING stops working.** `PostgresConnectedRepoRepository.get_by_project_id` ends in `scalar_one_or_none()`, which raises `MultipleResultsFound` on a second row rather than returning either — and **`run_scan.py`'s checkout path is one of its callers**, so the failure lands on the pipeline rather than on the route that caused it. The other existing caller is `build_security_context_from_github.py`. Nothing constrains the second row: `ConnectedRepoModel` declares no `__table_args__`, `da15b49a2373`'s `connected_repos` table carries only a primary key on `id` and a foreign key on `project_id`, and neither `ConnectRepositoryUseCase.execute` nor `ConnectRepositoryViaGitHubUseCase.execute` reads for an existing repo before calling `add` — both go from `require_owner` straight to constructing a fresh entity. **The three artifacts disagree with each other**, which is why this is a gap rather than a bug in one of them: `ARCHITECTURE.md`'s data-model sketch renders the relation as `connected_repos: [ConnectedRepo]`, a **list**; the schema permits many; and the read forbids more than one at the moment of reading. None of it is recorded anywhere today — no entry in this register, no ADR, and nothing in `ARCHITECTURE.md` beyond the sketch that contradicts the code.
 Deferral rationale: **what to do is a behaviour decision across two modules, not a constraint somebody adds in passing.** The three answers are materially different — a second connect *replaces* the first, or is *rejected*, or is *legitimate and the read is what is wrong* — and the third is what `ARCHITECTURE.md` currently describes, so choosing either of the first two contradicts a document rather than merely adding a migration. Whichever wins costs a unique constraint, a migration, a decision about existing rows, and a review of both callers. That is not something a route pair's commit takes on. Trigger: **the first issue that changes `ConnectedRepoRepositoryPort`**, or any issue that makes a project's repository re-connectable.
@@ -1718,6 +1740,11 @@ Note (2026-09-15, M5.6 commit 4): **the identical mechanism now exists on a seco
 Note (2026-09-15, M5→M6 boundary): **one sentence above is dated.** *"both go from `require_owner` straight to constructing a fresh entity"* — `ConnectRepositoryUseCase` now calls `validate_connected_repo_url` between the two. The point it makes stands: neither use case reads for an existing repository before `add`. The fix did not touch `ConnectedRepoRepositoryPort`, so this entry's trigger has not fired.
 
 Assignment (2026-09-19, post-M7 boundary review) · Confirms: none: **assigned to M8.7**, which decides it as one decision with **G55**.
+
+Note (2026-09-19, M8.8) · Confirms: M8.8: **M8.8's route puts the raise one button away from a user.**
+- **The path, once M8.8's code lands.** `POST /projects/{project_id}/scans` (ADR-0035) enqueues a scan. With two connected repositories, `RunScanUseCase._checkout_repo`'s `get_by_project_id` raises `MultipleResultsFound`.
+- **What the user sees.** That exception is not in `RunScanUseCase`'s `except` tuple, so the worker's `finally` commits the scan as `RUNNING`, and arq 0.28 does not retry it (**G87**). The status read M8.8 adds will report that scan as `running`, permanently.
+- **Unchanged.** M8.7 carries the fix, as one decision with G55. M8.8 does not touch `ConnectedRepoRepositoryPort`, so this entry's trigger has not fired.
 
 ### G52 — The route map is re-derived at the default-branch TIP, so a derived group is about a third tree, and nothing observes the distance
 Confirmed: M5.6 commit 1 · Status: open
@@ -2107,6 +2134,13 @@ Trigger: **M8.4**, or the first demonstration that must start a scan.
 
 Assignment (2026-09-19, post-M7 boundary review) · Confirms: none: **assigned to M8.8**, the route that starts a scan.
 
+Note (2026-09-19, M8.8 commit 2) · Confirms: none: **the Deferral rationale's open question is decided by ADR-0035.**
+- **Authorization.** A second verdict, `may_manage_project`, owner-only. The read verdict is not accepted.
+- **The two flags.** `TriggerScanUseCase` takes one flag, `authorized`, and raises one exception. The webhook passes `True` and keeps the owner as `triggered_by`.
+- **The route and a status read.** `POST /projects/{project_id}/scans` returns the scan's id; `GET …/scans/{scan_id}` reads its status.
+- **What this entry's Evidence said the route would still not do locally holds.** For a project with a connected GitHub repository and a repository scanner enabled, a scan whose owner has no GitHub connection fails at `GitHubConnectionNotFound`. The GET will make that visible, and `scripts/seed_demo_project.py` remains the laptop path.
+- **Resolved by M8.8's code commit**, not this one.
+
 ### G71 — The rule-11 guard that exists to keep a dev secret out of production prints real secrets on its own failure path, and OpenAI's 401 is a second path to the same leak
 Confirmed: M7.1, M7.3 · Status: open
 Kind: owed · Blocks: ship
@@ -2200,7 +2234,7 @@ Trigger: **the M7→M8 boundary review, step 3**; or any proposal to add a typed
 
 Assignment (2026-09-19, post-M7 boundary review) · Confirms: none: **the trigger fired, and this entry is assigned to M8.5.** Recommended action and estimated effort were cut to V2 at this review (`PRODUCT_SPEC.md` FR-8's 2026-09-19 note), so *"forced before M8.3"* no longer holds. Confidence is M8.5's. The entry resolves when M8.5 lands.
 ### G75 — Member-level Brief generation coincides with owner-gating only because nothing in `src/` creates a non-OWNER membership
-Confirmed: M7.2 design commit, M7.3 · Status: open
+Confirmed: M7.2 design commit, M7.3, M8.8 · Status: open
 Kind: owed · Blocks: internal
 Blocks-if-unresolved: **the day a non-owner membership can exist, every such member can spend billed provider calls, and nothing in the system changes colour.**
 - **How generation is authorized.** ADR-0033 decision 7 authorizes generation through `may_read_project`, via the new `risk_engine` port. `may_read` is *"membership is not None"*.
@@ -2215,6 +2249,11 @@ Deferral rationale: **the alternative is G70's open question, not this issue's.*
 Trigger: **the first producer in `src/` of a membership whose role is not OWNER**, whatever motivates it; or G70's port decision, if it adds an owner verdict.
 
 Note (2026-09-17, M7.3 commit 2): **what a member can make the system send to a third party widens.** Since M7.3 each generation sends the surface's members' typed titles and locations to OpenAI, through `describe` (ADR-0034). So a non-owner member, the day one can exist, spends two billed calls per Brief and exports scanned-derived text, not only Verion-computed numbers. The coincidence with owner-gating at HEAD is unchanged.
+
+Note (2026-09-19, M8.8) · Confirms: M8.8: **this entry's second trigger fired, and it is recorded and not acted on.**
+- **What fired.** *"G70's port decision, if it adds an owner verdict"*: ADR-0035 decision 2 decides to add `ProjectAccessPort.may_manage_project`, which lands in M8.8's code commit. Once it has, owner-gating Brief generation is a one-line change of verdict, not a port design.
+- **Why it is not taken here.** ADR-0035 defines "manage" as owner-class actions under ADR-0016 decision 3, those that cost real compute or can point an attack tool at a URL, and says Brief generation is not one. Moving generation would re-decide ADR-0033 decision 7, outside M8.8's scope.
+- **What changes for this entry.** Its Deferral rationale said owner-gating *"needs a second verdict on `ProjectAccessPort`"*. Once M8.8's code lands, that verdict exists, and what remains is the decision, not the mechanism. Its first trigger, a non-OWNER membership producer, has not fired.
 
 ### G76 — A Brief is generated and stored with nothing recording whether normalization was complete when its decision was computed
 Confirmed: M7.2 design commit · Status: open
@@ -2363,6 +2402,32 @@ Blocks-if-unresolved: **a failed commit reported success for a write that never 
 - **Why no test caught it.** `httpx2`'s `ASGITransport` awaits the whole app before returning a response, so the row-visibility half is unobservable through it. The failed-commit half was observable: with `raise_app_exceptions=False` the transport returns the 201 that `http.response.start` carried. No test in `tests/` passes that flag.
 
 Resolution (2026-09-19, M8.8 commit 1) · Confirms: none: **`DbSessionDep` reads `Depends(get_db_session, scope="function")`, so the commit runs before the response is sent.** `tests/integration/test_session_commit_precedes_response.py` proves both halves by calling the ASGI app directly: a second session sees the new row at `http.response.start`, and a commit that raises produces a 500. Both tests were run failing before the change and passing after it. The full suite, 1168 tests, passed on this change alone. ADR-0008's 2026-09-19 amendment records the decision.
+
+### G87 — Nothing re-drives a scan that failed or stuck, and arq retries less than the code says
+Confirmed: M8.8 · Status: open
+Kind: owed · Blocks: internal
+Blocks-if-unresolved: **a scan whose job fails before any tool runs, raises an exception `RunScanUseCase` does not name, or loses its enqueue after the commit, is never taken up again.** It stays `FAILED`, `RUNNING` or `PENDING` permanently, while `RunScanUseCase`'s docstring promised an arq retry. The only recourse is a new scan.
+- **Why the retry does not happen.** arq 0.28.0 retries a job only on `Retry`, `RetryJob` or `CancelledError` (`arq/worker.py`'s job runner, read in the installed package). The six pre-tool failures `RunScanUseCase` re-raises are none of those. Neither is an unnamed exception such as **G51**'s `MultipleResultsFound`, which leaves the scan committed as `RUNNING`.
+- **Why a lost enqueue is not recovered either.** No code path enqueues a scan's job a second time, and no sweep reads `scans`. Normalization has a sweep for exactly this (ADR-0021 decision 1); scanning has none.
+- **Who pays.** Today only a push starts a scan, and a stuck one is invisible. Once M8.8's code lands, its status read shows a stuck scan and its route lets the user start another, which will be the whole recovery.
+Deferral rationale: **the fix is a recovery design, not a line.** Raising arq's `Retry` from the worker for transient failures (a checkout network blip) and not for permanent ones (no GitHub connection) means classifying each pre-tool failure. A `scans` sweep needs a staleness rule for `RUNNING` that does not collide with a live 540-second ZAP run under a 600-second job timeout. Both belong with the issue whose user action is re-running a scan. M8.8 corrects the docstrings and records the behaviour (ADR-0035 decision 6, ADR-0017's 2026-09-19 amendment). Trigger: **M9.2**, whose "Re-scan" action makes starting another scan the designed recovery.
+
+### G88 — Two scans of one project can run at once
+Confirmed: M8.8 · Status: open
+Kind: owed · Blocks: ship
+Blocks-if-unresolved: **two POSTs, or a POST while a webhook scan runs, produce two concurrent scans of one project, with two checkouts and, where ZAP is enabled with consent, two active scans against one target.**
+- **Nothing refuses the second.** `TriggerScanUseCase` mints a new `Scan` on every call (ADR-0014: *"it has no idempotency of its own"*), `scans` has no uniqueness on `project_id`, and `WorkerSettings` sets no `max_jobs`, so arq's default concurrency applies.
+- **What is not known.** Whether two normalizations for one project running together are safe has not been verified.
+- **Why it ships.** A button a user can press twice is the ordinary case, and an active DAST scan doubled against a target someone consented to once is a different load from the one consented to.
+Deferral rationale: **each available guard fails on something this issue does not own.** A check-then-insert "return the in-flight scan" guard needs a read of scans by project, which is M8.2's port. Placed in `TriggerScanUseCase`, it would also change the webhook, where a new push must scan the new commit. And without **G87**'s staleness rule, a stuck `PENDING` or `RUNNING` scan would block every later trigger. A race-free guard is a partial unique index, which is a migration. ADR-0035 decision 7. Trigger: **M9.2**, the re-scan action that makes a second scan of one project routine.
+
+### G89 — `Scan.failure_reason` is redacted by a deny-list, which passes whatever it does not name
+Confirmed: M8.8 · Status: open
+Kind: owed · Blocks: internal
+Blocks-if-unresolved: **anything git prints that is not the access token or the checkout directory reaches every member who reads the scan**: a hostname, a proxy URL carrying credentials from the environment, a `GIT_ASKPASS` path.
+- **The mechanism.** `RepoCheckoutFailed` carries git's stderr. `GitRepoCheckout` redacts the token today. M8.8's code commit adds `target_dir`. `RunScanUseCase` stores the message as `Scan.failure_reason` uncapped, and the `GET /projects/{project_id}/scans/{scan_id}` that commit adds will return it to any member.
+- **What the rule-12 test will cover.** The test M8.8's code commit adds drives a real failed clone and asserts that the token and `verion-scan-` are absent. Its docstring states that it covers those two patterns and nothing else. A deny-list is only ever as good as its last entry.
+Deferral rationale: **the structural fix is a fixed category per failure class**, never raw text in the response. That is a vocabulary on `Scan` and a response-schema decision M8.3 owns when it renders the field, so it is not taken inside the route's issue. ADR-0035 decision 4. Trigger: **M8.3 rendering `failure_reason`**, or the next redaction added to the list, whichever comes first.
 
 ## V2 Backlog (explicitly out of this roadmap)
 

@@ -13,7 +13,7 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0005](0005-risk-scoring-model.md) | The risk scoring model: what a Risk is, the function over it, and what a score may not claim | Accepted |
 | [0006](0006-src-layout.md) | `src/verion/` layout instead of a flat repo-root package | Accepted |
 | [0007](0007-import-linter.md) | import-linter for mechanical architecture enforcement | Accepted (amended M5→M6 boundary, M8.3 early start) |
-| [0008](0008-manual-di-wiring.md) | Explicit `Depends()`-based DI wiring instead of a DI framework | Accepted |
+| [0008](0008-manual-di-wiring.md) | Explicit `Depends()`-based DI wiring instead of a DI framework | Accepted (amended M8.8) |
 | [0009](0009-dependency-verification-protocol.md) | Verify dependency-safety claims against primary sources before acting | Accepted (amended M8.3 early start) |
 | [0010](0010-allow-indirect-imports.md) | `allow_indirect_imports` for cross-module contracts | Accepted |
 | [0011](0011-subprocess-execution-safety.md) | Subprocess execution safety pattern | Accepted (amended M3.5) |
@@ -21,13 +21,13 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0013](0013-zap-target-url-ssrf-validation.md) | ZapAdapter target-URL SSRF validation | Accepted (amended 2026-08-27, M5→M6 boundary) |
 | [0014](0014-github-webhook-verification.md) | GitHub webhook signature verification and delivery handling | Accepted |
 | [0015](0015-mypy-strict-type-checking-gate.md) | mypy `--strict` as the CI type-checking gate, scoped to `src/` | Accepted (amended M8.3 early start) |
-| [0016](0016-multi-scanner-dispatch.md) | Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration | Accepted (amended 2026-08-27, M5→M6 boundary) |
-| [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1, M4.3, M4.4) |
+| [0016](0016-multi-scanner-dispatch.md) | Multi-scanner dispatch, partial-failure semantics, and per-project scanner configuration | Accepted (amended 2026-08-27, M5→M6 boundary, M8.8) |
+| [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1, M4.3, M4.4, M8.8) |
 | [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2, M5.1, M6.1) |
 | [0019](0019-finding-identity-and-deduplication.md) | `Finding` identity, deduplication, and what the hash is over | Accepted (amended M4.3, M4.4, M5.1) |
 | [0020](0020-finding-upsert-semantics.md) | How the `Finding` upsert stays equal to `merge_observation` | Accepted (amended M4.5) |
-| [0021](0021-normalization-job-execution.md) | Normalization job execution: scheduling, state machine, and failure semantics | Accepted (amended M4.5) |
-| [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted |
+| [0021](0021-normalization-job-execution.md) | Normalization job execution: scheduling, state machine, and failure semantics | Accepted (amended M4.5, M8.8) |
+| [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted (amended M8.8) |
 | [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted (amended M5.1, 2026-08-25, M5.8, M5.6, M6.1) |
 | [0024](0024-active-scanning-consent-and-scan-policy.md) | Where active-scanning consent lives, what it is bound to, and the bounds on the `activeScan` job | Accepted (amended M5.4, M5.9) |
 | [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted (amended M7.2) |
@@ -40,3 +40,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0032](0032-explanation-provider-port-openai-adapter-and-prompt-boundary.md) | The Explanation Layer's port, its OpenAI adapter, and where the prompt's input ends | Accepted (amended M7.2, M7.3) |
 | [0033](0033-security-brief-address-read-surface-and-authorization.md) | How a Security Brief refers to its Risk, what it stores, how it is read, and who may generate one | Accepted (amended M7.3) |
 | [0034](0034-what-happened-typed-members-two-calls-and-the-prompt-input-boundary.md) | *What happened*: typed member fields, two provider calls, and the prompt's input boundary | Accepted (amended M7.3) |
+| [0035](0035-a-route-that-starts-a-scan.md) | A route that starts a scan: who may start one, what the caller gets back, and when the job may run | Accepted |

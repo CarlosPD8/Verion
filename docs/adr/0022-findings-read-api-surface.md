@@ -377,6 +377,20 @@ listing's invariants is what stops a defect in the sighting join from masking a
 defect in the upsert — ADR-0020 decision 4's own argument for `upsert` returning a
 `RETURNING` row rather than the object it was handed.
 
+## Amendments
+
+- **2026-09-19 (M8.8): decision 2's "one method" becomes one method per verdict, each a bool.**
+  ADR-0035 decision 2 adds `may_manage_project`, over `projects/domain/authorization.may_manage`,
+  to authorize starting a scan.
+  - **The existence-leak argument is unchanged, and it is what the port still enforces.** Two
+    *reasons* for one denial would let a caller rebuild the leak. Two *verdicts* do not:
+    `may_manage_project` is `False` for an absent project, a non-member and a non-owner alike. A
+    caller seeing `may_read_project` `True` with `may_manage_project` `False` is a member, and
+    already knows the project exists.
+  - **What is struck:** decision 2's *"One method, not `project_exists` + `is_member`"* now reads
+    as one method per verdict. `project_exists` stays refused. Nothing else in decision 2 changes,
+    and every consumer of `may_read_project` is unaffected.
+
 ## Alternatives considered
 
 **`?include_evidence=true` on one route.** Rejected in decision 1: the same bulk

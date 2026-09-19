@@ -357,6 +357,20 @@ at all.
     `test_normalize_scan.py::test_the_failure_reason_never_carries_the_exception_message`,
     not M4.5's — M4.5 consumes the guarantee and adds no second copy of it.
 
+- **2026-09-19 (M8.8): decision 4's *"arq retries (default `max_tries = 5`) with
+  backoff"* is false in the arq this project runs.** arq 0.28.0 retries a job only on
+  `Retry`, `RetryJob` or `CancelledError`, and a transient failure re-raises an
+  ordinary exception. So the run is left `failed` on its first attempt, and decision
+  2's sweep, which does not select `failed`, never takes it up.
+  - **What it changes.** G15's case, *"a transient failure that exhausts arq's
+    retries"*, is every transient failure: zero retries, not five. G15's
+    2026-09-19 note records it.
+  - **What it does not change.** Decision 3's re-claimable `FAILED` is harmless,
+    because nothing re-claims it now. Decision 5's deterministic branch, which does
+    not re-raise, behaves as written.
+  - **Found** while writing M8.8's scan route (ADR-0035 decision 6). ADR-0017's
+    2026-09-19 amendment states the arq fact.
+
 ## Alternatives considered
 
 **A pending-only sweep**, as ADR-0017 anticipated. Rejected in decision 2: it can

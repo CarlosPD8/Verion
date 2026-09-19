@@ -105,7 +105,7 @@ Users can create a project and connect one GitHub repository to it.
 System detects language, framework, key dependencies, and deployment signals (Dockerfile, CI config) from the connected repo and stores them as structured Security Context. User can manually annotate context (e.g., "public-facing," "handles PII").
 
 **FR-4 — Scanning**
-System can trigger scans (manual + on-push via GitHub Actions) that run:
+System can trigger scans (manual + on-push ~~via GitHub Actions~~) that run: *(**Qualified 2026-09-19, M8.8:** on-push is the signed GitHub push webhook, ADR-0014. No GitHub Actions adapter exists, and none is scheduled. Manual is the route `ROADMAP.md` M8.8 adds, ADR-0035.)*
 - Semgrep (SAST)
 - Trivy (SCA / dependency & container scanning)
 - OWASP ZAP (DAST, optional, requires a reachable target)
