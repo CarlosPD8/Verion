@@ -10,6 +10,7 @@ from verion.modules.brief.adapters.outbound.explanation.prompt import PROMPT_VER
 from verion.modules.brief.domain.brief_member import BriefMember
 from verion.modules.brief.domain.exceptions import ExplanationUnavailable
 from verion.modules.brief.domain.explanation import Explanation
+from verion.modules.history.domain.risk import Risk, RiskDismissal, RiskEvent, Snapshot
 from verion.modules.risk_engine.ports.explainable_decision import ExplainableDecision
 
 _SCANNER_FIXTURES = Path(__file__).parent / "fixtures" / "scanners"
@@ -117,6 +118,84 @@ def project_access() -> InMemoryProjectAccess:
 def project_access_factory() -> type[InMemoryProjectAccess]:
     """The contract-tested fake `ProjectAccessPort`, as a class to construct."""
     return InMemoryProjectAccess
+
+
+class InMemoryRiskDismissalRepository:
+    """`RiskDismissalRepositoryPort` in memory. M8.1, ADR-0036.
+
+    **Held to the Postgres adapter's behaviour** by
+    `tests/integration/test_risk_dismissal_repository_contract.py` (G65), which is why it lives
+    here rather than in `tests/unit/conftest.py`. The latest event is the highest ORDINAL, as the
+    adapter's `DISTINCT ON` reads it, never the latest `occurred_at`.
+
+    `writes` counts every stored record and event, so a test can assert that a refusal wrote
+    nothing.
+    """
+
+    def __init__(self) -> None:
+        self._risks: dict[str, Risk] = {}
+        self._events: dict[str, list[RiskEvent]] = {}
+        self.writes = 0
+
+    async def add(self, risk: Risk, first_event: RiskEvent) -> None:
+        self._risks[risk.id] = risk
+        self._events[risk.id] = [first_event]
+        self.writes += 2
+
+    async def append_event(self, event: RiskEvent) -> bool:
+        events = self._events[event.risk_id]
+        if any(existing.ordinal == event.ordinal for existing in events):
+            return False
+        events.append(event)
+        self.writes += 1
+        return True
+
+    def _latest(self, risk_id: str) -> RiskEvent:
+        return max(self._events[risk_id], key=lambda event: event.ordinal)
+
+    def events_of(self, risk_id: str) -> list[RiskEvent]:
+        return sorted(self._events[risk_id], key=lambda event: event.ordinal)
+
+    async def get(self, *, project_id: str, risk_id: str) -> RiskDismissal | None:
+        risk = self._risks.get(risk_id)
+        if risk is None or risk.project_id != project_id:
+            return None
+        return RiskDismissal(risk=risk, latest=self._latest(risk_id))
+
+    async def snapshots_for_project(self, project_id: str) -> list[Snapshot]:
+        return [
+            Snapshot(
+                risk_id=risk.id,
+                finding_ids=risk.finding_ids,
+                state=self._latest(risk.id).kind,
+                state_since=self._latest(risk.id).occurred_at,
+            )
+            for risk in self._risks.values()
+            if risk.project_id == project_id
+        ]
+
+    async def list_for_project(
+        self, *, project_id: str, limit: int, offset: int
+    ) -> list[RiskDismissal]:
+        records = sorted(
+            (risk for risk in self._risks.values() if risk.project_id == project_id),
+            key=lambda risk: risk.id,
+        )
+        # Newest dismissal first, then lowest id: the adapter's order, stable sorts composed.
+        records.sort(key=lambda risk: self.events_of(risk.id)[0].occurred_at, reverse=True)
+        return [
+            RiskDismissal(risk=risk, latest=self._latest(risk.id))
+            for risk in records[offset : offset + limit]
+        ]
+
+    async def count_for_project(self, project_id: str) -> int:
+        return sum(1 for risk in self._risks.values() if risk.project_id == project_id)
+
+
+@pytest.fixture
+def risk_dismissal_repository_factory() -> type[InMemoryRiskDismissalRepository]:
+    """The contract-tested fake `RiskDismissalRepositoryPort`, as a class to construct."""
+    return InMemoryRiskDismissalRepository
 
 
 @pytest.fixture

@@ -41,4 +41,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0033](0033-security-brief-address-read-surface-and-authorization.md) | How a Security Brief refers to its Risk, what it stores, how it is read, and who may generate one | Accepted (amended M7.3) |
 | [0034](0034-what-happened-typed-members-two-calls-and-the-prompt-input-boundary.md) | *What happened*: typed member fields, two provider calls, and the prompt's input boundary | Accepted (amended M7.3) |
 | [0035](0035-a-route-that-starts-a-scan.md) | A route that starts a scan: who may start one, what the caller gets back, and when the job may run | Accepted |
-| [0036](0036-dismissing-a-risk-snapshot-identity-and-the-event-log.md) | Dismissing a Risk: what a dismissal attaches to, the event log, and who may write it | Accepted |
+| [0036](0036-dismissing-a-risk-snapshot-identity-and-the-event-log.md) | Dismissing a Risk: what a dismissal attaches to, the event log, and who may write it | Accepted (amended M8.1) |

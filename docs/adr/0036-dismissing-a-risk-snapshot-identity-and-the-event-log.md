@@ -280,6 +280,20 @@ address; decision 2's forced write lands here) and ADR-0020 decision 3 (the name
 **Register.** **G37** resolves. **G11** gets a count note. Notes on **G52**, **G53**, **G61** and
 **G75**. **G90**, **G91** and **G92** are opened.
 
+## Amendments
+
+- **2026-09-19 (M8.1 commit 2): two sentences made precise by the implementation.**
+  - **Decision 7's "enforced twice" names one set of blank characters.** The first draft's CHECK,
+    `btrim(reason) <> ''`, strips only spaces, while Python's `str.strip()` strips every Unicode
+    whitespace character, so the database passed a tab-only reason the domain refused. "Blank" is
+    now `REASON_BLANK_CHARS`, ASCII whitespace, in the domain, both request schemas and
+    `ck_risk_events_reason_not_blank`, which reads `btrim(reason, E' \t\n\r\x0B\f')`. A reason of
+    only U+00A0 is not blank, in all three places. Found by `architecture-guardian`.
+  - **Decision 8's behaviour test is narrowed.** *"runs every writer the system has"* is replaced by
+    *"runs every writer that touches a finding or a dismissal: the findings upsert, a scored read, a
+    dismissal and an undo"*. Scanning, normalization and Brief writers are not run, and none of them
+    names `risks` or `risk_events`.
+
 ## Alternatives considered
 
 - **The match key as the attachment.** Rejected. It collides for every no-signal finding (ADR-0025

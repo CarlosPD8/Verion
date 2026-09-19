@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from verion.modules.brief.adapters.inbound.api.router import router as briefs_router
 from verion.modules.correlation.adapters.inbound.api.router import router as risks_router
+from verion.modules.history.adapters.inbound.api.router import router as risk_dismissals_router
 from verion.modules.identity.adapters.inbound.api.router import router as identity_router
 from verion.modules.normalization.adapters.inbound.api.router import router as findings_router
 from verion.modules.projects.adapters.inbound.api.router import router as projects_router
@@ -65,6 +66,10 @@ def create_app() -> FastAPI:
     # `scanning`'s project-scoped routes, M8.8. Same prefix and the same reason: /scans is
     # disjoint from every path above. The webhook keeps /scanning (ADR-0035 decision 1).
     app.include_router(project_scans_router, prefix="/projects", tags=["scans"])
+    # `history`'s routes, M8.1. Same prefix; /risk-dismissals is disjoint from /risks and
+    # /scored-risks, and deliberately not /risks/{id}/…, because the id is a dismissal record's,
+    # never a Risk's, which still has none (ADR-0036 decisions 1 and 12).
+    app.include_router(risk_dismissals_router, prefix="/projects", tags=["history"])
     app.include_router(scanning_router, prefix="/scanning", tags=["scanning"])
 
     return app

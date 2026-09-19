@@ -22,6 +22,13 @@ from verion.modules.correlation.application.candidate_risk_provider import (
 from verion.modules.correlation.application.correlate_findings import CorrelateFindingsUseCase
 from verion.modules.correlation.application.list_project_risks import ListProjectRisksUseCase
 from verion.modules.correlation.ports.candidate_risk import CandidateRiskPort
+from verion.modules.history.adapters.outbound.db.repository import (
+    PostgresRiskDismissalRepository,
+)
+from verion.modules.history.application.dismiss_risk import DismissRiskUseCase
+from verion.modules.history.application.list_risk_dismissals import ListRiskDismissalsUseCase
+from verion.modules.history.application.undismiss_risk import UndismissRiskUseCase
+from verion.modules.history.ports.risk_dismissal_repository import RiskDismissalRepositoryPort
 from verion.modules.identity.adapters.outbound.db.repository import (
     PostgresGitHubConnectionRepository,
     PostgresUserRepository,
@@ -893,4 +900,55 @@ def get_list_security_briefs_use_case(
 
 ListSecurityBriefsUseCaseDep = Annotated[
     ListSecurityBriefsUseCase, Depends(get_list_security_briefs_use_case)
+]
+
+
+# `history`'s first factories (M8.1, ADR-0036). None is @lru_cache'd: each reaches DbSessionDep,
+# directly or through what it depends on (rule 15). Dismissal reuses `ExplainableRiskPortDep`,
+# so it validates through the same real `ScoredExplainableRisks` that Brief generation does.
+def get_risk_dismissal_repository(session: DbSessionDep) -> RiskDismissalRepositoryPort:
+    return PostgresRiskDismissalRepository(session)
+
+
+RiskDismissalRepositoryDep = Annotated[
+    RiskDismissalRepositoryPort, Depends(get_risk_dismissal_repository)
+]
+
+
+def get_dismiss_risk_use_case(
+    explainable_risks: ExplainableRiskPortDep,
+    dismissals: RiskDismissalRepositoryDep,
+    clock: ClockDep,
+    ids: IdGeneratorDep,
+) -> DismissRiskUseCase:
+    return DismissRiskUseCase(
+        explainable_risks=explainable_risks, dismissals=dismissals, clock=clock, ids=ids
+    )
+
+
+DismissRiskUseCaseDep = Annotated[DismissRiskUseCase, Depends(get_dismiss_risk_use_case)]
+
+
+def get_undismiss_risk_use_case(
+    project_access: ProjectAccessDep,
+    dismissals: RiskDismissalRepositoryDep,
+    clock: ClockDep,
+    ids: IdGeneratorDep,
+) -> UndismissRiskUseCase:
+    return UndismissRiskUseCase(
+        project_access=project_access, dismissals=dismissals, clock=clock, ids=ids
+    )
+
+
+UndismissRiskUseCaseDep = Annotated[UndismissRiskUseCase, Depends(get_undismiss_risk_use_case)]
+
+
+def get_list_risk_dismissals_use_case(
+    project_access: ProjectAccessDep, dismissals: RiskDismissalRepositoryDep
+) -> ListRiskDismissalsUseCase:
+    return ListRiskDismissalsUseCase(project_access=project_access, dismissals=dismissals)
+
+
+ListRiskDismissalsUseCaseDep = Annotated[
+    ListRiskDismissalsUseCase, Depends(get_list_risk_dismissals_use_case)
 ]

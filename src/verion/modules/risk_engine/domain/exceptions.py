@@ -14,7 +14,7 @@ class MemberFindingMissing(RiskEngineError):
     lower `severity_signal` or clear `corroboration_signal` and still return a confident
     bucket — an untraceable score, which is the one thing rule 5 forbids.
 
-    Nothing deletes a finding today (G11 records that three tables depend on `scans` and
-    `projects` never being deleted), so this is expected to be unreachable in production.
+    Nothing deletes a finding today (G11 records that six tables depend on another module's
+    rows never being deleted), so this is expected to be unreachable in production.
     It is a guard against the reads disagreeing, not a handled flow.
     """
