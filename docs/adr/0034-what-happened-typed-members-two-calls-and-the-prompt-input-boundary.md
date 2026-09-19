@@ -411,6 +411,11 @@ capture commit: **G65** again.
   **G62** and **G65** carry the same distinction.
 - **2026-09-17 (M7.3 capture commit): Consequences' register line.** The capture commit notes **G62**,
   **G65**, **G71**, **G73** and **G78**, and opens **G80** and **G81**.
+- **2026-09-19 (M7→M8 boundary review): decision 1's *"M8.3's bullet specifies cards rendering
+  recommended action, estimated effort and confidence, so that work is forced before M8.3"* is
+  FALSIFIED.** Recommended action and estimated effort are cut to V2 (`PRODUCT_SPEC.md` FR-8's
+  2026-09-19 note), and M8.3's card bullet no longer names them. Confidence is `ROADMAP.md` M8.5.
+  Decision 1's exclusions are unchanged.
 
 ## Alternatives considered
 

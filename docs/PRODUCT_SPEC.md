@@ -2,7 +2,7 @@
 
 **Status:** Draft v1.0
 **Owner:** [Your Name]
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-19
 
 ---
 
@@ -70,11 +70,11 @@ Security engineers at slightly larger orgs who want a correlation and triage lay
 
 ### Journey 3 — Reviewing a Security Brief
 1. User opens the project dashboard and sees a short, ranked list ("Fix now" / "Plan" / "Monitor") instead of a raw findings table.
-2. For each item: why it matters, supporting evidence (which tools/sources contributed), recommended action, estimated effort, confidence level.
+2. For each item: why it matters, supporting evidence (which tools/sources contributed), ~~recommended action, estimated effort,~~ confidence level. *(Struck 2026-09-19: cut to V2, FR-8's note.)*
 3. User can drill into raw evidence at any time — nothing is a black box.
 
 ### Journey 4 — Fixing and verifying
-1. User applies the recommended fix.
+1. User applies ~~the recommended~~ a fix. *(Struck 2026-09-19: no recommended fix is produced in MVP, FR-8's note.)*
 2. Triggers re-scan (manual or automatic on push).
 3. Verion re-evaluates the specific risk and marks it resolved, with a diff of what evidence changed.
 4. Resolution is logged in the project's security history.
@@ -89,7 +89,7 @@ Security engineers at slightly larger orgs who want a correlation and triage lay
 | **Finding** | A normalized unit of output from any scanner, mapped to a common schema (vulnerability, severity, source, asset, evidence, location, CWE, OWASP category, CVSS, references). |
 | **Correlation** | The process of linking findings from different tools/sources that plausibly describe the same underlying attack surface. |
 | **Risk** | A correlated, contextualized group of evidence with a computed priority, confidence, and reasoning — the actual unit a developer should think about. *(Narrowed 2026-09-16, M6.1, ADR-0005 decision 0: as built, the unit is a **surface** — the package or route path the match key names, scored as "everything wrong with that surface". It is deliberately **not** "these findings describe the same vulnerability": group membership is produced by the route map, and no field distinguishes a substantive cross-tool member from a coincidental one. The Correlation row above needs no such narrowing — it already says "attack surface".)* |
-| **Security Brief** | The developer-facing explanation of a Risk: what happened, why it matters, what to do, how to verify. |
+| **Security Brief** | The developer-facing explanation of a Risk: what happened, why it matters, ~~what to do,~~ how to verify. *(Struck 2026-09-19: recommended action is cut to V2, FR-8's note.)* |
 
 ---
 
@@ -117,10 +117,10 @@ All raw scanner output is transformed into the common `Finding` schema, includin
 System groups findings that share asset/location/context signals (e.g., same endpoint referenced by SAST and DAST) into a single candidate Risk.
 
 **FR-7 — Risk / Decision Engine**
-System computes priority and confidence for each Risk using an explainable combination of: severity, confidence, exposure, reachability (where available), asset sensitivity, and environment. Every score must be traceable to its inputs — no unexplained single number.
+System computes priority and confidence for each Risk using an explainable combination of: severity, confidence, exposure, ~~reachability (where available), asset sensitivity, and environment~~. Every score must be traceable to its inputs — no unexplained single number. *(**Cut 2026-09-19, M7→M8 boundary review: reachability, asset sensitivity and environment move to V2**, on ADR-0005 decision 4's ground that none has a source in `src/`. The Risk's confidence stays, and is `ROADMAP.md` M8.5.)*
 
 **FR-8 — Security Brief**
-For each prioritized Risk, system generates a structured explanation: what happened, why it matters, evidence sources, recommended action, estimated effort (qualitative), confidence.
+For each prioritized Risk, system generates a structured explanation: what happened, why it matters, evidence sources, ~~recommended action, estimated effort (qualitative),~~ confidence. *(**Cut 2026-09-19, M7→M8 boundary review: recommended action and estimated effort move to V2.** Remediation needs typed fields in `normalization`, a migration and a change to ADR-0019's refresh set (ADR-0034 decision 1), and effort has no deterministic input. A Brief has four parts: what happened, why it matters, evidence sources, confidence.)*
 
 **FR-9 — Evidence traceability**
 Every Risk and every Brief must link back to the raw findings and tool output that produced it.
@@ -192,7 +192,8 @@ Users can see prior scans, resolved risks, and re-opened risks over time per pro
 - Team collaboration features (comments, assignment workflows)
 - Jira / Slack integrations
 - Advanced analytics / trend dashboards
-- Fix-effort prediction as a first-class scored dimension (kept as an informal, non-authoritative signal in MVP)
+- Fix-effort prediction as a first-class scored dimension ~~(kept as an informal, non-authoritative signal in MVP)~~ *(struck 2026-09-19: the informal signal is cut too, FR-8's note)*
+- Recommended action and estimated effort in a Brief; reachability, asset sensitivity and environment as scoring inputs *(added 2026-09-19, FR-7's and FR-8's notes)*
 
 Rationale: MCP/LLM security in particular is an active, fast-moving space (see StackHawk's positioning) but including it now would blow up MVP scope before the core correlation/decision thesis is proven.
 
@@ -210,7 +211,7 @@ Since this is a portfolio/CV project rather than a funded product, success is me
 **Product-quality signals (even without real users)**
 - Noise reduction: ratio of raw findings to surfaced Risks on a representative test repo.
 - Explainability: 100% of surfaced Risks have traceable evidence and a non-opaque priority reason.
-- Time-to-brief: time from scan trigger to Security Brief availability for a representative repo.
+- Time-to-brief: time from scan trigger to Security Brief availability for a representative repo. *(Noted 2026-09-19: unmeasured today; measured by hand once at `ROADMAP.md` M11.4. It is the figure that says whether M8.6's generation job was worth it.)*
 
 ---
 
