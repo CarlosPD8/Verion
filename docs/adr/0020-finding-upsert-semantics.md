@@ -122,6 +122,17 @@ A convention ("remember to update the `SET` clause") is the kind of rule this pr
     denormalizing anything, so no silently-staleable summary enters M9.1's path.
   - The measurement is reproducible rather than asserted:
     `scripts/seed_findings_benchmark.py`, versioned for that reason.
+- **2026-09-19 (M8.1, ADR-0036): decision 3's user-settable fields arrive, and they arrive in
+  neither upsert.** Decision 3 names *"a dismissal, an owner, a suppression"* as the fields that end
+  a transcription, and places them on `Risk`.
+  - **Where the first one lives.** A dismissal is an append-only row in `history`'s `risk_events`
+    (ADR-0036 decision 7). It is not a column on `findings`, so this document's `SET` clause is
+    unchanged and still transcribes `merge_observation`.
+  - **Why no Risk upsert inherits the hazard.** The `risks` row is written once, by a dismissal, and
+    holds identity columns only. No statement writes it from the projection (ADR-0036 decision 8).
+  - **Decision 4's layer-1 partition test is reused** for `risks`, so a column added there fails
+    until it is classified.
+  - **Owner and suppression** remain unbuilt.
 
 ## Alternatives considered
 

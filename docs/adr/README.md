@@ -25,12 +25,12 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0017](0017-normalization-trigger-and-pipeline-progress.md) | Normalization trigger, and where pipeline progress lives | Accepted (amended M4.1, M4.3, M4.4, M8.8) |
 | [0018](0018-normalized-severity-and-shared-kernel-scope.md) | Normalized severity, unsourced fields, and what `shared_kernel/` takes | Accepted (amended M4.2, M5.1, M6.1) |
 | [0019](0019-finding-identity-and-deduplication.md) | `Finding` identity, deduplication, and what the hash is over | Accepted (amended M4.3, M4.4, M5.1) |
-| [0020](0020-finding-upsert-semantics.md) | How the `Finding` upsert stays equal to `merge_observation` | Accepted (amended M4.5) |
+| [0020](0020-finding-upsert-semantics.md) | How the `Finding` upsert stays equal to `merge_observation` | Accepted (amended M4.5, M8.1) |
 | [0021](0021-normalization-job-execution.md) | Normalization job execution: scheduling, state machine, and failure semantics | Accepted (amended M4.5, M8.8) |
 | [0022](0022-findings-read-api-surface.md) | The findings read surface: evidence exposure, cross-module authorization, and what a response says about its own completeness | Accepted (amended M8.8) |
 | [0023](0023-correlation-match-key.md) | How `correlation` names the type it correlates: a match key it owns | Accepted (amended M5.1, 2026-08-25, M5.8, M5.6, M6.1) |
 | [0024](0024-active-scanning-consent-and-scan-policy.md) | Where active-scanning consent lives, what it is bound to, and the bounds on the `activeScan` job | Accepted (amended M5.4, M5.9) |
-| [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted (amended M7.2) |
+| [0025](0025-candidate-risk-persistence-and-read-surface.md) | Whether a candidate Risk is stored, how it is addressed, and what a Risk read returns | Accepted (amended M7.2, M8.1) |
 | [0026](0026-fixture-shape-conformance-check.md) | Checking a hand-written fixture's shape against the committed corpus | Accepted (amended 2026-08-27) |
 | [0027](0027-standing-the-demo-target-up-and-what-an-active-scan-run-proves.md) | How M5.9 stands the demo target up, where the active capture lives, and what a green active-scan run proves | Accepted (amended M5.9, M5.6) |
 | [0028](0028-declaring-that-the-scanned-url-serves-the-scanned-tree.md) | Declaring that the scanned URL serves the scanned tree: where the record lives, what voids it, and what it does not assert | Accepted (amended M5.5, M5→M6 boundary) |
@@ -41,3 +41,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0033](0033-security-brief-address-read-surface-and-authorization.md) | How a Security Brief refers to its Risk, what it stores, how it is read, and who may generate one | Accepted (amended M7.3) |
 | [0034](0034-what-happened-typed-members-two-calls-and-the-prompt-input-boundary.md) | *What happened*: typed member fields, two provider calls, and the prompt's input boundary | Accepted (amended M7.3) |
 | [0035](0035-a-route-that-starts-a-scan.md) | A route that starts a scan: who may start one, what the caller gets back, and when the job may run | Accepted |
+| [0036](0036-dismissing-a-risk-snapshot-identity-and-the-event-log.md) | Dismissing a Risk: what a dismissal attaches to, the event log, and who may write it | Accepted |

@@ -344,6 +344,26 @@ criterion as ADR-0023 alternative 4 already applied it.
   - **Not cost-forced.** The amendment this document's Consequences names for cost (*"persistence is
     forced by cost rather than by state"*) is not taken. **G61**'s escalation and its owner, M8.2,
     are unaffected.
+- **2026-09-19 (M8.1, ADR-0036): decision 2's forced write lands, and decision 1 stands.**
+  - **The write.** ADR-0036 decision 1 writes a `risks` row the first time a user dismisses a
+    surface. That is the event decision 2 names, and it is the first Risk row in the system.
+  - **Why decision 1 is untouched.**
+    - The row is a dismissal *record*: a surrogate id, the project, and a snapshot of the surface's
+      finding ids, held as data. It is written once and never refreshed.
+    - Its id addresses that immutable record, never the live surface. So decision 1's objection,
+      that a held address *"silently repoints a held URL at a different group"*, has nothing to act
+      on.
+    - The candidate Risk is still a projection with no identifier. `/risks` and `/scored-risks`
+      still carry no `id`, and there is still no per-Risk route.
+  - **How a dismissal stays attached when membership changes**, which is what the 2026-09-17
+    amendment's replacement clause requires: a current surface is dismissed iff its finding-id set is
+    a subset of an active snapshot (ADR-0036 decision 2). A new member reopens it, and a dropped member
+    or a split keeps it.
+  - **The obligation.** Decision 2's protected-field obligation (**G37**) is discharged by structure:
+    user state lives only in `risk_events`, and nothing writes `risks` from the projection (ADR-0036
+    decision 8). **G11**'s forecast lands as two tables, with no link table (ADR-0036 decision 9).
+  - **Decision 5 item 2 holds.** M8.1 ships dismissal and no resolution. Resolution stays M9.1's,
+    and no Risk listing gains `resolved`, `is_open` or `status`.
 
 ## Alternatives considered
 

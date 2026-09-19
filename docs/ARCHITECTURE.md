@@ -2,7 +2,7 @@
 
 **Status:** Draft v1.0
 **Related:** `PRODUCT_SPEC.md`
-**Last updated:** 2026-09-17
+**Last updated:** 2026-09-19
 
 ---
 
@@ -86,7 +86,7 @@ Rather than one giant hexagon, Verion is split into cohesive **modules**, each w
 | **Correlation** | Grouping related Findings into candidate Risks |
 | **RiskEngine** | Scoring and prioritizing Risk (severity, exposure, corroboration) |
 | **Brief** | Generating the Security Brief via the AI Explanation Layer, evidence linking |
-| **History** | Scan history, risk lifecycle (open/dismissed/resolved), audit log |
+| **History** | Scan history, risk lifecycle (open/dismissed/resolved), audit log *(2026-09-19, ADR-0036: M8.1 builds dismissal and its undo, as an append-only event log. Resolution is M9.1's, and there is no "open" event: a Risk is open when no active dismissal covers it.)* |
 
 Each module exposes its own inbound ports (use cases other modules or the API layer can call) and depends on other modules **only through their ports**, never their internals — e.g., `Correlation` depends on `Normalization`'s `FindingRepositoryPort`, never on its ORM models directly.
 
@@ -262,6 +262,17 @@ Risk   # designed, not built — see MatchGroup above (marked 2026-09-15)
  ├── confidence, reasoning: RiskReasoning
  ├── status (open|dismissed|resolved)
  └── history: [RiskEvent]
+ # 2026-09-19, ADR-0036 (M8.1): the first stored Risk is a DISMISSAL RECORD, not this block.
+ # risks(id, project_id, finding_ids) is a snapshot of the surface's members, written once by a
+ # dismissal. risk_events(id, risk_id, ordinal, kind dismissed|undismissed, actor_user_id,
+ # reason, occurred_at) is append-only. There is no stored `status`: a current surface is
+ # dismissed iff its finding-id set is a subset of a snapshot whose latest event is `dismissed`.
+ # There is no `open` event. `resolved` is M9.1's.
+
+RiskDismissal   # M8.1, designed (ADR-0036): a `risks` row and its `risk_events`
+ ├── id, project_id
+ ├── finding_ids               # snapshot, as data; never refreshed
+ └── events: [RiskEvent]       # ordinal, kind, actor_user_id, reason, occurred_at
 
 RiskReasoning
  ├── severity_signal, exposure_signal, reachability_signal
@@ -370,7 +381,7 @@ erDiagram
 | `ListScoredRisksUseCase` | A **ranked** page of a project's scored Risks, plus the normalization state that says whether the list is complete. Composes `ComputeRiskUseCase` rather than re-scoring, so scoring and the access check each have one site, and applies `rank_surfaces` on top — **ranking enters here and nowhere below it**, because `ComputeRiskUseCase` deliberately returns `correlation`'s group order. The whole set is ranked **before** paging, or a page would be the top of an arbitrary order labelled a priority. Returns a projection: nothing persists a Risk at M6.3 either, so no item carries an id (M6.3, ADR-0030) |
 | `GenerateSecurityBriefUseCase` | Produce the developer-facing explanation and store it (M7.2, ADR-0033). **Selects one current scored Risk by its exact finding-id set** through `risk_engine`'s `ExplainableRiskPort`, which fails closed when membership has changed. Then reads up to 20 members through `normalization`'s `FindingRepositoryPort` into `brief`'s own sanitized `BriefMember`, narrates *what happened* (`describe`, validated so it never rejects member-supplied text) and then *why it matters* (`explain`), and appends a `SecurityBrief`; nothing is written unless both calls succeed (M7.3, ADR-0034). Member-level, inherited through that port, which coincides with owner-gating only because nothing creates a non-owner membership (**G75**). Synchronous and billed twice per Brief, with nothing bounding repeats (**G73**) |
 | `ListSecurityBriefsUseCase` | A page of a project's Briefs, newest first, each carrying the `finding_ids` a client joins on against the scored listing (M7.2, ADR-0033). Consumes `ProjectAccessPort` directly, because it reads only `brief`'s own table. **No completeness envelope**: no pipeline owes a Brief (**G76**) |
-| `ResolveRiskUseCase` / `DismissRiskUseCase` | Change risk lifecycle state, with reason |
+| `ResolveRiskUseCase` / `DismissRiskUseCase` | Change risk lifecycle state, with reason *(2026-09-19, ADR-0036: M8.1 designs `DismissRiskUseCase`, `UndismissRiskUseCase` and `ListRiskDismissalsUseCase`. `ResolveRiskUseCase` moves to M9.1.)* |
 | `GetProjectDashboardUseCase` | Read model for the UI |
 
 ### 5.2 Outbound ports (what the domain/application needs from the outside world)
@@ -395,7 +406,7 @@ erDiagram
 | `ScanResultRepositoryPort` | Persist per-tool raw output; `get_succeeded_by_scan_id` is **M4's entry point** (M3.7) | Postgres adapter |
 | `NormalizationRunRepositoryPort` | Record that normalization is owed for a scan, and read it back (M4.0); since M4.4 also `claim` (a row-locked `pending`/`running`/`failed` → `running` transition — `completed` is the only terminal state), `update`, and `get_stale` for the sweep; since M4.5 `get_latest_by_project_id` and `count_unfinished_by_project_id`, which are what let a findings response say whether it is complete (G15). Its `request` method takes primitives so `scanning` can call it without importing `normalization`'s domain; the M4.4 methods take the entity, because only `normalization` calls them | Postgres adapter |
 | `FindingRepositoryPort` | Upsert findings on `(project_id, dedup_hash)` — keeping the stored `id` and refreshing the mutable attributes per `merge_observation` — record `FindingSighting` rows, and query by project (M4.3); since M4.5 `list_for_project` (filtered, paged, severity-ranked, each item carrying its sighting aggregate), `count_for_project` and a project-scoped `get_by_id`. `get_by_project_id` is kept alongside the listing deliberately — it does not require the sighting invariant, so the write path is verified by a reader that is not the read path. `upsert` **returns** the resolved `Finding`, because only it settles which surrogate `id` wins and M4.4 needs that to write a sighting; `record_sighting` takes a per-scan **total**, never an increment (ADR-0020) | Postgres adapter |
-| `RiskRepositoryPort` | Persist/query risks, history. **Not built** — ADR-0025 decision 1: a candidate Risk is a projection with no port and no repository, and nothing is forced to persist one before M8.1 *(marked 2026-09-15)* | Postgres adapter, designed |
+| `RiskRepositoryPort` | Persist/query risks, history. **Not built** — ADR-0025 decision 1: a candidate Risk is a projection with no port and no repository, and nothing is forced to persist one before M8.1 *(marked 2026-09-15)*. *(2026-09-19, ADR-0036: M8.1's port is a dismissal repository over `risks` and `risk_events`, which are written by a dismissal and never from the projection.)* | Postgres adapter, designed |
 | candidate-Risk port | `correlation`'s first published port, and the reason `risk_engine` need not import its `application/` (**G35**). Returns `correlation`'s own groups; `risk_engine/application/` takes them by inference and passes **scalars** into its domain, so no module names another's types (M6.1, ADR-0005 decision 2). **Built at M6.2**: `CandidateRiskPort`, implemented by `CorrelationCandidateRisks` over `CorrelateFindingsUseCase`. Its denial, `CandidateRiskAccessDenied`, is declared in the port module rather than in `correlation/domain/`, because the consumer may not name that package (rule 3) and would otherwise be unable to handle a refusal. **Consumed on a real request path since M6.3**, where `risk_engine`'s route catches that denial by its exact type and answers 404 — the fourth route to do so (ADR-0030 decision 1, **G17**) — which is also what finally exercises `CorrelationCandidateRisks` outside `platform/di.py` (**G65**) | `CorrelationCandidateRisks` |
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
 | `VcsProviderPort` | Read repo metadata, register webhooks; since M5.6 commit 4 also fetch the default branch as one source archive, read in memory under size caps (`fetch_source_archive`, ADR-0029) | `GitHubAdapter` |
@@ -700,6 +711,12 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
   - **Authorization.** A second verdict on `ProjectAccessPort`, `may_manage_project`: owner-class actions under ADR-0016 decision 3, which Brief generation is not. Every denial is one 404. ADR-0022 decision 2 becomes one method per verdict.
   - **The ordering.** The job is enqueued after the commit, through an after-commit hook in `get_db_session`, on `worker.py`'s normalization-handoff precedent. With the session function-scoped (ADR-0008's M8.8 amendment), a 202 means the row exists and the job is queued.
   - **Register.** Opens G87 (nothing re-drives a failed or stuck scan; arq retries less than the docstrings said), G88 (two scans of one project at once) and G89 (`failure_reason` redacted by a deny-list).
+- **ADR-0036 — Dismissing a Risk: what a dismissal attaches to, the event log, and who may write it.** M8.1, written before its code. **The first Risk row in the system.**
+  - **Identity.** A dismissal is a `risks` record: a surrogate id, the project, and a snapshot of the surface's sorted finding ids as `ExplainableRiskPort` returns them. It is written once and never refreshed. Its id addresses the immutable record, so the Risk listings stay id-less.
+  - **The same-Risk rule.** A current surface is dismissed iff its finding-id set is a subset of a snapshot whose latest event is `dismissed`. A new member reopens it; a dropped member or a split keeps it. It never hides a finding that was not in the snapshot.
+  - **The log.** `risk_events` is append-only and ordered by `ordinal` under `UNIQUE(risk_id, ordinal)`, with `kind` `dismissed` or `undismissed`, an actor, and a reason required for a dismissal and bounded at 2,000 characters. Current state is derived. There is no "opened" event.
+  - **Authorization.** Member level, on ADR-0033 decision 7's precedent: a dismissal meets neither of ADR-0035's "manage" conditions. Every denial is one 404. Every record is listed to every member; while it is dismissed, it shows who dismissed it, why and when.
+  - **Scope.** Dismiss only; resolution stays M9.1's. G37 resolves by structure, because no projection writer names the user state. Opens G90 (a hash-version bump orphans every snapshot), G91 (unbounded member text elsewhere) and G92 (two concurrent dismissals of one surface).
 
 *(Corrected 2026-09-16, M6.1. This line read: "`0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created." The file exists as of this commit — `docs/adr/0005-risk-scoring-model.md`, bulleted above — so every number from `0001` is now a file. Nothing mechanical saw this sentence go false; `check_adrs_are_indexed` requires the bullet, not the prose around it.)*
 
