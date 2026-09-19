@@ -1630,7 +1630,8 @@ Resolution (2026-09-19, M8.1 commit 1) · Confirms: none: **the protected-field 
 - **Where a dismissal lives.** It is an append-only row in `history`'s `risk_events`. The `risks` row holds identity columns only: `id`, `project_id`, and the snapshot `finding_ids`. It is written once, by a dismissal, and never updated.
 - **Why nothing can clobber it.** No statement writes `risks` from the projection, for the reason ADR-0025's Alternatives gives: that needs a write trigger this project has never designed. So there is no `SET` clause for a dismissal to be omitted from, and no upsert of either table to copy.
 - **What pins it, landing in M8.1's code commit.** A partition test holds `RiskModel`'s columns to identity ∪ protected ∪ refreshed, disjoint and total, with the second and third empty, on ADR-0020 decision 4's layer 1. A behaviour test dismisses, changes the inputs through the real finding repository, runs every writer that exists, and reads the record and its events back unchanged through a second session.
-- **What would put this back.** The first statement that writes or updates a `risks` row from the projection. That statement owns this entry's obligation again.
+- **Why it resolves in a documentation commit, while G11 stays assigned.** The property is established by the design: no projection writer exists, and user state has no column on the one table such a writer could touch. The commit-2 tests pin that property; they do not establish it. G11 is different: it is a forecast about tables that do not exist until commit 2, so it stays `assigned → M8.1` until they do.
+- **It reopens at the first statement that writes or updates a `risks` row from the projection.** That statement owns this entry's obligation again.
 
 ### G38 — ADR-0017 asserts twice that M5's correlation is scan-scoped, which ADR-0023 falsified two commits before anything noticed
 Confirmed: M5.2, M6.3 · Status: open
