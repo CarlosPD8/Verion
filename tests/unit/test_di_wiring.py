@@ -7,6 +7,7 @@ from verion.modules.risk_engine.application.explainable_decision import explaina
 from verion.modules.risk_engine.domain.scoring import SurfaceMember, score_surface
 from verion.platform.di import get_clock, get_explanation_provider, get_id_generator
 from verion.platform.settings import Settings
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -71,7 +72,14 @@ async def test_explanation_provider_puts_the_settings_key_in_the_header_and_the_
             project_id="p",
             package=None,
             url="/x",
-            members=[SurfaceMember(finding_id="f", source=ScannerTool.ZAP, severity=Severity.LOW)],
+            members=[
+                SurfaceMember(
+                    finding_id="f",
+                    source=ScannerTool.ZAP,
+                    severity=Severity.LOW,
+                    confidence=Confidence.REPORTED,
+                )
+            ],
         )
     )
 

@@ -25,6 +25,7 @@ from verion.modules.brief.domain.exceptions import (
     ExplanationUnavailable,
 )
 from verion.modules.brief.domain.explanation import Explanation
+from verion.modules.correlation.ports.candidate_risk import CONFIDENCE_DEFINITION
 from verion.modules.identity.adapters.outbound.security.jwt_issuer import JwtAccessTokenIssuer
 from verion.modules.normalization.adapters.outbound.db.repository import PostgresFindingRepository
 from verion.modules.normalization.domain.finding import Evidence, Finding, Location
@@ -43,6 +44,7 @@ from verion.platform.di import (
     get_generate_security_brief_use_case,
 )
 from verion.platform.settings import get_settings
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -59,6 +61,7 @@ _ITEM_KEYS = {
     "finding_ids",
     "why_it_matters",
     "what_happened",
+    "confidence",
     "priority",
     "priority_score",
     "thresholds",
@@ -67,6 +70,7 @@ _ITEM_KEYS = {
     "prompt_version",
     "generated_at",
 }
+_CONFIDENCE_KEYS = {"value", "definition"}
 _SIGNAL_KEYS = {"name", "value", "produced_by", "note", "definition"}
 _WHAT_HAPPENED_KEYS = {"text", "model", "prompt_version"}
 _PAGE_KEYS = {"items", "total", "limit", "offset"}
@@ -254,10 +258,11 @@ async def test_every_object_in_the_response_has_exactly_its_enumerated_keys(clie
 
 
 async def test_what_a_brief_does_not_carry(client, db_session):
-    """G63, G74, ADR-0025 decision 1 and ADR-0033 decision 4, each anchored on a real body.
+    """G74, ADR-0025 decision 1 and ADR-0033 decision 4, each anchored on a real body.
 
-    `what_happened` left this list at M7.3 (ADR-0034); `recommended_action` and
-    `estimated_effort` did not."""
+    `what_happened` left this list at M7.3 (ADR-0034) and `confidence` at M8.5 (ADR-0037),
+    each by decision. `recommended_action` and `estimated_effort` did not leave it — they were
+    cut to V2, so nothing will ever produce them here."""
     await _seed_project(db_session)
     await _seed_findings(db_session, _trivy("f-1", "urllib3"))
 
@@ -265,7 +270,6 @@ async def test_what_a_brief_does_not_carry(client, db_session):
     page = (await _list(client)).json()
 
     for absent in (
-        "confidence",
         "estimated_effort",
         "recommended_action",
         "risk_id",
@@ -275,6 +279,48 @@ async def test_what_a_brief_does_not_carry(client, db_session):
         assert absent not in page["items"][0]
     assert "normalization" not in page
     assert "normalization" not in brief
+
+
+async def test_a_brief_carries_its_confidence_with_the_definition_on_the_item(client, db_session):
+    """FR-8's fourth part at the surface. ADR-0037 decisions 8 and 10.
+
+    On the item rather than an envelope, because a Brief is one narrated record and has none —
+    the divergence from `/scored-risks` is deliberate and grounded in that ADR, so it is not
+    read as **G17**'s shape.
+
+    The value is the ENGINE's for the surface it scored, and `reported` here because the
+    member is a Trivy finding keyed on its own package.
+    """
+    await _seed_project(db_session)
+    await _seed_findings(db_session, _trivy("f-1", "urllib3"))
+
+    brief = (await _post(client, ["f-1"])).json()
+
+    assert set(brief["confidence"]) == _CONFIDENCE_KEYS
+    assert brief["confidence"]["value"] == Confidence.REPORTED.value
+    assert brief["confidence"]["definition"] == CONFIDENCE_DEFINITION
+
+
+async def test_the_definition_is_byte_identical_on_the_envelope_and_on_a_brief(client, db_session):
+    """ONE owner, two placements — and this is what makes that a claim rather than a comment.
+
+    `correlation` declares `CONFIDENCE_DEFINITION` once. `/scored-risks` puts it on its
+    envelope and a Brief on its item, for reasons each route's own shape gives. Two placements
+    are two chances for somebody to write the text a second time, and a second copy is free to
+    drift from the first. Asserted across the two live responses, not against the constant
+    alone, because comparing each to the source separately would still pass if one adapter
+    reformatted it.
+    """
+    await _seed_project(db_session)
+    await _seed_findings(db_session, _trivy("f-1", "urllib3"))
+
+    brief = (await _post(client, ["f-1"])).json()
+    scored = (
+        await client.get(f"/projects/{_PROJECT}/scored-risks", headers=_auth_headers(_OWNER))
+    ).json()
+
+    assert brief["confidence"]["definition"] == scored["confidence_definition"]
+    assert brief["confidence"]["definition"] == CONFIDENCE_DEFINITION
 
 
 async def test_generation_is_append_only_and_the_list_is_newest_first(client, db_session):

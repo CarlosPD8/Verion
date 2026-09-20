@@ -12,6 +12,7 @@ from verion.modules.risk_engine.ports.explainable_decision import (
     ExplainableDecision,
     ExplainableSignal,
 )
+from verion.shared_kernel.confidence import Confidence
 
 # The stored `decision` value's shape version. Bump it, and keep a reader for every older
 # version or migrate the rows, whenever `ExplainableDecision` or `ExplainableSignal` changes
@@ -128,6 +129,13 @@ def _to_domain(model: SecurityBriefModel) -> SecurityBrief:
             text=model.why_it_matters, model=model.model, prompt_version=model.prompt_version
         ),
         what_happened=_what_happened(model),
+        # **Reconstructed, never the raw column.** ADR-0018 decision 2's asymmetry note: a
+        # value crossing a persistence boundary must be rebuilt as its enum before anything
+        # compares it, because `Confidence.INFERRED == "inferred"` is True while an ordering
+        # or an `is` comparison against a bare str is not. An unrecognised stored value
+        # raises `ValueError` here rather than flowing on as a str, which is the loud
+        # failure `Severity`'s note prefers.
+        confidence=None if model.confidence is None else Confidence(model.confidence),
         generated_at=model.generated_at,
     )
 
@@ -154,6 +162,7 @@ class PostgresSecurityBriefRepository:
                 what_happened_prompt_version=(
                     brief.what_happened.prompt_version if brief.what_happened else None
                 ),
+                confidence=None if brief.confidence is None else str(brief.confidence),
                 generated_at=brief.generated_at,
             )
         )

@@ -6,7 +6,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 # there precisely so this route can name the denial without importing `correlation.domain`,
 # which rule 3 forbids and `cross-module-risk-engine` enforces — see that class's docstring
 # and **G35**.
-from verion.modules.correlation.ports.candidate_risk import CandidateRiskAccessDenied
+from verion.modules.correlation.ports.candidate_risk import (
+    CONFIDENCE_DEFINITION,
+    CandidateRiskAccessDenied,
+)
 from verion.modules.risk_engine.adapters.inbound.api.schemas import (
     MatchKeyResponse,
     NormalizationRunResponse,
@@ -50,6 +53,7 @@ def _scored_risk_response(surface: ScoredSurface) -> ScoredRiskResponse:
             exposure=_signal_response(surface.reasoning.exposure),
             corroboration=_signal_response(surface.reasoning.corroboration),
         ),
+        confidence=str(surface.confidence),
     )
 
 
@@ -63,6 +67,9 @@ def _scored_risks_response(risks: ScoredProjectRisks) -> ScoredProjectRisksRespo
         # By name from the domain's own constants, never literals — the one place the
         # thresholds are declared, so this field cannot drift from `bucket_for`.
         thresholds=ThresholdsResponse(fix_now_at=FIX_NOW_AT, plan_at=PLAN_AT),
+        # `correlation`'s single declaration, forwarded verbatim and never re-written here —
+        # the rule `ExplainableSignal.definition` already follows for the three signals.
+        confidence_definition=CONFIDENCE_DEFINITION,
         normalization=NormalizationStateResponse(
             latest_run=None
             if latest is None

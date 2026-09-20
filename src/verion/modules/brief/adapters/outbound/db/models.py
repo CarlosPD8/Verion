@@ -59,4 +59,10 @@ class SecurityBriefModel(Base):
     what_happened: Mapped[str | None] = mapped_column(Text, nullable=True)
     what_happened_model: Mapped[str | None] = mapped_column(String, nullable=True)
     what_happened_prompt_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The surface's grouping provenance as the engine computed it (M8.5, ADR-0037). A plain
+    # String rather than a DB enum: `Confidence` is `shared_kernel`'s vocabulary and adding a
+    # value must not need a type migration. NULL only for a Brief written before M8.5, and
+    # never backfilled — the surface it described may have moved. No CHECK pairing it with
+    # anything: one column, nothing to be all-or-none with.
+    confidence: Mapped[str | None] = mapped_column(String, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

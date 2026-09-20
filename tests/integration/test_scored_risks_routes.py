@@ -24,7 +24,10 @@ from datetime import UTC, datetime
 import httpx2
 import pytest_asyncio
 
-from verion.modules.correlation.ports.candidate_risk import CandidateRiskAccessDenied
+from verion.modules.correlation.ports.candidate_risk import (
+    CONFIDENCE_DEFINITION,
+    CandidateRiskAccessDenied,
+)
 from verion.modules.identity.adapters.outbound.security.jwt_issuer import JwtAccessTokenIssuer
 from verion.modules.normalization.adapters.outbound.db.repository import (
     PostgresFindingRepository,
@@ -41,6 +44,7 @@ from verion.platform.app import app
 from verion.platform.clock import SystemClock
 from verion.platform.di import get_candidate_risk_port
 from verion.platform.settings import get_settings
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -51,7 +55,25 @@ _STRANGER = "user-stranger"
 _SCAN = "scan-1"
 _AT = datetime(2026, 1, 1, tzinfo=UTC)
 
-_ITEM_KEYS = {"match", "finding_ids", "finding_count", "priority_score", "priority", "reasoning"}
+_ITEM_KEYS = {
+    "match",
+    "finding_ids",
+    "finding_count",
+    "priority_score",
+    "priority",
+    "reasoning",
+    "confidence",
+}
+# ADR-0030 decision 3's enumeration for the ENVELOPE, binding since its M8.5 amendment.
+_ENVELOPE_KEYS = {
+    "items",
+    "total",
+    "limit",
+    "offset",
+    "thresholds",
+    "confidence_definition",
+    "normalization",
+}
 _SIGNAL_KEYS = {"name", "value", "produced_by", "note"}
 
 
@@ -298,9 +320,16 @@ async def test_a_critical_package_surface_is_shown_as_plan_and_never_fix_now(cli
 # ---------------------------------------------------------------------------
 
 
-async def test_a_scored_risk_carries_no_confidence(client, db_session):
-    """**G63** at the surface. FR-7 names a confidence and ADR-0003 requires one; M6 ships
-    none, so the absence is asserted and cannot be added by accident and then depended on."""
+async def test_a_scored_risk_carries_its_confidence_and_the_envelope_defines_it(client, db_session):
+    """**G63** discharged at the surface, replacing M6.2's absence assertion. ADR-0037.
+
+    Three things, and the third is the one a later reader would drop. The item carries the
+    value; the envelope carries the definition ONCE, because it is a constant and the
+    thresholds sit there for the same reason (ADR-0030 decision 3); and the definition is
+    `correlation`'s own constant forwarded verbatim rather than a string this adapter wrote.
+
+    The value here is `reported`: a Trivy finding keyed on the package its own scanner named.
+    """
     await _seed_project(db_session)
     await _seed_finding(db_session, _trivy_finding(finding_id="f-1", package="urllib3"))
 
@@ -309,8 +338,27 @@ async def test_a_scored_risk_carries_no_confidence(client, db_session):
     ).json()
 
     item = body["items"][0]
-    assert "confidence" not in item
+    assert item["confidence"] == Confidence.REPORTED.value
+    # Not a signal: it is summed into nothing, so it has no place in the reasoning.
     assert "confidence" not in item["reasoning"]
+    assert body["confidence_definition"] == CONFIDENCE_DEFINITION
+
+
+async def test_the_envelope_key_set_equals_its_enumeration(client, db_session):
+    """ADR-0030 decision 3's binding assertion, widened to the envelope by its M8.5 amendment.
+
+    The item has had one since M6.3. The envelope did not, so `confidence_definition` could
+    have been dropped with every other test green — the same hole that decision names for the
+    item, where **G66**'s superset claim rests on fields no absence test would miss.
+    """
+    await _seed_project(db_session)
+    await _seed_finding(db_session, _trivy_finding(finding_id="f-1", package="urllib3"))
+
+    body = (
+        await client.get(f"/projects/{_PROJECT}/scored-risks", headers=_auth_headers(_MEMBER))
+    ).json()
+
+    assert set(body) == _ENVELOPE_KEYS
 
 
 async def test_a_scored_risk_carries_no_id(client, db_session):
@@ -486,6 +534,7 @@ class _GroupNamingAnAbsentFinding:
             MatchGroup(
                 key=MatchKey(project_id=project_id, package="ghost", url=None),
                 finding_ids=("no-such-finding",),
+                member_confidence=(Confidence.REPORTED,),
             )
         ]
 

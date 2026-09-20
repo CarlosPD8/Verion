@@ -42,10 +42,14 @@ class SignalResponse(BaseModel):
 class RiskReasoningResponse(BaseModel):
     """The three signals behind a bucket. FR-7's traceability, ADR-0003's constraint.
 
-    **Carries no `confidence`, and the absence is a decision with a test behind it.** FR-7
-    names one and ADR-0003 requires one; ADR-0005 deferred the scale and M6.2 emits none, so
-    FR-7's second output is unmet by shipped code at the surface a user sees (**G63**). M7.1
-    chooses the scale, and rule 6 forbids the Explanation Layer from supplying one itself.
+    **Carries no `confidence`, and since M8.5 that is a PLACEMENT rather than an absence.**
+    A scored Risk has one — see `ScoredRiskResponse.confidence` — and it sits on the ITEM,
+    not here, because this type is the three signals that SUM to the score and the confidence
+    is summed into nothing (ADR-0037 decision 7). A field here would read as a fourth term.
+    *(Until M8.5 this paragraph recorded the absence itself, under **G63**: ADR-0005 deferred
+    the scale and M6.2 emitted none, so FR-7's second output was unmet by shipped code at the
+    surface a user sees. FR-7's OUTPUT half is now met; its INPUT half — a per-finding
+    confidence — is still declined, and **G94** carries it.)*
 
     Carries no `explanation_text` either — prose is M7.1's, and the LLM narrates a reasoning
     already decided (rule 6, ADR-0004).
@@ -82,6 +86,15 @@ class ScoredRiskResponse(BaseModel):
 
     **No `id`**: a candidate Risk is a projection with no identity (ADR-0025 decision 1), and
     scoring adds a number to it without adding a row.
+
+    **`confidence` is the surface's GROUPING PROVENANCE** (M8.5, ADR-0037): `reported` when
+    every member was placed here by a field its own scanner reported, `inferred` when at
+    least one was placed by Verion's route map, `ungrouped` when there was no signal to group
+    on. It says nothing about whether a finding is real and nothing about whether the tools
+    agree, and **it is not part of the score** — `priority_score` is the same three signals it
+    has always been. Its meaning travels on the ENVELOPE as `confidence_definition`, once per
+    response, because it is a constant: the same reason the thresholds sit there
+    (ADR-0030 decision 3).
     """
 
     match: MatchKeyResponse
@@ -90,6 +103,7 @@ class ScoredRiskResponse(BaseModel):
     priority_score: int
     priority: str
     reasoning: RiskReasoningResponse
+    confidence: str
 
 
 class ThresholdsResponse(BaseModel):
@@ -162,8 +176,17 @@ class ScoredProjectRisksResponse(BaseModel):
     `total` is the project's whole scored-surface count and is exact rather than a second
     statement's answer. **Items ARE in priority order** — `priority_score` descending, tie-broken
     by `correlation`'s own group order so that within one bucket this route and
-    `GET /projects/{id}/risks` agree. That is the single difference between the two routes,
-    and it is named in neither URL (**G66**).
+    `GET /projects/{id}/risks` agree. ~~That is the single difference between the two routes~~,
+    and it is named in neither URL (**G66**). *(Struck M8.5: since ADR-0037 an item also
+    carries `confidence` and this envelope carries `confidence_definition`, and `/risks`
+    carries neither — so the order is no longer the only difference. It is still named in
+    neither URL, and the superset relation is wider than it was.)*
+
+    **`confidence_definition` is on the envelope and not on each item**, because it is one
+    constant per response — ADR-0030 decision 3's own reason for putting the thresholds here,
+    and `SignalResponse` on this route carries no `definition` either. A Brief carries the
+    same text on its item, having no envelope to put it on, and a test asserts the two are
+    byte-identical from `correlation`'s single declaration.
     """
 
     items: list[ScoredRiskResponse]
@@ -171,4 +194,5 @@ class ScoredProjectRisksResponse(BaseModel):
     limit: int
     offset: int
     thresholds: ThresholdsResponse
+    confidence_definition: str
     normalization: NormalizationStateResponse

@@ -16,6 +16,7 @@ from verion.modules.brief.domain.explanation import Explanation
 from verion.modules.brief.domain.security_brief import SecurityBrief
 from verion.modules.risk_engine.application.explainable_decision import explainable_decision
 from verion.modules.risk_engine.domain.scoring import SurfaceMember, score_surface
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -42,8 +43,18 @@ def _brief(
         package=None,
         url="/calculate",
         members=[
-            SurfaceMember(finding_id="f-1", source=ScannerTool.SEMGREP, severity=Severity.HIGH),
-            SurfaceMember(finding_id="f-2", source=ScannerTool.ZAP, severity=Severity.LOW),
+            SurfaceMember(
+                finding_id="f-1",
+                source=ScannerTool.SEMGREP,
+                severity=Severity.HIGH,
+                confidence=Confidence.REPORTED,
+            ),
+            SurfaceMember(
+                finding_id="f-2",
+                source=ScannerTool.ZAP,
+                severity=Severity.LOW,
+                confidence=Confidence.REPORTED,
+            ),
         ],
     )
     return SecurityBrief(
@@ -55,6 +66,7 @@ def _brief(
             text=f"narrative {brief_id}", model="gpt-5-mini-2025-08-07", prompt_version="m7.1-1"
         ),
         what_happened=what_happened,
+        confidence=surface.confidence,
         generated_at=generated_at,
     )
 
@@ -196,3 +208,78 @@ async def test_a_partial_what_happened_is_refused_by_the_database(db_session, co
     with pytest.raises(IntegrityError, match="ck_security_briefs_what_happened_all_or_none"):
         await db_session.execute(text(f"UPDATE security_briefs SET {columns} WHERE id = 'b-1'"))
     await db_session.rollback()
+
+
+# ---------------------------------------------------------------------------
+# M8.5, ADR-0037 decision 8 — the confidence column
+# ---------------------------------------------------------------------------
+
+
+async def test_a_row_written_before_m8_5_reads_back_with_no_confidence(db_session):
+    """The M7.3 insert shape, naming no `confidence`, as rows existing at the migration look.
+
+    `NULL` has exactly one meaning — written before M8.5 — because the migration adds the
+    column nullable and does not backfill. There is nothing to backfill FROM: the surface a
+    stored Brief describes may have moved since it was narrated, so a value invented now would
+    describe a grouping that never produced this Brief.
+    """
+    await _add(db_session, _brief(brief_id="b-good"))
+    await db_session.execute(
+        text(
+            "INSERT INTO security_briefs (id, project_id, finding_ids, decision, why_it_matters,"
+            " model, prompt_version, generated_at) SELECT 'b-old', project_id, finding_ids,"
+            " decision, 'old', 'm', 'm7.1-1', generated_at - interval '1 minute'"
+            " FROM security_briefs WHERE id = 'b-good'"
+        )
+    )
+    await db_session.commit()
+
+    stored = await PostgresSecurityBriefRepository(db_session).list_for_project(
+        project_id=_PROJECT, limit=50, offset=0
+    )
+
+    assert [b.id for b in stored] == ["b-good", "b-old"]
+    assert stored[1].confidence is None
+    assert stored[0].confidence is not None
+
+
+async def test_a_stored_confidence_reads_back_as_the_enum_and_not_a_string(db_session):
+    """ADR-0018 decision 2's persistence asymmetry, honoured rather than rediscovered.
+
+    That decision records it for `Severity`: *"a severity crossing a persistence or HTTP
+    boundary must be reconstructed as `Severity(...)` before it is compared."* The trap is that
+    `Confidence.REPORTED == "reported"` is `True`, so a repository returning the raw column
+    passes every equality assertion and fails only where identity or membership is used —
+    which is what `_confidence`'s fold and `scoring.py` do.
+
+    Asserted with `is`, deliberately: `==` would pass against the bare string.
+    """
+    await _add(db_session, _brief(brief_id="b-1"))
+
+    [stored] = await PostgresSecurityBriefRepository(db_session).list_for_project(
+        project_id=_PROJECT, limit=50, offset=0
+    )
+
+    assert stored.confidence is Confidence.REPORTED
+
+
+async def test_an_unrecognised_stored_confidence_raises_rather_than_flowing_on_as_a_string(
+    db_session,
+):
+    """A value the vocabulary does not contain is a broken row, and it fails loudly.
+
+    The alternative — passing the raw string through — would put a word the API never
+    advertises into a response, and `CONFIDENCE_DEFINITION` would not define it. This is the
+    same preference `Severity`'s note states: loud beats silent, and the column is a plain
+    `String` precisely so adding a legitimate value needs no type migration.
+    """
+    await _add(db_session, _brief(brief_id="b-1"))
+    await db_session.execute(
+        text("UPDATE security_briefs SET confidence = 'somewhat' WHERE id = 'b-1'")
+    )
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="somewhat"):
+        await PostgresSecurityBriefRepository(db_session).list_for_project(
+            project_id=_PROJECT, limit=50, offset=0
+        )

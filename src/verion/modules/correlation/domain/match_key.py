@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from verion.shared_kernel.confidence import Confidence
+
 # The key's fields, partitioned by what each one is FOR. `dataclasses.fields`
 # already gives the declared set; these two say which half each member is in, and
 # the conformance test asserts the partition is TOTAL and DISJOINT — so a field
@@ -73,3 +75,38 @@ class MatchKey:
         commit 4, so every production Semgrep finding is still a singleton until then.
         """
         return self.package is not None or self.url is not None
+
+
+@dataclass(frozen=True)
+class MatchKeyResult:
+    """A key and **where its signal came from**. `build_match_key`'s return type. M8.5.
+
+    **This type exists to close G53**, and the entry named the shape before it was built:
+    what would close it is *"a provenance-aware check at the construction site — a second
+    parameter naming where `url` came from, or a distinct type for a derived path"*. This is
+    the second of those.
+
+    **Why the provenance rides the RETURN rather than a field on `MatchGroup`.** The group is
+    downstream of the builder, so filling a field there means some caller re-deriving *"was
+    this url derived?"* by comparing the key against the finding — a second copy of the
+    builder's branch rule, `mypy`-invisible, and exactly the defect this closes. Returning it
+    makes the site total again: ADR-0023 section (b) calls `build_match_key` *"the single
+    place `mypy` compares correlation's description of `Finding` against the real one"*, and
+    until M8.5 the `url` field's **meaning** could change under an unchanged `str | None`
+    annotation — section (c)'s *"semantic changes behind an unchanged signature"*, entered
+    deliberately by ADR-0029 decision 4 and registered as G53.
+
+    **No fourth `MatchKey` field**, which is why this is a separate type rather than a wider
+    key. ADR-0029 decision 4 priced that and rejected it as the most expensive of three
+    shapes: inert under whole-dataclass equality, unable to satisfy `test_match_key.py`'s
+    `_FIELD_SOURCES` (which needs a declaring type per field, and no `Finding` or `Location`
+    field a derived route comes off exists), and breaking the partition test and
+    `_group_order`. The key's frozen field list, `has_signal` and the conformance test are
+    all untouched by this type.
+
+    **The confidence is `shared_kernel`'s**, not correlation's, so `risk_engine` can compare
+    it without naming anything here (ADR-0037 decision 3).
+    """
+
+    key: MatchKey
+    confidence: Confidence

@@ -1,6 +1,14 @@
 // Every call goes to /api/* on this origin; next.config.mjs rewrites it to the API
-// (ADR-0031 decision 2). The types mirror the API's response schemas as read from
-// `identity`'s LoginResponse and `risk_engine`'s ScoredProjectRisksResponse.
+// (ADR-0031 decision 2). The types mirror the SUBSET of the API's response schemas this
+// screen reads, as of M6.3: `identity`'s LoginResponse and `risk_engine`'s
+// ScoredProjectRisksResponse.
+//
+// A subset deliberately, and said so since M8.5. That issue added `confidence` to each scored
+// item and `confidence_definition` to the envelope (ADR-0037); these types carry neither,
+// because this screen does not render them yet and M8.3 is where it would. Nothing fails
+// meanwhile — the fetch is a cast over JSON, so an unlisted field is ignored — which is why
+// the sentence above had to be corrected in the commit that falsified it, rather than found
+// stale later.
 
 // The API's MAX_PAGE_LIMIT for this route.
 export const PAGE_LIMIT = 200;

@@ -27,6 +27,7 @@ from verion.modules.risk_engine.ports.explainable_decision import (
     ExplainableDecision,
     ExplainableSignal,
 )
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -57,10 +58,23 @@ def _calculate_surface():
         url="/calculate",
         members=[
             SurfaceMember(
-                finding_id="f-semgrep", source=ScannerTool.SEMGREP, severity=Severity.HIGH
+                finding_id="f-semgrep",
+                source=ScannerTool.SEMGREP,
+                severity=Severity.HIGH,
+                confidence=Confidence.INFERRED,
             ),
-            SurfaceMember(finding_id="f-zap-1", source=ScannerTool.ZAP, severity=Severity.LOW),
-            SurfaceMember(finding_id="f-zap-2", source=ScannerTool.ZAP, severity=Severity.MEDIUM),
+            SurfaceMember(
+                finding_id="f-zap-1",
+                source=ScannerTool.ZAP,
+                severity=Severity.LOW,
+                confidence=Confidence.REPORTED,
+            ),
+            SurfaceMember(
+                finding_id="f-zap-2",
+                source=ScannerTool.ZAP,
+                severity=Severity.MEDIUM,
+                confidence=Confidence.REPORTED,
+            ),
         ],
     )
 
@@ -130,7 +144,12 @@ def test_a_quiet_surface_carries_its_notes_through():
         package="urllib3",
         url=None,
         members=[
-            SurfaceMember(finding_id="f-1", source=ScannerTool.TRIVY, severity=Severity.UNKNOWN)
+            SurfaceMember(
+                finding_id="f-1",
+                source=ScannerTool.TRIVY,
+                severity=Severity.UNKNOWN,
+                confidence=Confidence.REPORTED,
+            )
         ],
     )
     decision = explainable_decision(surface)

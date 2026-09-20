@@ -16,6 +16,7 @@ from verion.modules.risk_engine.ports.explainable_risk import (
     ExplainableRiskAccessDenied,
     NoCurrentRisk,
 )
+from verion.shared_kernel.confidence import Confidence
 
 _PROJECT = "project-1"
 _USER = "user-1"
@@ -59,7 +60,9 @@ class _FakeExplainableRisks:
             raise self._deny
         if tuple(sorted(finding_ids)) != self._surface:
             raise NoCurrentRisk("no current risk")
-        return ExplainableRisk(finding_ids=self._surface, decision=_DECISION)
+        return ExplainableRisk(
+            finding_ids=self._surface, decision=_DECISION, confidence=Confidence.REPORTED
+        )
 
 
 def _use_case(explainable, repository, clock_factory, id_generator):

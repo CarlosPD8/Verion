@@ -56,6 +56,7 @@ from verion.modules.risk_engine.domain.scoring import (
     SurfaceMember,
     score_surface,
 )
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -86,8 +87,18 @@ def _decision():
             package=None,
             url="/calculate",
             members=[
-                SurfaceMember(finding_id="f-1", source=ScannerTool.SEMGREP, severity=Severity.HIGH),
-                SurfaceMember(finding_id="f-2", source=ScannerTool.ZAP, severity=Severity.LOW),
+                SurfaceMember(
+                    finding_id="f-1",
+                    source=ScannerTool.SEMGREP,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.REPORTED,
+                ),
+                SurfaceMember(
+                    finding_id="f-2",
+                    source=ScannerTool.ZAP,
+                    severity=Severity.LOW,
+                    confidence=Confidence.REPORTED,
+                ),
             ],
         )
     )

@@ -9,6 +9,7 @@ from verion.modules.brief.domain.explanation import Explanation
 # contract sees this edge — `layers-brief` relates layers inside `brief` only, and
 # `cross-module-brief` does not forbid `.ports` — so it is registered as **G77**.
 from verion.modules.risk_engine.ports.explainable_decision import ExplainableDecision
+from verion.shared_kernel.confidence import Confidence
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -32,8 +33,19 @@ class SecurityBrief:
     `what_happened` from the members' typed titles and locations alone, by separate calls.
 
     **`what_happened` is `None` only for a Brief written before M7.3.** Generation never writes
-    `None`. **Deliberately absent**, each with a test asserting the field set: `risk_id`,
-    `recommended_action` and `estimated_effort` (**G74**), and `confidence` (**G63**).
+    `None`. **`confidence` is `None` only for a Brief written before M8.5**, on the same terms:
+    generation never writes `None`, and there is no backfill because the surface a stored Brief
+    describes may have moved since.
+
+    **FR-8's fourth part is `confidence`** (M8.5, ADR-0037), the surface's grouping provenance
+    as the engine computed it. It has its **own field and its own column**, and is deliberately
+    NOT inside `decision`: that carrier is *"everything a narrator may see"* and no prompt
+    receives this value, so putting it there would degrade rule 6 from a property of the type to
+    a convention. The knock-on is why it matters — `ExplainableDecision` is unchanged, so the
+    stored decision's version does not move and every Brief written before M8.5 still reads back.
+
+    **Deliberately absent**, each with a test asserting the field set: `risk_id`,
+    `recommended_action` and `estimated_effort` (**G74**, the last two cut to V2).
     """
 
     id: str
@@ -42,4 +54,5 @@ class SecurityBrief:
     decision: ExplainableDecision
     explanation: Explanation
     what_happened: Explanation | None
+    confidence: Confidence | None
     generated_at: datetime

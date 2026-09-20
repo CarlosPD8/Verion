@@ -1,7 +1,8 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from verion.modules.correlation.domain.match_key import MatchKey
+from verion.modules.correlation.domain.match_key import MatchKey, MatchKeyResult
+from verion.shared_kernel.confidence import Confidence
 
 
 def matches(left: MatchKey, right: MatchKey) -> bool:
@@ -63,10 +64,40 @@ class MatchGroup:
     thing a persisted Risk would carry anyway.
 
     Ordered rather than merely collected — see `group_by_match_key`.
+
+    **`member_confidence` is positionally aligned to `finding_ids`** (M8.5, ADR-0037): the
+    confidence at index *i* is the provenance of the member at index *i*, and the two are
+    sorted **together**, never independently. That alignment is the whole meaning of the
+    field, so it is what `test_match_key.py` asserts rather than the field's presence — a
+    tuple of the right length in the wrong order labels the wrong finding, silently, which is
+    why `test_match_key.py` asserts the ORDER and not only the length — and why the lengths are
+    checked below rather than left to a consumer.
+
+    A tuple rather than a set, on this module's own convention above: a set would lose the
+    alignment, and `finding_ids` is ordered for the same reason.
     """
 
     key: MatchKey
     finding_ids: tuple[str, ...]
+    member_confidence: tuple[Confidence, ...]
+
+    def __post_init__(self) -> None:
+        """The alignment is a property of the TYPE, not of whoever reads it.
+
+        `group_by_match_key` cannot violate it — it sorts pairs — so this guards the other
+        constructors: a `CandidateRiskPort` implementation other than this module's, and the
+        test fakes that already build groups by hand. Without it the only consumer that would
+        notice is `ComputeRiskUseCase`'s `zip(..., strict=True)`; `correlation`'s own listing
+        reads `finding_ids` alone and would serve a mismatched group as a clean 200.
+
+        ADR-0020 decision 1's shape, one module over: make the invariant structural rather
+        than a convention two readers happen to share.
+        """
+        if len(self.member_confidence) != len(self.finding_ids):
+            raise ValueError(
+                f"member_confidence has {len(self.member_confidence)} entries for "
+                f"{len(self.finding_ids)} finding_ids; they are positionally aligned"
+            )
 
 
 def _group_order(group: "MatchGroup") -> tuple[str, bool, str, bool, str, str]:
@@ -94,8 +125,13 @@ def _group_order(group: "MatchGroup") -> tuple[str, bool, str, bool, str, str]:
     )
 
 
-def group_by_match_key(entries: Sequence[tuple[str, MatchKey]]) -> list[MatchGroup]:
-    """Group `(finding_id, key)` pairs into candidate Risks.
+def group_by_match_key(entries: Sequence[tuple[str, MatchKeyResult]]) -> list[MatchGroup]:
+    """Group `(finding_id, key-and-provenance)` pairs into candidate Risks.
+
+    **Takes the builder's whole result since M8.5** (ADR-0037), so each member's provenance
+    travels with it rather than being re-derived here from the key and the finding — which
+    would be the second copy of `build_match_key`'s branch rule that G53's closure exists to
+    prevent, moved one module inward.
 
     **By key VALUE, not by pairwise comparison.** Equality on all fields is an
     equivalence relation, so bucketing on the key is exactly the relation `matches`
@@ -117,16 +153,30 @@ def group_by_match_key(entries: Sequence[tuple[str, MatchKey]]) -> list[MatchGro
     answer read two ways, not a contradiction. Bucketing them together would be matching
     two absences.
     """
-    bucketed: dict[MatchKey, list[str]] = {}
+    bucketed: dict[MatchKey, list[tuple[str, Confidence]]] = {}
     groups: list[MatchGroup] = []
-    for finding_id, key in entries:
-        if not key.has_signal:
-            groups.append(MatchGroup(key=key, finding_ids=(finding_id,)))
+    for finding_id, result in entries:
+        if not result.key.has_signal:
+            groups.append(
+                MatchGroup(
+                    key=result.key,
+                    finding_ids=(finding_id,),
+                    member_confidence=(result.confidence,),
+                )
+            )
             continue
-        bucketed.setdefault(key, []).append(finding_id)
+        bucketed.setdefault(result.key, []).append((finding_id, result.confidence))
 
-    groups.extend(
-        MatchGroup(key=key, finding_ids=tuple(sorted(finding_ids)))
-        for key, finding_ids in bucketed.items()
-    )
+    for key, members in bucketed.items():
+        # Sorted as PAIRS, so the two tuples cannot drift apart: sorting `finding_ids` and
+        # `member_confidence` separately would pass every length assertion and label the
+        # wrong finding. `sorted` is on the id, which is unique within a group.
+        ordered = sorted(members)
+        groups.append(
+            MatchGroup(
+                key=key,
+                finding_ids=tuple(finding_id for finding_id, _ in ordered),
+                member_confidence=tuple(confidence for _, confidence in ordered),
+            )
+        )
     return sorted(groups, key=_group_order)

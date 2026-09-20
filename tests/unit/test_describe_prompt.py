@@ -25,6 +25,7 @@ from verion.modules.brief.domain.brief_member import (
     TRUNCATION_MARKER,
     BriefMember,
 )
+from verion.modules.correlation.ports.candidate_risk import CONFIDENCE_DEFINITION
 from verion.modules.normalization.domain.mappers.trivy import map_trivy_output
 from verion.modules.risk_engine.domain.scoring import (
     CORROBORATION_DEFINITION,
@@ -213,3 +214,42 @@ def test_only_set_fields_are_rendered_in_a_fixed_order():
         }
     ]
     assert list(shown[0]) == ["scanner", "title", "file_path", "start_line", "end_line"]
+
+
+# ---------------------------------------------------------------------------
+# M8.5, ADR-0037 decision 9 — the confidence reaches no prompt
+# ---------------------------------------------------------------------------
+
+
+def test_no_member_object_carries_a_confidence_and_neither_message_carries_its_definition():
+    """A REGRESSION GUARD. `describe` is structurally unable to receive the value today.
+
+    `_member_object` iterates `_RENDERED_FIELDS` over `BriefMember`, and M8.5 touches neither,
+    so the confidence cannot arrive here. This keeps that true for a later issue.
+
+    **Read positionally**, by parsing the array back and checking every object's key set —
+    which this module's own `render_members` docstring sanctions: *"a test can `json.loads` it
+    back and count what the model was shown"*. A substring scan for the values would be red
+    before it was written: `DESCRIBE_INSTRUCTIONS` opens *"You describe what security scanners
+    reported"* and the user message's preamble is *"Findings reported on this surface"*.
+    """
+    members = (_member(title="dangerous-eval", file_path="app.py", start_line=28),)
+    messages = build_describe_messages(members, member_count=1)
+    rendered = {message["role"]: message["content"] for message in messages}
+
+    array = json.loads(rendered["user"].split(chr(10), 1)[1])
+    for obj in array:
+        assert "confidence" not in obj
+
+    for role, content in rendered.items():
+        assert CONFIDENCE_DEFINITION not in content, role
+
+
+def test_rule_four_still_forbids_stating_how_confident_anyone_is():
+    """`describe`'s wording is a PROHIBITION where `explain`'s is a statement about the input.
+
+    The two prompts say different things and an earlier draft of ADR-0037 attributed one
+    sentence to both. Pinned separately here for that reason.
+    """
+    assert "how confident anyone is" in DESCRIBE_INSTRUCTIONS
+    assert "Do not state or guess" in DESCRIBE_INSTRUCTIONS

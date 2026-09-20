@@ -157,6 +157,9 @@ class GenerateSecurityBriefUseCase:
             decision=risk.decision,
             explanation=explanation,
             what_happened=what_happened,
+            # The ENGINE's value for the surface it scored, like `finding_ids` above it.
+            # Neither prompt was shown it (ADR-0037 decision 9).
+            confidence=risk.confidence,
             generated_at=self._clock.now(),
         )
         await self._briefs.add(brief)

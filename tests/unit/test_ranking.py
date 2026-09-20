@@ -24,6 +24,7 @@ from verion.modules.risk_engine.domain.scoring import (
     rank_surfaces,
     score_surface,
 )
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -43,7 +44,14 @@ def _surface(
         project_id=PROJECT,
         package=package,
         url=url,
-        members=[SurfaceMember(finding_id=finding_id, source=source, severity=severity)],
+        members=[
+            SurfaceMember(
+                finding_id=finding_id,
+                source=source,
+                severity=severity,
+                confidence=Confidence.REPORTED,
+            )
+        ],
     )
 
 
@@ -52,6 +60,7 @@ def _group(*, finding_id, package=None, url=None):
     return MatchGroup(
         key=MatchKey(project_id=PROJECT, package=package, url=url),
         finding_ids=(finding_id,),
+        member_confidence=(Confidence.REPORTED,),
     )
 
 

@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -60,11 +61,18 @@ class SurfaceMember:
     boundary is `score_surface` and this is the carrier it takes; the alternative, a bare
     `tuple[str, ScannerTool, Severity]`, is literally one site and unreadable at every
     call.
+
+    **`confidence` joined at M8.5** (ADR-0037) and is a fourth scalar rather than an
+    exception to that rule: `Confidence` is `shared_kernel`'s, like the two above it, so
+    this module still names nothing belonging to `correlation`. A bare `str` was rejected
+    for this field specifically — it would let `"inferrd"` type-check on a frozen domain
+    type feeding three routes, and a typo must be a type error.
     """
 
     finding_id: str
     source: ScannerTool
     severity: Severity
+    confidence: Confidence
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -94,10 +102,10 @@ class RiskReasoning:
     would invite exactly that. What crosses to that layer is a copy of this reasoning,
     `risk_engine/ports/explainable_decision.py`, filled inside this module (ADR-0032).
 
-    **Carries no `confidence` either, and that absence is a decision rather than an
-    oversight** — see **G63**. FR-7 and ADR-0003 both require one; ADR-0005 deferred the
-    scale, M6.2 emitted none, and M7.1 — the consumer that was to choose it — recorded the
-    absence rather than choosing, because either scale reaches a third module (ADR-0032).
+    **Carries no `confidence`, and since M8.5 that is a PLACEMENT rather than an absence.**
+    A Risk has one — its grouping provenance — and it lives on `ScoredSurface`, not here,
+    because this type is the three summed signals and the confidence is summed into nothing
+    (ADR-0037 decision 7). Adding it here would make it look like a fourth term.
     """
 
     severity: Signal
@@ -122,6 +130,11 @@ class ScoredSurface:
 
     Carries no `id`: a candidate Risk is a projection with no identity (ADR-0025 decision 1),
     and this adds a score to it without adding a row.
+
+    **`confidence` is carried BESIDE the score and is never summed into it** (M8.5,
+    ADR-0037 decision 7). It is the surface's grouping provenance, folded from its members
+    by `_confidence`. It is not a signal: it is not in `RiskReasoning`, it has no
+    `produced_by`, and `priority_score` is the same three terms it has been since M6.2.
     """
 
     project_id: str
@@ -131,6 +144,7 @@ class ScoredSurface:
     priority_score: int
     priority: Priority
     reasoning: RiskReasoning
+    confidence: Confidence
 
 
 def bucket_for(priority_score: int) -> Priority:
@@ -234,6 +248,41 @@ def _corroboration_signal(members: Sequence[SurfaceMember]) -> Signal:
     return Signal(name=CORROBORATION_SIGNAL, value=1, produced_by=representatives)
 
 
+def _confidence(members: Sequence[SurfaceMember]) -> Confidence:
+    """The surface's grouping provenance, folded over its members. M8.5, ADR-0037 decision 6.
+
+    `INFERRED` if any member is; else `UNGROUPED` if any member is; else `REPORTED`.
+
+    **Total, and the second branch is reachable only for a surface of one.** `UNGROUPED`
+    means the member's key carried no signal, and `group_by_match_key` makes such a finding a
+    singleton — so a mixed `UNGROUPED`/`REPORTED` surface cannot be produced by the shipped
+    grouping. The branch is written anyway rather than asserted away, because this function
+    takes members and not a group, and a fold that raised or guessed on an input the type
+    admits would be deciding by accident.
+
+    **The fold lives here rather than in `correlation` because a SURFACE is this module's
+    unit** (ADR-0005 decision 0): "this surface's membership was partly inferred" is a
+    statement about the thing being scored. `correlation` supplies the per-member facts and
+    does not decide what they mean for a group.
+
+    **`INFERRED` wins on ANY member**, not a majority or all: the claim it qualifies is that
+    the group is what it says it is, and one inferred member is enough to make that partly
+    Verion's inference rather than the scanners'.
+
+    **A surface with NO members folds to `REPORTED`**, which is vacuous rather than wrong —
+    "no member was placed by inference" is true of an empty surface. It is unreachable through
+    `ComputeRiskUseCase`, where a group always has at least one member and a member the second
+    read cannot supply raises `MemberFindingMissing`. Stated because `score_surface` accepts
+    the input and `test_a_surface_with_no_members_scores_zero_rather_than_raising` exercises
+    it, so the value is observable even though no pipeline produces it.
+    """
+    if any(member.confidence is Confidence.INFERRED for member in members):
+        return Confidence.INFERRED
+    if any(member.confidence is Confidence.UNGROUPED for member in members):
+        return Confidence.UNGROUPED
+    return Confidence.REPORTED
+
+
 def score_surface(
     *,
     project_id: str,
@@ -267,6 +316,15 @@ def score_surface(
     at least one `HIGH` member. **That `HIGH` may come from EITHER tool** — ZAP's riskcode 3
     maps to `HIGH`, exhibited by the committed active capture — so a Semgrep `ERROR` is
     sufficient but not necessary. A `CRITICAL` dependency CVE can never exceed `plan`.
+
+    **A consequence of that closure, and the ground for not summing `confidence` into the
+    score** (M8.5, ADR-0037 decision 7): the only cross-source pairing is a route-derived
+    Semgrep member with a ZAP member, so **every `fix_now` surface reachable from real
+    scanner output contains an `INFERRED` member**. A term penalising `inferred` would close
+    the top bucket outright; one rewarding it would reward inference. Corpus-bounded like the
+    paragraph above it, and that ADR carries the reopen conditions — the strongest being a
+    mapper change that gives a Semgrep finding a `Location.url`, which no **G64** clause
+    reaches.
     """
     severity = _severity_signal(members)
     exposure = _exposure_signal(members)
@@ -281,6 +339,8 @@ def score_surface(
         priority_score=priority_score,
         priority=bucket_for(priority_score),
         reasoning=RiskReasoning(severity=severity, exposure=exposure, corroboration=corroboration),
+        # Folded, not summed. `priority_score` above is the same three terms as at M6.2.
+        confidence=_confidence(members),
     )
 
 

@@ -21,9 +21,17 @@ import typing
 
 import pytest
 
-from verion.modules.correlation.domain.match_key import SCOPE_FIELDS, SIGNAL_FIELDS, MatchKey
-from verion.modules.correlation.domain.matching import group_by_match_key, matches
+from verion.modules.correlation.application.match_key_builder import build_match_key
+from verion.modules.correlation.domain.match_key import (
+    SCOPE_FIELDS,
+    SIGNAL_FIELDS,
+    MatchKey,
+    MatchKeyResult,
+)
+from verion.modules.correlation.domain.matching import MatchGroup, group_by_match_key, matches
+from verion.modules.correlation.ports.candidate_risk import CONFIDENCE_DEFINITION
 from verion.modules.normalization.domain.finding import Finding, Location
+from verion.shared_kernel.confidence import Confidence
 
 _PROJECT = "project-1"
 _OTHER_PROJECT = "project-2"
@@ -50,6 +58,24 @@ def _url_key(url: str, *, project_id: str = _PROJECT) -> MatchKey:
 
 def _no_signal_key(*, project_id: str = _PROJECT) -> MatchKey:
     return MatchKey(project_id=project_id, package=None, url=None)
+
+
+def _entry(finding_id: str, key: MatchKey) -> tuple[str, MatchKeyResult]:
+    """A grouping entry for a hand-built key, with the provenance the builder would have given it.
+
+    `group_by_match_key` takes the builder's whole result since M8.5 (ADR-0037), so a key alone
+    is no longer an entry. The confidence is derived from `has_signal` here rather than passed,
+    because these tests are about the *grouping* and a hand-picked value would be a second
+    statement of the builder's rule inside a test of something else. The rule itself is asserted
+    against the real builder below.
+    """
+    return (
+        finding_id,
+        MatchKeyResult(
+            key=key,
+            confidence=Confidence.REPORTED if key.has_signal else Confidence.UNGROUPED,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -221,9 +247,9 @@ def test_a_no_signal_key_does_not_match_even_itself():
 def test_findings_sharing_a_signal_land_in_one_group():
     groups = group_by_match_key(
         [
-            ("f1", _package_key("urllib3")),
-            ("f2", _package_key("urllib3")),
-            ("f3", _package_key("Flask")),
+            _entry("f1", _package_key("urllib3")),
+            _entry("f2", _package_key("urllib3")),
+            _entry("f3", _package_key("Flask")),
         ]
     )
 
@@ -243,7 +269,7 @@ def test_a_finding_with_no_signal_becomes_its_own_group_of_one():
     Bucketing the two together would be the other error — matching two absences, which
     fabricates an event that no tool reported.
     """
-    groups = group_by_match_key([("f1", _no_signal_key()), ("f2", _no_signal_key())])
+    groups = group_by_match_key([_entry("f1", _no_signal_key()), _entry("f2", _no_signal_key())])
 
     assert [group.finding_ids for group in groups] == [("f1",), ("f2",)]
 
@@ -255,11 +281,11 @@ def test_grouping_does_not_depend_on_the_order_the_findings_arrive_in():
     and this repo already carries two scars from a representative chosen by list position.
     """
     entries = [
-        ("f1", _package_key("urllib3")),
-        ("f2", _url_key("http://t/")),
-        ("f3", _package_key("urllib3")),
-        ("f4", _no_signal_key()),
-        ("f5", _no_signal_key()),
+        _entry("f1", _package_key("urllib3")),
+        _entry("f2", _url_key("http://t/")),
+        _entry("f3", _package_key("urllib3")),
+        _entry("f4", _no_signal_key()),
+        _entry("f5", _no_signal_key()),
     ]
 
     assert group_by_match_key(entries) == group_by_match_key(list(reversed(entries)))
@@ -275,14 +301,14 @@ def test_group_membership_agrees_with_the_pairwise_relation():
     finding somewhere, while the relation refuses to pair a finding with anything.
     """
     entries = [
-        ("f1", _package_key("urllib3")),
-        ("f2", _package_key("urllib3")),
-        ("f3", _package_key("Flask")),
-        ("f4", _url_key("http://t/")),
-        ("f5", _no_signal_key()),
-        ("f6", _no_signal_key()),
+        _entry("f1", _package_key("urllib3")),
+        _entry("f2", _package_key("urllib3")),
+        _entry("f3", _package_key("Flask")),
+        _entry("f4", _url_key("http://t/")),
+        _entry("f5", _no_signal_key()),
+        _entry("f6", _no_signal_key()),
     ]
-    key_of = dict(entries)
+    key_of = {finding_id: result.key for finding_id, result in entries}
     groups = group_by_match_key(entries)
 
     for group in groups:
@@ -293,3 +319,167 @@ def test_group_membership_agrees_with_the_pairwise_relation():
         for left in one.finding_ids:
             for right in other.finding_ids:
                 assert matches(key_of[left], key_of[right]) is False
+
+
+# ---------------------------------------------------------------------------
+# Provenance — M8.5, ADR-0037. G53's closure, asserted rather than left to `mypy`
+# ---------------------------------------------------------------------------
+
+
+def _build(*, package=None, url=None, file_path=None, start_line=None, paths_serving=None):
+    """The real builder over scalars, so these assert the shipped branch rule and not a copy."""
+    return build_match_key(
+        project_id=_PROJECT,
+        package=package,
+        url=url,
+        file_path=file_path,
+        start_line=start_line,
+        paths_serving=paths_serving,
+    )
+
+
+def _one_route(path):
+    return lambda *, file_path, line: (path,)
+
+
+def _no_route(*, file_path, line):
+    return ()
+
+
+def _two_routes(*, file_path, line):
+    return ("/a", "/b")
+
+
+def test_every_confidence_the_builder_can_produce_is_declared_and_every_declared_one_is_produced():
+    """The set the builder yields EQUALS the set the enum declares. ADR-0037 decision 4.
+
+    **What this enforces, stated exactly, because the obvious reading claims more.** The
+    `produced` set is built from four hand-written calls, one per branch of the builder. So it
+    enforces *declared is a subset of produced*: a member added to `Confidence` that no branch
+    here reaches fails, which is what stops the vocabulary advertising a value the product
+    cannot emit. The other direction holds because `Confidence` is an enum and `mypy` checks
+    the return type — not because this test says so.
+
+    **What it therefore does NOT catch**: a fifth branch added to the builder that returns an
+    existing value. Nothing here enumerates the builder's branches, and nothing can without
+    parsing it, so the four calls below have to be extended by hand when a branch is.
+
+    Still worth its place: the annotation says *a* `Confidence`, and this says *which ones*.
+    """
+    produced = {
+        _build(url="http://t/calculate?x=1").confidence,
+        _build(package="urllib3").confidence,
+        _build(
+            file_path="app.py", start_line=28, paths_serving=_one_route("/calculate")
+        ).confidence,
+        _build().confidence,
+    }
+
+    assert produced == set(Confidence)
+
+
+def test_a_derived_url_is_inferred_and_a_reported_url_is_not():
+    """**The security-relevant one.** ADR-0037 decision 1.
+
+    A finding with no url of its own, placed on a route path by the map, is `INFERRED`. A
+    finding keyed on the url its own scanner reported is `REPORTED`. Both end with the same
+    `url` on the key — that equality is what makes the cross-tool group possible (ADR-0029
+    decision 4) — so the key alone cannot tell them apart and the confidence is the only thing
+    that does. Collapsing these two to one value makes an inference indistinguishable from an
+    observation, which is the whole claim this issue ships.
+    """
+    derived = _build(file_path="app.py", start_line=28, paths_serving=_one_route("/calculate"))
+    reported = _build(url="http://target:8080/calculate?expr=2*3")
+
+    assert derived.key.url == reported.key.url == "/calculate"
+    assert derived.confidence is Confidence.INFERRED
+    assert reported.confidence is Confidence.REPORTED
+
+
+def test_a_no_signal_key_is_ungrouped_and_a_package_key_is_reported():
+    """Keyed on `has_signal`, never on how many members the group ends up with.
+
+    A Trivy finding alone on a package was keyed on a real signal and would have absorbed a
+    second finding on that package, so it is `REPORTED` even as a group of one. A finding whose
+    key carries nothing is `UNGROUPED`. A scale keyed on cardinality would call both the same.
+    """
+    assert _build(package="urllib3").confidence is Confidence.REPORTED
+    assert _build().confidence is Confidence.UNGROUPED
+
+
+@pytest.mark.parametrize(
+    "paths_serving", [None, _no_route, _two_routes], ids=["gated", "zero", "two"]
+)
+def test_a_finding_the_map_does_not_place_is_ungrouped_rather_than_inferred(paths_serving):
+    """The three ways the derivation declines, all landing on the honest value.
+
+    `None` is the serving declaration absent or out of force; zero paths is a line no route
+    serves; two or more is a stacked view's shared body, which derives nothing rather than
+    picking one. None of them may report `INFERRED`, because nothing was inferred.
+    """
+    result = _build(file_path="app.py", start_line=28, paths_serving=paths_serving)
+
+    assert result.key.url is None
+    assert result.confidence is Confidence.UNGROUPED
+
+
+def test_every_group_carries_one_confidence_per_member_in_member_order():
+    """The alignment invariant, which is the whole meaning of `member_confidence`.
+
+    Asserted over a group whose members have DIFFERENT provenance and whose ids sort into a
+    different order than they arrive in — otherwise a mis-sorted tuple still reads correctly by
+    accident. `finding_ids` and `member_confidence` are sorted as pairs, so index *i* of one
+    describes index *i* of the other.
+    """
+    derived = MatchKeyResult(key=_url_key("/calculate"), confidence=Confidence.INFERRED)
+    reported = MatchKeyResult(key=_url_key("/calculate"), confidence=Confidence.REPORTED)
+
+    [group] = group_by_match_key([("f-9", derived), ("f-1", reported), ("f-5", reported)])
+
+    assert group.finding_ids == ("f-1", "f-5", "f-9")
+    assert group.member_confidence == (
+        Confidence.REPORTED,
+        Confidence.REPORTED,
+        Confidence.INFERRED,
+    )
+    assert len(group.member_confidence) == len(group.finding_ids)
+
+
+def test_the_group_field_set_is_exactly_these_three():
+    """`MatchGroup` is the one hop in the carrier chain that had no field-set assertion.
+
+    Equality, so a field added in passing fails here rather than being depended on, and so does
+    losing one. Paired with the alignment test above deliberately: this catches the field
+    arriving or leaving, that one catches it arriving meaningless.
+    """
+    assert {field.name for field in dataclasses.fields(MatchGroup)} == {
+        "key",
+        "finding_ids",
+        "member_confidence",
+    }
+
+
+def test_the_definition_names_every_confidence_value():
+    """The text and the vocabulary cannot drift apart. ADR-0037 decision 10.
+
+    A value added to `Confidence` without extending `CONFIDENCE_DEFINITION` fails here. That
+    matters more than usual because **no prompt receives this value**: the definition on the
+    response is the only thing that tells a reader what it means, so a value the text does not
+    define would reach a user as a bare word.
+    """
+    for confidence in Confidence:
+        assert f"'{confidence.value}'" in CONFIDENCE_DEFINITION, confidence
+
+
+def test_the_definition_says_what_the_value_does_not_mean():
+    """**G62**'s sentence, reused verbatim rather than paraphrased.
+
+    The inversion this exists for: on `/calculate` the members carrying `reported` are the
+    coincidental header alerts and the `inferred` one is the finding the product exists to
+    find. A reader who takes the confidence as a statement about substantiveness gets it
+    exactly backwards, so the text has to refuse that reading in terms.
+    """
+    assert "It does not mean the scanners agree, confirm each other, or found the same" in (
+        CONFIDENCE_DEFINITION
+    )
+    assert "not a statement about whether any finding is real" in CONFIDENCE_DEFINITION

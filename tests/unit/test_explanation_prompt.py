@@ -9,6 +9,7 @@ from verion.modules.brief.adapters.outbound.explanation.prompt import (
     build_messages,
     render_facts,
 )
+from verion.modules.correlation.ports.candidate_risk import CONFIDENCE_DEFINITION
 from verion.modules.risk_engine.application.explainable_decision import explainable_decision
 from verion.modules.risk_engine.domain.scoring import (
     CORROBORATION_DEFINITION,
@@ -17,6 +18,7 @@ from verion.modules.risk_engine.domain.scoring import (
     SurfaceMember,
     score_surface,
 )
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -33,9 +35,17 @@ def _decision():
             url=_PACKAGE_OR_URL,
             members=[
                 SurfaceMember(
-                    finding_id=_IDS[0], source=ScannerTool.SEMGREP, severity=Severity.HIGH
+                    finding_id=_IDS[0],
+                    source=ScannerTool.SEMGREP,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.INFERRED,
                 ),
-                SurfaceMember(finding_id=_IDS[1], source=ScannerTool.ZAP, severity=Severity.LOW),
+                SurfaceMember(
+                    finding_id=_IDS[1],
+                    source=ScannerTool.ZAP,
+                    severity=Severity.LOW,
+                    confidence=Confidence.REPORTED,
+                ),
             ],
         )
     )
@@ -82,7 +92,12 @@ def test_a_zero_signal_renders_its_note_and_no_severity_label():
             package="urllib3",
             url=None,
             members=[
-                SurfaceMember(finding_id="f", source=ScannerTool.TRIVY, severity=Severity.UNKNOWN)
+                SurfaceMember(
+                    finding_id="f",
+                    source=ScannerTool.TRIVY,
+                    severity=Severity.UNKNOWN,
+                    confidence=Confidence.REPORTED,
+                )
             ],
         )
     )
@@ -102,3 +117,52 @@ def test_the_instructions_forbid_redeciding_and_every_fr8_part_this_input_lacks(
     for missing in ("how to fix it", "how much effort", "how confident anyone is"):
         assert missing in DEVELOPER_INSTRUCTIONS
     assert "only in the terms of its definition" in DEVELOPER_INSTRUCTIONS
+
+
+# ---------------------------------------------------------------------------
+# M8.5, ADR-0037 decision 9 — the confidence reaches no prompt
+# ---------------------------------------------------------------------------
+
+
+def test_no_message_carries_a_confidence_key_or_its_definition():
+    """A REGRESSION GUARD, not the mechanism, and the distinction is the point.
+
+    The property already holds structurally: `render_facts` takes `ExplainableDecision`, and
+    ADR-0037 decision 8 deliberately keeps the confidence OFF that carrier precisely so the
+    narrator cannot be handed it — rule 6 by the type rather than by a convention. This test
+    is what keeps that true for a later issue that widens the input.
+
+    **Asserted positionally and over the WHOLE definition, never as a value substring**, and
+    that choice was measured rather than preferred. `Confidence.REPORTED == "reported"`, and
+    the word already appears in this very message: `CORROBORATION_DEFINITION` renders *"were
+    reported by two or more different scanners"*, and `scoring.py`'s `Signal.note` texts add
+    two more literals that `_signal_line` renders whenever a signal does not fire. A
+    `"reported" not in message` assertion is red on day one, and the repair that makes it
+    green — narrowing to the two values that happen to pass — deletes its own subject.
+    """
+    messages = build_messages(_decision())
+    rendered = {message["role"]: message["content"] for message in messages}
+
+    for role, content in rendered.items():
+        # The whole word, anywhere, case-insensitively — and it is SAFE to assert that
+        # strongly, which was measured rather than assumed. The collision that forced this
+        # test's shape is on the VALUES (`"reported"` appears in `CORROBORATION_DEFINITION`
+        # and in two `Signal.note` texts `_signal_line` renders), not on the word
+        # `confidence`. `DEVELOPER_INSTRUCTIONS` says "how confident anyone is", and
+        # `confident` is not `confidence`.
+        #
+        # An earlier draft checked `line.lower().startswith("confidence")` over unstripped
+        # lines. An indented line — the shape `_signal_line` already emits for a note — walks
+        # straight past that, and so does a confidence appended to an existing line.
+        assert "confidence" not in content.lower(), role
+        assert CONFIDENCE_DEFINITION not in content, role
+
+
+def test_rule_four_still_says_the_model_is_not_told_how_confident_anyone_is():
+    """The sentence the test above rests on, pinned so a repair cannot delete it.
+
+    If a later issue renders the confidence and then "fixes" the assertion by removing this
+    clause from the instructions, both halves would go green while the property was gone.
+    """
+    assert "how confident anyone is" in DEVELOPER_INSTRUCTIONS
+    assert "You are not told" in DEVELOPER_INSTRUCTIONS

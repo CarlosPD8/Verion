@@ -1,7 +1,8 @@
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from verion.modules.correlation.domain.match_key import MatchKey
+from verion.modules.correlation.domain.match_key import MatchKey, MatchKeyResult
+from verion.shared_kernel.confidence import Confidence
 
 
 class PathsServing(Protocol):
@@ -25,8 +26,25 @@ def build_match_key(
     file_path: str | None,
     start_line: int | None,
     paths_serving: PathsServing | None,
-) -> MatchKey:
-    """Build a `MatchKey` from one finding's values. **The single conformance site for them.**
+) -> MatchKeyResult:
+    """Build one finding's `MatchKey` **and the provenance of its signal**. M8.5, ADR-0037.
+
+    **The single conformance site for the finding's values**, and since M8.5 the site that
+    also NAMES where the key's `url` came from. What each branch yields:
+
+    | branch | key | confidence |
+    |---|---|---|
+    | the finding's own `url` | its path | `REPORTED` |
+    | no `url`, a derived route | that route's path | `INFERRED` |
+    | no `url`, a `package` | the package | `REPORTED` |
+    | neither | no signal | `UNGROUPED` |
+
+    So `UNGROUPED` is exactly `not key.has_signal`, and the other two are the branch. The
+    meaning of each value is `CONFIDENCE_DEFINITION` in this module's `ports/`, declared
+    where a consumer may name it; `tests/unit/test_match_key.py` asserts that the values this
+    function can produce and the values `Confidence` declares are **the same set**, so a
+    fourth branch cannot be added without deciding its provenance, and a member no branch
+    reaches cannot be added either.
 
     ADR-0023's Decision puts key construction in `application/` and says why: this is the
     one place `mypy` compares correlation's description of `Finding` against the real one.
@@ -63,18 +81,29 @@ def build_match_key(
        `instances[0]` scar again, and the under-count is the direction ADR-0019 decision 3
        prefers. What that costs is **G54**'s third member.
 
-    **The provenance narrowing, stated at the site that narrows it — G53.** For a derived
+    **The provenance is NAMED at the site that narrows it — G53's closure.** For a derived
     key, `url` did not come off `Location.url`: it came off a route map. The annotations
-    still meet (`str | None` into `str | None`), so section (b)'s check stays green while its
-    subject changes, which is exactly section (c)'s *"semantic changes behind an unchanged
-    signature"*. And `file_path` and `start_line` get `mypy` here and no conformance test,
-    since `test_match_key.py` derives its expectations from the key's fields.
+    still meet (`str | None` into `str | None`), so section (b)'s check on that field stays
+    green while its subject changes — section (c)'s *"semantic changes behind an unchanged
+    signature"*, which ADR-0029 decision 4 entered deliberately and G53 recorded. Returning
+    the provenance is what ends it: the meaning is now a value the signature carries, so it
+    cannot change silently.
+
+    **What that does NOT close, and it is its own entry rather than a note here.**
+    `file_path`, `start_line` and `PathsServing` still get `mypy` at this site and **no
+    conformance assertion**, because `test_match_key.py` derives its expectations from the
+    **key's** fields and none of the three is one. A `Location.start_line` re-typed from
+    `int | None` fails here and nowhere else; a *widened* annotation on either side fails
+    nowhere at all. **G95.**
 
     `start_line` rather than `end_line`: a Semgrep finding's span starts where the matched
     code starts, and the route serving it is the one whose span holds that line.
     """
     if url is not None:
-        return MatchKey(project_id=project_id, package=package, url=urlsplit(url).path or "/")
+        return MatchKeyResult(
+            key=MatchKey(project_id=project_id, package=package, url=urlsplit(url).path or "/"),
+            confidence=Confidence.REPORTED,
+        )
 
     if (
         package is None
@@ -84,6 +113,15 @@ def build_match_key(
     ):
         paths = paths_serving(file_path=file_path, line=start_line)
         if len(paths) == 1:
-            return MatchKey(project_id=project_id, package=None, url=paths[0])
+            return MatchKeyResult(
+                key=MatchKey(project_id=project_id, package=None, url=paths[0]),
+                confidence=Confidence.INFERRED,
+            )
 
-    return MatchKey(project_id=project_id, package=package, url=None)
+    key = MatchKey(project_id=project_id, package=package, url=None)
+    # `has_signal` rather than `package is not None`, so the two stay one statement: a key
+    # that carries nothing to group on is `UNGROUPED`, whatever field would have carried it.
+    return MatchKeyResult(
+        key=key,
+        confidence=Confidence.REPORTED if key.has_signal else Confidence.UNGROUPED,
+    )

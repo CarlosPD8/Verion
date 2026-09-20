@@ -11,6 +11,8 @@ consequence is **G64**; `test_compute_risk.py` is where the reachable route is s
 through the real mappers.
 """
 
+import typing
+
 import pytest
 
 from verion.modules.risk_engine.domain.scoring import (
@@ -18,18 +20,29 @@ from verion.modules.risk_engine.domain.scoring import (
     EXPOSURE_SIGNAL,
     SEVERITY_SIGNAL,
     Priority,
+    ScoredSurface,
     SurfaceMember,
     bucket_for,
     score_surface,
 )
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
 PROJECT = "proj-1"
 
 
-def _member(finding_id, source, severity):
-    return SurfaceMember(finding_id=finding_id, source=source, severity=severity)
+def _member(finding_id, source, severity, confidence=Confidence.REPORTED):
+    """`confidence` defaults here and NOT on `SurfaceMember` itself, deliberately.
+
+    A default on the frozen domain type would let a real caller omit the field and silently
+    get `REPORTED` — an inferred member labelled as reported, which is exactly the mutation
+    the provenance exists to make impossible. Defaulting in this helper keeps the scoring
+    tests readable while leaving the production construction site required.
+    """
+    return SurfaceMember(
+        finding_id=finding_id, source=source, severity=severity, confidence=confidence
+    )
 
 
 def _score(*members, package=None, url="/thing"):
@@ -255,12 +268,81 @@ def test_a_surface_carries_its_key_fields_and_its_members_and_no_identifier():
     assert not hasattr(scored, "id")
 
 
-def test_a_scored_surface_carries_no_confidence_and_the_absence_is_deliberate():
-    """**G63**: ADR-0005 deferred the scale and M6.2 records that it emits none."""
+def test_a_scored_surface_carries_its_confidence_and_the_reasoning_does_not():
+    """M8.5 (ADR-0037), replacing M6.2's absence assertion, which **G63** owed.
+
+    Both halves matter. The surface HAS one, so FR-8's fourth part has a producer; and
+    `RiskReasoning` does NOT, because it is the three summed signals and this is summed into
+    nothing. A confidence on the reasoning would read as a fourth term.
+    """
     scored = _score(_member("f-1", ScannerTool.TRIVY, Severity.LOW))
 
-    assert not hasattr(scored, "confidence")
+    assert scored.confidence is Confidence.REPORTED
     assert not hasattr(scored.reasoning, "confidence")
+
+
+def test_a_surface_with_one_inferred_member_is_inferred():
+    """The fold is ANY, not all, and not a majority. ADR-0037 decision 6.
+
+    The `/calculate` shape: a Semgrep member placed by the route map beside ZAP members that
+    attached through their own url. One inferred member makes the group partly Verion's
+    inference, which is the whole claim the value qualifies.
+    """
+    scored = _score(
+        _member("f-sast", ScannerTool.SEMGREP, Severity.HIGH, Confidence.INFERRED),
+        _member("f-dast-1", ScannerTool.ZAP, Severity.MEDIUM),
+        _member("f-dast-2", ScannerTool.ZAP, Severity.LOW),
+    )
+
+    assert scored.confidence is Confidence.INFERRED
+
+
+def test_a_surface_whose_members_all_attached_off_their_own_fields_is_reported():
+    scored = _score(
+        _member("f-1", ScannerTool.TRIVY, Severity.HIGH),
+        _member("f-2", ScannerTool.TRIVY, Severity.LOW),
+    )
+
+    assert scored.confidence is Confidence.REPORTED
+
+
+def test_a_no_signal_singleton_is_ungrouped_rather_than_reported():
+    """The case the two-value scale the register drafted had no word for.
+
+    `read`/`derived` would have called this `read`, claiming the membership came off a field
+    the scanner reported when nothing came off anything: the key carried no signal, so nothing
+    was grouped at all.
+    """
+    scored = _score(_member("f-1", ScannerTool.SEMGREP, Severity.HIGH, Confidence.UNGROUPED))
+
+    assert scored.confidence is Confidence.UNGROUPED
+
+
+def test_the_confidence_is_not_summed_into_the_score():
+    """ADR-0037 decision 7: carried beside the score, never a fourth term.
+
+    Two surfaces identical but for their members' provenance score the same and bucket the
+    same. Without this, a later reader could add a term and every bucket assertion above would
+    still pass, because none of them varies provenance.
+    """
+    reported = _score(_member("f-1", ScannerTool.ZAP, Severity.HIGH))
+    inferred = _score(_member("f-1", ScannerTool.ZAP, Severity.HIGH, Confidence.INFERRED))
+
+    assert reported.priority_score == inferred.priority_score
+    assert reported.priority is inferred.priority
+    assert reported.confidence is not inferred.confidence
+
+
+def test_the_member_confidence_crosses_as_the_shared_vocabulary_and_not_a_bare_string():
+    """A typo must be a type error, so the annotation is the enum and not `str`.
+
+    `lint-imports` already stops this module naming a `correlation` type; it cannot see which
+    annotation was chosen instead, and `str` would let `"inferrd"` type-check on a frozen
+    domain type feeding three routes. Read through `get_type_hints` so the assertion is about
+    the resolved annotation rather than about a string spelling of it.
+    """
+    assert typing.get_type_hints(SurfaceMember)["confidence"] is Confidence
+    assert typing.get_type_hints(ScoredSurface)["confidence"] is Confidence
 
 
 def test_a_surface_with_no_members_scores_zero_rather_than_raising():

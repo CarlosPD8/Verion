@@ -251,8 +251,8 @@ MatchKey   # M5.8 — correlation; what two findings are compared on (ADR-0023)
 MatchGroup   # M5.8 — correlation; a candidate Risk as SHIPPED
  ├── key: MatchKey
  ├── finding_ids
- └── member_confidence: (Confidence, ...)   # M8.5 DESIGNED (ADR-0037), ships in that issue's
-                                            # second commit: one value per member, positionally
+ └── member_confidence: (Confidence, ...)   # M8.5 (ADR-0037), SHIPPED: one value per member,
+                                            # positionally
                                             # aligned to finding_ids and sorted WITH them. Which
                                             # branch of build_match_key placed that member:
                                             # reported (off a field its scanner gave), inferred
@@ -260,9 +260,9 @@ MatchGroup   # M5.8 — correlation; a candidate Risk as SHIPPED
  # A projection, recomputed per request and never stored (ADR-0025 decision 1): no id, no
  # table, no repository. The Risk block below is the design for a scored, stored Risk;
  # nothing is forced to persist one before M8.1.
- # M8.5 has build_match_key return MatchKeyResult(key, confidence) rather than a bare key, so the
- # provenance is named at the construction site rather than re-derived downstream — the closure
- # G53 asked for (ADR-0029's 2026-09-20 amendment). Decided; not in src/ until that commit.
+ # Since M8.5 build_match_key returns MatchKeyResult(key, confidence) rather than a bare key, so
+ # the provenance is named at the construction site rather than re-derived downstream — the
+ # closure G53 asked for (ADR-0029's 2026-09-20 amendment). G53 is resolved.
 
 Risk   # designed, not built — see MatchGroup above (marked 2026-09-15)
  ├── id, project_id
@@ -319,9 +319,9 @@ RiskReasoning
  # priority and reasoning, with NO id and NO row. The `Risk` block above stays
  # designed-not-built: this adds a function and a signal set, not a table.
  # `fix_now` has exactly one reachable route, so no package surface can reach it — G64.
- # M8.5 ADDS (designed; ships in its second commit) `confidence: Confidence` to
- # ScoredSurface, folded over its members: inferred if any member is, else ungrouped if
- # any is (only ever a singleton), else reported. Still no id and no row.
+ # M8.5 ADDS `confidence: Confidence` to ScoredSurface, folded over its members: inferred
+ # if any member is, else ungrouped if any is (only ever a singleton), else reported.
+ # Carried beside priority_score and summed into nothing. Still no id and no row.
 
 SecurityBrief   # M7.2 — brief; SHIPPED (ADR-0033). Append-only: one row per generation
  ├── id, project_id
@@ -333,8 +333,8 @@ SecurityBrief   # M7.2 — brief; SHIPPED (ADR-0033). Append-only: one row per g
  ├── what_happened: Explanation | None   # M7.3 (ADR-0034): a SECOND narration, from members'
  │                                       # typed titles and locations only, by a separate call;
  │                                       # None only for a Brief written before M7.3
- ├── confidence: Confidence | None  # M8.5 DESIGNED (ADR-0037), ships with its migration in that
- │                                  # issue's second commit. The surface's grouping provenance as the
+ ├── confidence: Confidence | None  # M8.5 (ADR-0037), SHIPPED with migration d8f2a5c61e47.
+ │                                  # The surface's grouping provenance as the
  │                                  # engine computed it. Its OWN nullable column, never inside
  │                                  # the stored decision — that carrier is "everything a
  │                                  # narrator may see" and no prompt receives this. So
@@ -353,9 +353,8 @@ SecurityBrief   # M7.2 — brief; SHIPPED (ADR-0033). Append-only: one row per g
  #  - confidence: none is emitted (G63). (Until M8.5. It now ships — as the grouping
  #    provenance, ADR-0037 — so this line describes M7.2 through M8.1 only.)
  # Two of FR-8's six parts ship: why it matters, and evidence sources as finding ids.
- # (Three since M7.3: what happened joins them, ADR-0034. FR-8 is MET IN ALL FOUR once
- # M8.5's code commit lands, recommended action and estimated effort having been cut to
- # V2 on 2026-09-19.)
+ # (Three since M7.3: what happened joins them, ADR-0034. FR-8 is MET IN ALL FOUR since
+ # M8.5, recommended action and estimated effort having been cut to V2 on 2026-09-19.)
  # `brief/domain` importing `risk_engine.ports` is the first cross-module import from any
  # domain/ package, and no contract covers it (G77).
 ```
@@ -411,7 +410,7 @@ erDiagram
 | `DeclareServingUseCase` / `GetServingDeclarationUseCase` | Declare, owner-only and as a compare-and-set against the currently configured values, that the scanned URL serves the connected repository; read it back with its in-force verdict (M5.5, ADR-0028) |
 | `ComputeRiskUseCase` | Score and prioritize correlated Risks. **Scores a SURFACE** — the package or route path the match key names — as a pure function of `severity` + a DAST-member exposure term + a distinct-`source` corroboration term, bucketed `fix_now`/`plan`/`monitor`, persisting nothing (M6.1, ADR-0005). Reads two ports and names neither's types: `correlation`'s candidate-Risk port, and `normalization`'s `FindingRepositoryPort`, because a group carries `finding_ids` and no severity. *(Consumed since M6.3 by `ListScoredRisksUseCase`; it still returns `correlation`'s group order itself, and ranking happens above it)* |
 | `ListScoredRisksUseCase` | A **ranked** page of a project's scored Risks, plus the normalization state that says whether the list is complete. Composes `ComputeRiskUseCase` rather than re-scoring, so scoring and the access check each have one site, and applies `rank_surfaces` on top — **ranking enters here and nowhere below it**, because `ComputeRiskUseCase` deliberately returns `correlation`'s group order. The whole set is ranked **before** paging, or a page would be the top of an arbitrary order labelled a priority. Returns a projection: nothing persists a Risk at M6.3 either, so no item carries an id (M6.3, ADR-0030) |
-| `GenerateSecurityBriefUseCase` | Produce the developer-facing explanation and store it (M7.2, ADR-0033). **Selects one current scored Risk by its exact finding-id set** through `risk_engine`'s `ExplainableRiskPort`, which fails closed when membership has changed. Then reads up to 20 members through `normalization`'s `FindingRepositoryPort` into `brief`'s own sanitized `BriefMember`, narrates *what happened* (`describe`, validated so it never rejects member-supplied text) and then *why it matters* (`explain`), and appends a `SecurityBrief`; nothing is written unless both calls succeed (M7.3, ADR-0034). From M8.5's code commit it stores the surface's `Confidence` alongside, taken from the port and shown to neither prompt (M8.5, ADR-0037; decided in that issue's first commit). Member-level, inherited through that port, which coincides with owner-gating only because nothing creates a non-owner membership (**G75**). Synchronous and billed twice per Brief, with nothing bounding repeats (**G73**) |
+| `GenerateSecurityBriefUseCase` | Produce the developer-facing explanation and store it (M7.2, ADR-0033). **Selects one current scored Risk by its exact finding-id set** through `risk_engine`'s `ExplainableRiskPort`, which fails closed when membership has changed. Then reads up to 20 members through `normalization`'s `FindingRepositoryPort` into `brief`'s own sanitized `BriefMember`, narrates *what happened* (`describe`, validated so it never rejects member-supplied text) and then *why it matters* (`explain`), and appends a `SecurityBrief`; nothing is written unless both calls succeed (M7.3, ADR-0034). Since M8.5 it stores the surface's `Confidence` alongside, taken from the port and shown to neither prompt (ADR-0037). Member-level, inherited through that port, which coincides with owner-gating only because nothing creates a non-owner membership (**G75**). Synchronous and billed twice per Brief, with nothing bounding repeats (**G73**) |
 | `ListSecurityBriefsUseCase` | A page of a project's Briefs, newest first, each carrying the `finding_ids` a client joins on against the scored listing (M7.2, ADR-0033). Consumes `ProjectAccessPort` directly, because it reads only `brief`'s own table. **No completeness envelope**: no pipeline owes a Brief (**G76**) |
 | `ResolveRiskUseCase` / `DismissRiskUseCase` | Change risk lifecycle state, with reason *(2026-09-19, ADR-0036: M8.1 builds `DismissRiskUseCase`, `UndismissRiskUseCase` and `ListRiskDismissalsUseCase`, in `history/application/`. `ResolveRiskUseCase` moves to M9.1.)* |
 | `GetProjectDashboardUseCase` | Read model for the UI |
@@ -443,7 +442,7 @@ erDiagram
 | `ScannerPort` | Run a scan and return raw results | `SemgrepAdapter`, `TrivyAdapter`, `ZapAdapter` |
 | `VcsProviderPort` | Read repo metadata, register webhooks; since M5.6 commit 4 also fetch the default branch as one source archive, read in memory under size caps (`fetch_source_archive`, ADR-0029) | `GitHubAdapter` |
 | `ExplanationProviderPort` | Two narrations, each raising only `ExplanationUnavailable`. **`describe(*, members: tuple[BriefMember, ...], member_count: int) -> Explanation`** (M7.3, ADR-0034) narrates what the scanners reported from members' sanitized, capped, typed titles and locations, and sees no decision. **`explain(*, decision: ExplainableDecision) -> Explanation`** narrates an already-decided priority, and **its input is `risk_engine`'s published carrier and nothing scanned**, which since M7.3 is what makes rule 6 hold by construction: the bucket, score, thresholds and three signals with their definitions, and no package, URL, finding id or finding text (M7.1, ADR-0032). Provider-agnostic as a port; one adapter ships. *(Read "from structured Risk data" until 2026-09-17.)* **Consumed since M7.2** by `GenerateSecurityBriefUseCase`, its first production caller. The OpenAI capture that call makes owed was not taken in M7.2, for lack of a recording script; no adapter change is needed (ADR-0032's M7.3 amendment striking the adapter-change clause), and M7.3 takes it | `OpenAIExplanationProvider` |
-| `ExplainableRiskPort` | `risk_engine`'s second published port (M7.2, ADR-0033 decision 6). `explainable_risk(*, project_id, user_id, finding_ids) -> ExplainableRisk`: one current scored surface whose finding ids equal the given set, with its `ExplainableDecision` and, from M8.5's code commit, its `Confidence` (ADR-0037; decided M8.5 commit 1). It recomputes the project's scored set on every call (**G61**). Declares its three denials (`ExplainableRiskAccessDenied`, `NoCurrentRisk`, `ExplainableRiskInconsistent`) in the port module so `brief` can catch them by type | `ScoredExplainableRisks` |
+| `ExplainableRiskPort` | `risk_engine`'s second published port (M7.2, ADR-0033 decision 6). `explainable_risk(*, project_id, user_id, finding_ids) -> ExplainableRisk`: one current scored surface whose finding ids equal the given set, with its `ExplainableDecision` and, since M8.5, its `Confidence` (ADR-0037). It recomputes the project's scored set on every call (**G61**). Declares its three denials (`ExplainableRiskAccessDenied`, `NoCurrentRisk`, `ExplainableRiskInconsistent`) in the port module so `brief` can catch them by type | `ScoredExplainableRisks` |
 | `SecurityBriefRepositoryPort` | Append and page a project's `SecurityBrief`s, newest first (M7.2, ADR-0033). No update and no upsert. A stored decision that does not read back fails the page rather than being skipped | Postgres adapter |
 | `JobQueuePort` | Enqueue a scan job (`scanning`) | Redis/arq adapter |
 | `NormalizationQueuePort` | Enqueue a normalization job (`normalization`, M4.4). A separate port rather than a method on `JobQueuePort`, because the job belongs to this module. **Losing a message here is not an error**: the `normalization_runs` row is the durable record and the sweep recovers it (ADR-0017 decision 2) | Redis/arq adapter |
@@ -533,7 +532,7 @@ Each module's `domain/` folder has **zero imports** from `adapters/` or any thir
 
 The scope clause is load-bearing. An enum's *members* are the shared knowledge: to write `severity >= Severity.HIGH` you must import the type by name, and `risk_engine` may not import `normalization`'s domain (rule 3). A structure's *fields* are reachable by attribute without importing the type — `scanning` reads `connected_repo.url` today without `ConnectedRepo` living here. Without the clause the criterion would pull in `Location`, then `Finding`, and hollow out `normalization/domain/`.
 
-Applied so far, in: `ScannerTool` (ADR-016 decision 4, which predates the criterion), `Severity` (ADR-0018 decision 2, admitted in the act of stating it), and `Confidence` — a Risk's grouping provenance — as the **third enum** (M8.5, ADR-0037; decided, and in `src/` from that issue's second commit). Applied out, five times, and every one of them since the criterion was written: `Finding.confidence` and `Location` (both ADR-0018), `dedup_hash` (ADR-0019 decision 6), `Finding` **and** a structural `Protocol` (ADR-0023, counted as one occasion by ADR-0018's own running tally), and that `Protocol` again (ADR-0005 decision 2). So `Confidence` is the first thing the criterion has admitted **since it acquired one**, which is the sentence above about the third arriving by habit being answered.
+Applied so far, in: `ScannerTool` (ADR-016 decision 4, which predates the criterion), `Severity` (ADR-0018 decision 2, admitted in the act of stating it), and `Confidence` — a Risk's grouping provenance — as the **third enum** (M8.5, ADR-0037, in `shared_kernel/confidence.py`). Applied out, five times, and every one of them since the criterion was written: `Finding.confidence` and `Location` (both ADR-0018), `dedup_hash` (ADR-0019 decision 6), `Finding` **and** a structural `Protocol` (ADR-0023, counted as one occasion by ADR-0018's own running tally), and that `Protocol` again (ADR-0005 decision 2). So `Confidence` is the first thing the criterion has admitted **since it acquired one**, which is the sentence above about the third arriving by habit being answered.
 
 **Two different things are called "confidence", and the criterion answers them differently.** What ADR-0018 declined is `Finding.confidence`, a **per-finding** value only ZAP supplies — an *input*, still declined, still unmet by any capture (**G94**). What ADR-0037 admits is `Confidence`, a **per-Risk** grouping provenance — an *output*. ADR-0005 decision 4 drew this distinction first; it is restated here because the two share a word and the two lines above would otherwise read as a contradiction.
 
@@ -601,7 +600,7 @@ sequenceDiagram
     Exp-->>Brief: what happened (validated before anything else runs)
     Brief->>Exp: explain(ExplainableDecision) — decided bucket + signals, nothing scanned (M7.1)
     Exp-->>Brief: why it matters
-    Brief->>DB: append SecurityBrief (finding_ids, decision, explanation, what_happened, confidence — M8.5) — no Risk row
+    Brief->>DB: append SecurityBrief (finding_ids, decision, explanation, what_happened, confidence) — no Risk row
 ```
 
 Three properties this diagram is drawn to make visible, each load-bearing:
@@ -753,7 +752,7 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
   - **The log.** `risk_events` is append-only and ordered by `ordinal` under `UNIQUE(risk_id, ordinal)`, with `kind` `dismissed` or `undismissed`, an actor, and a reason required for a dismissal and bounded at 2,000 characters. Current state is derived. There is no "opened" event.
   - **Authorization.** Member level, on ADR-0033 decision 7's precedent: a dismissal meets neither of ADR-0035's "manage" conditions. Every denial is one 404. Every record is listed to every member; while it is dismissed, it shows who dismissed it, why and when.
   - **Scope.** Dismiss only; resolution stays M9.1's. G37 resolves by structure, because no projection writer names the user state. Opens G90 (a hash-version bump orphans every snapshot), G91 (unbounded member text elsewhere) and G92 (two concurrent dismissals of one surface).
-- **ADR-0037 — A Risk's confidence: grouping provenance, where it is computed, and what it may not claim.** M8.5, written before its code. Closes a gap four issues old across two milestones: ADR-0005 deferred the scale at M6.1, and M6.2, M7.1 and M7.2 each recorded the absence rather than choosing, because — in **G63**'s words — *"either scale reaches a third module."*
+- **ADR-0037 — A Risk's confidence: grouping provenance, where it is computed, and what it may not claim.** M8.5, written before its code, and **shipped**. Closes a gap four issues old across two milestones: ADR-0005 deferred the scale at M6.1, and M6.2, M7.1 and M7.2 each recorded the absence rather than choosing, because — in **G63**'s words — *"either scale reaches a third module."*
   - **What it means.** A Risk's confidence is its **grouping provenance**: `reported` when every member was placed on the surface by a field its own scanner gave, `inferred` when at least one was placed by the route map, `ungrouped` when the key carried no signal to group on. It says nothing about whether a finding is real and nothing about whether the tools describe one vulnerability. The register's older `read`/`derived` vocabulary maps to `reported`/`inferred`.
   - **Where it comes from.** `build_match_key` returns the key **and** its provenance, so the construction site names it rather than a consumer re-deriving it — the closure **G53** asked for by name, and an amendment to ADR-0029 decision 4 rather than a tidy-up. `MatchGroup` carries one value per member aligned to `finding_ids`; `risk_engine` folds them onto `ScoredSurface` (`inferred` if any member is, else `ungrouped`, else `reported`).
   - **The vocabulary is `shared_kernel`'s third enum**, and the **first positive application** of ADR-0018 decision 2's criterion after five refusals. Two enums held equal by a test would have been **G33**'s shape; a bare `str` would let a typo typecheck on a frozen domain type feeding three routes.

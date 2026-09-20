@@ -69,7 +69,14 @@ class ComputeRiskUseCase:
         scored: list[ScoredSurface] = []
         for group in groups:
             members: list[SurfaceMember] = []
-            for finding_id in group.finding_ids:
+            # Zipped, because `member_confidence` is positionally aligned to `finding_ids`
+            # (ADR-0037 decision 5) and reading them apart is how an alignment bug becomes a
+            # mislabelled member. `strict=True` so a group that ever lost the invariant
+            # raises here rather than scoring a short surface, which is the same preference
+            # `MemberFindingMissing` below encodes.
+            for finding_id, confidence in zip(
+                group.finding_ids, group.member_confidence, strict=True
+            ):
                 finding = by_id.get(finding_id)
                 if finding is None:
                     # The two reads disagreed. Scoring a short surface would return a
@@ -83,6 +90,7 @@ class ComputeRiskUseCase:
                         finding_id=finding.id,
                         source=finding.source,
                         severity=finding.severity,
+                        confidence=confidence,
                     )
                 )
 

@@ -1,8 +1,10 @@
-"""`SecurityBrief`'s field set is ADR-0033 decision 2's enumeration plus ADR-0034's one part.
+"""`SecurityBrief`'s field set: ADR-0033 decision 2's enumeration, plus one part each from
+M7.3 and M8.5.
 
-Equality, not containment. A `confidence`, `estimated_effort`, `recommended_action` or `risk_id`
-added in passing fails here rather than being depended on, and so does losing a field.
-`what_happened` joined at M7.3 by decision (ADR-0034 decision 3).
+Equality, not containment. An `estimated_effort`, `recommended_action` or `risk_id` added in
+passing fails here rather than being depended on, and so does losing a field. `what_happened`
+joined at M7.3 (ADR-0034 decision 3) and `confidence` at M8.5 (ADR-0037 decision 8), each by
+decision rather than in passing — which is what this assertion exists to force.
 """
 
 import dataclasses
@@ -14,6 +16,7 @@ from verion.modules.brief.domain.explanation import Explanation
 from verion.modules.brief.domain.security_brief import SecurityBrief
 from verion.modules.risk_engine.application.explainable_decision import explainable_decision
 from verion.modules.risk_engine.domain.scoring import SurfaceMember, score_surface
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -24,6 +27,7 @@ _FIELDS = {
     "decision",
     "explanation",
     "what_happened",
+    "confidence",
     "generated_at",
 }
 
@@ -37,7 +41,14 @@ def test_a_brief_is_frozen():
         project_id="p",
         package="urllib3",
         url=None,
-        members=[SurfaceMember(finding_id="f-1", source=ScannerTool.TRIVY, severity=Severity.HIGH)],
+        members=[
+            SurfaceMember(
+                finding_id="f-1",
+                source=ScannerTool.TRIVY,
+                severity=Severity.HIGH,
+                confidence=Confidence.REPORTED,
+            )
+        ],
     )
     brief = SecurityBrief(
         id="b-1",
@@ -46,6 +57,7 @@ def test_a_brief_is_frozen():
         decision=explainable_decision(surface),
         explanation=Explanation(text="t", model="m", prompt_version="v"),
         what_happened=Explanation(text="w", model="m", prompt_version="v2"),
+        confidence=Confidence.REPORTED,
         generated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 

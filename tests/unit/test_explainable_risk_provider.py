@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from verion.modules.correlation.domain.match_key import MatchKey
+from verion.modules.correlation.domain.match_key import MatchKey, MatchKeyResult
 from verion.modules.correlation.domain.matching import group_by_match_key
 from verion.modules.correlation.ports.candidate_risk import CandidateRiskAccessDenied
 from verion.modules.risk_engine.application.compute_risk import ComputeRiskUseCase
@@ -32,6 +32,7 @@ from verion.modules.risk_engine.ports.explainable_risk import (
     ExplainableRiskInconsistent,
     NoCurrentRisk,
 )
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -48,8 +49,13 @@ _FINDINGS = {
 }
 
 
-def _key(*, package=None, url=None):
-    return MatchKey(project_id=PROJECT, package=package, url=url)
+def _key(*, package=None, url=None, confidence=None):
+    """The builder's result, hand-built. `confidence` defaults to what the real builder
+    would have produced for this shape, so a scenario only names it when that is the point."""
+    key = MatchKey(project_id=PROJECT, package=package, url=url)
+    if confidence is None:
+        confidence = Confidence.REPORTED if key.has_signal else Confidence.UNGROUPED
+    return MatchKeyResult(key=key, confidence=confidence)
 
 
 _GROUPS = group_by_match_key(
@@ -111,7 +117,9 @@ async def test_an_exact_set_returns_that_surfaces_decision_and_its_own_finding_i
     risk = await _select(("f-3", "f-5"))
 
     assert risk == ExplainableRisk(
-        finding_ids=surface.finding_ids, decision=explainable_decision(surface)
+        finding_ids=surface.finding_ids,
+        decision=explainable_decision(surface),
+        confidence=surface.confidence,
     )
     assert risk.decision.priority == "fix_now"
 

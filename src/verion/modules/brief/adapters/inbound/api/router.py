@@ -6,6 +6,7 @@ from verion.modules.brief.adapters.inbound.api.schemas import (
     BriefReasoningResponse,
     BriefSignalResponse,
     BriefThresholdsResponse,
+    ConfidenceResponse,
     GenerateSecurityBriefRequest,
     ProjectSecurityBriefsResponse,
     SecurityBriefResponse,
@@ -22,6 +23,10 @@ from verion.modules.brief.domain.exceptions import (
     StoredBriefUnreadable,
 )
 from verion.modules.brief.domain.security_brief import SecurityBrief
+
+# `correlation`'s PORT module, which `cross-module-brief` permits (it forbids that module's
+# `.domain` and `.adapters`). The definition is declared once there and forwarded verbatim.
+from verion.modules.correlation.ports.candidate_risk import CONFIDENCE_DEFINITION
 
 # `risk_engine`'s PORT module, never its domain: the denials are declared there so this route
 # can catch them by type.
@@ -75,6 +80,14 @@ def _brief_response(brief: SecurityBrief) -> SecurityBriefResponse:
                 model=brief.what_happened.model,
                 prompt_version=brief.what_happened.prompt_version,
             )
+        ),
+        confidence=(
+            None
+            if brief.confidence is None
+            # `correlation`'s single declaration, forwarded verbatim. The value is the STORED
+            # one; the definition is today's, because no narrator was shown it and so there
+            # is nothing to keep checkable against what was narrated.
+            else ConfidenceResponse(value=str(brief.confidence), definition=CONFIDENCE_DEFINITION)
         ),
         priority=decision.priority,
         priority_score=decision.priority_score,

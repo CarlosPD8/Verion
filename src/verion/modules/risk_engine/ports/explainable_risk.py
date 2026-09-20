@@ -3,6 +3,7 @@ from typing import Protocol
 
 from verion.modules.risk_engine.domain.exceptions import RiskEngineError
 from verion.modules.risk_engine.ports.explainable_decision import ExplainableDecision
+from verion.shared_kernel.confidence import Confidence
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -16,10 +17,21 @@ class ExplainableRisk:
     route.
 
     Declared in `ports/`, like `ExplainableDecision`, so a consumer can name it.
+
+    **`confidence` sits HERE and not on `ExplainableDecision`** (M8.5, ADR-0037 decision 8),
+    and the placement is rule 6 rather than taste: that carrier's docstring says it is
+    *"everything a narrator may see"* and it is frozen so rule 6 holds by the type, while
+    **no prompt receives this value**. Putting it there would make that sentence false and
+    degrade rule 6 to a convention. It also belongs beside `finding_ids`, which IS the
+    grouping this value describes.
+
+    The knock-on is the point: `ExplainableDecision` is unchanged, so the stored decision's
+    version does not move and every Brief written before M8.5 still reads back.
     """
 
     finding_ids: tuple[str, ...]
     decision: ExplainableDecision
+    confidence: Confidence
 
 
 class ExplainableRiskAccessDenied(RiskEngineError):

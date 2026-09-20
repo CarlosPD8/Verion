@@ -43,6 +43,7 @@ from verion.modules.risk_engine.ports.explainable_risk import (
     ExplainableRisk,
     ExplainableRiskAccessDenied,
 )
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -90,12 +91,26 @@ def _risk(*finding_ids: str) -> ExplainableRisk:
         package=None,
         url="/calculate",
         members=[
-            SurfaceMember(finding_id="f-3", source=ScannerTool.SEMGREP, severity=Severity.HIGH),
-            SurfaceMember(finding_id="f-5", source=ScannerTool.ZAP, severity=Severity.LOW),
+            SurfaceMember(
+                finding_id="f-3",
+                source=ScannerTool.SEMGREP,
+                severity=Severity.HIGH,
+                confidence=Confidence.REPORTED,
+            ),
+            SurfaceMember(
+                finding_id="f-5",
+                source=ScannerTool.ZAP,
+                severity=Severity.LOW,
+                confidence=Confidence.REPORTED,
+            ),
         ],
     )
     ids = finding_ids or surface.finding_ids
-    return ExplainableRisk(finding_ids=tuple(ids), decision=explainable_decision(surface))
+    return ExplainableRisk(
+        finding_ids=tuple(ids),
+        decision=explainable_decision(surface),
+        confidence=surface.confidence,
+    )
 
 
 class _FakeExplainableRisks:
@@ -212,6 +227,7 @@ async def test_the_brief_holds_the_decision_both_narrations_and_the_engines_memb
         project_id=PROJECT,
         finding_ids=("f-3", "f-5"),
         decision=risk.decision,
+        confidence=risk.confidence,
         explanation=Explanation(
             text="fix_now at 6: severity 4 + exposure 1 + corroboration 1.",
             model="fake",

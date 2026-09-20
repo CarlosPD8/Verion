@@ -52,6 +52,8 @@ class ScoredExplainableRisks:
                 return ExplainableRisk(
                     finding_ids=surface.finding_ids,
                     decision=explainable_decision(surface),
+                    # The engine's value for the surface it scored, never the caller's.
+                    confidence=surface.confidence,
                 )
 
         raise NoCurrentRisk(

@@ -65,6 +65,28 @@ class WhatHappenedResponse(BaseModel):
     prompt_version: str
 
 
+class ConfidenceResponse(BaseModel):
+    """A Risk's grouping provenance, and what it means. M8.5, ADR-0037 decision 10.
+
+    **The definition rides the response because NO PROMPT receives this value.** The three
+    scored signals get their meaning to a reader through a narrator that was handed
+    `ExplainableSignal.definition`; this value is handed to neither call, so the response is
+    the only thing that can carry its meaning, and the field name alone would not.
+
+    **One owner, two placements.** The text is `correlation`'s single `CONFIDENCE_DEFINITION`,
+    forwarded verbatim. It sits on the ITEM here, because a Brief is one narrated record with
+    no envelope, and on the ENVELOPE of `/scored-risks`, because there it would be a constant
+    repeated once per item — ADR-0030 decision 3's reason for the thresholds. A test asserts
+    the two placements are byte-identical, which is what makes "one owner" a claim.
+
+    **`value` is one of `reported`, `inferred`, `ungrouped`**, all three named and defined in
+    `definition` so the text and the vocabulary cannot drift apart.
+    """
+
+    value: str
+    definition: str
+
+
 class SecurityBriefResponse(BaseModel):
     """One stored Brief. FR-8's *why it matters*, *what happened* and *evidence sources*.
 
@@ -75,15 +97,21 @@ class SecurityBriefResponse(BaseModel):
 
     **The decision is the one that was narrated**, which may no longer be the live one: a
     member's severity can be refreshed without the set changing. Compare `priority_score`
-    against `/scored-risks` to see whether it moved.
+    **and `confidence`** against `/scored-risks` to see whether either moved.
 
     **`what_happened` is `null` only for a Brief generated before M7.3**, and is kept whole on
     the list as well (ADR-0034 decision 6). It is an object, not top-level fields beside
     `why_it_matters`, `model` and `prompt_version`, so that shipped keys were not renamed; those
     three remain the *why it matters* narration's.
 
-    **Deliberately absent**, each asserted by a test: `confidence` (**G63**);
-    `recommended_action` and `estimated_effort` (**G74**); `risk_id`, because
+    **`confidence` is `null` only for a Brief generated before M8.5** (ADR-0037), on
+    `what_happened`'s terms: generation never writes one, and there is no backfill. It is the
+    surface's grouping provenance as the engine computed it, and like `priority_score` above
+    it is **the value that was stored, not today's** — compare it against `/scored-risks` to
+    see whether a route-map rebuild has moved it (**G93**).
+
+    **Deliberately absent**, each asserted by a test:
+    `recommended_action` and `estimated_effort` (**G74**, both cut to V2); `risk_id`, because
     a Risk has no identifier (ADR-0025 decision 1); `project_id`, which is the path parameter
     (ADR-0022 decision 1); and a completeness envelope (ADR-0033 decision 4, **G76**).
     """
@@ -92,6 +120,7 @@ class SecurityBriefResponse(BaseModel):
     finding_ids: list[str]
     why_it_matters: str
     what_happened: WhatHappenedResponse | None
+    confidence: ConfidenceResponse | None
     priority: str
     priority_score: int
     thresholds: BriefThresholdsResponse

@@ -32,6 +32,7 @@ from verion.modules.brief.domain.explanation import Explanation
 from verion.modules.risk_engine.application.explainable_decision import explainable_decision
 from verion.modules.risk_engine.domain.scoring import SurfaceMember, score_surface
 from verion.modules.risk_engine.ports.explainable_decision import ExplainableDecision
+from verion.shared_kernel.confidence import Confidence
 from verion.shared_kernel.scanner_tools import ScannerTool
 from verion.shared_kernel.severity import Severity
 
@@ -71,10 +72,27 @@ def _decision(*members: SurfaceMember) -> ExplainableDecision:
 
 
 _FIX_NOW = (
-    SurfaceMember(finding_id="f-1", source=ScannerTool.SEMGREP, severity=Severity.HIGH),
-    SurfaceMember(finding_id="f-2", source=ScannerTool.ZAP, severity=Severity.LOW),
+    SurfaceMember(
+        finding_id="f-1",
+        source=ScannerTool.SEMGREP,
+        severity=Severity.HIGH,
+        confidence=Confidence.REPORTED,
+    ),
+    SurfaceMember(
+        finding_id="f-2",
+        source=ScannerTool.ZAP,
+        severity=Severity.LOW,
+        confidence=Confidence.REPORTED,
+    ),
 )
-_QUIET = (SurfaceMember(finding_id="f-3", source=ScannerTool.TRIVY, severity=Severity.UNKNOWN),)
+_QUIET = (
+    SurfaceMember(
+        finding_id="f-3",
+        source=ScannerTool.TRIVY,
+        severity=Severity.UNKNOWN,
+        confidence=Confidence.REPORTED,
+    ),
+)
 
 
 @pytest.mark.parametrize("make", _PROVIDER_NAMES, indirect=True)
