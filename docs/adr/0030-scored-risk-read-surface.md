@@ -273,6 +273,17 @@ of this paragraph said all seven already carried notes, which its own commit fal
 saying its condition is unmet; G37 and G11 say *"if M6.3 takes the write"*, which stays true
 afterwards and reports nothing.
 
+## Amendments
+
+- **2026-09-20 (M8.5, documentation commit): decision 3's enumeration is amended on BOTH halves — the item is to gain a field and the ENVELOPE one. The binding key-set assertion widens to match.** ADR-0037 decisions 8 and 10. **This commit writes no `src/`**; both land in M8.5's second commit.
+  - **The item** gains `confidence`, a Risk's grouping provenance: `ungrouped`, `reported` or `inferred`. The per-item enumeration is therefore `match{package, url}`, `finding_ids`, `finding_count`, `priority_score`, `priority`, `reasoning{…}` **and `confidence`**.
+  - **The envelope** gains `confidence_definition`, so it reads `total`, `limit`, `offset`, the completeness envelope, `ThresholdsResponse{fix_now_at, plan_at}` **and `confidence_definition`**.
+  - **Why the definition is on the envelope and not on the item, which is this decision's own argument applied to a new constant.** It is one constant per response, and decision 3 already put the thresholds there because *"per item they are a constant repeated once per surface — the speculative shape ADR-0016 decision 3 and ADR-0021 both refused."* `SignalResponse` on this route carries no `definition` either. **A Brief carries the same text on its item**, as `{value, definition}`, because a Brief is a single narrated record with no envelope; that divergence is grounded in ADR-0037 decision 10 so it is not read as **G17**'s shape, and a test asserts the two placements are byte-identical from one owner.
+  - **The absence list loses one entry.** *"Asserted absent, each with a test: `confidence` (**G63**)"* is discharged by that commit — `test_a_scored_risk_carries_no_confidence` is rewritten into a test that the field is present and what it is. `id`, `raw_payload`, `dedup_hash`, `resolved`/`is_open`/`status` and absolute worker paths all stay asserted absent.
+  - **The binding assertion widens rather than loosens**, which is this decision's own point: *"The enumeration above is binding, and an absence list cannot bind it."* The item's key set still must **equal** its enumeration, and the envelope's now does too.
+  - **`G66` is struck in part**, and the strike lives on that entry rather than here: its *"the only difference between them is the **ORDER**"* goes false when the field ships, while its superset clause holds and widens, `/risks` gaining neither.
+  - **Decisions 1, 2, 4, 5, 6 and 7 are unaffected.** Decision 6's `fix_now` closure is untouched, and ADR-0037 decision 7 records that every surface reaching that bucket is `inferred`.
+
 ## Alternatives considered
 
 **Scores added to `GET /projects/{id}/risks`.** Rejected in decision 1: the mapper cannot be

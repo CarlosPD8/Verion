@@ -207,6 +207,19 @@ names), ADR-0018 (decision 5's deferral discharged; decision 1's `UNKNOWN` quest
 **`ARCHITECTURE.md` §4.1's `Risk` block stays "designed, not built"**: this ADR adds a function and
 a signal set, not a table.
 
+## Amendments
+
+*(This ADR also carries an in-Decision dated amendment at decision 5, written at M6.2. Both are the record; neither supersedes the other.)*
+
+- **2026-09-20 (M8.5): decision 1's deferred confidence is DECIDED, and it is not a fourth term.** ADR-0037.
+  - **What decision 1 deferred**: *"This decision fixes priority only. The Risk's own `confidence` is DEFERRED to M6.2, seeded as G63."* It travelled M6.2 → M7.1 → M7.2 and is decided at M8.5 as the Risk's **grouping provenance** — `ungrouped`, `reported` or `inferred`, from which branch of `build_match_key` placed each member.
+  - **The function is UNCHANGED.** `priority_score` is still `severity_signal + exposure_signal + corroboration_signal`, the thresholds still `fix_now ≥ 6` / `plan 4–5` / `monitor < 4`, and `RiskReasoning` still carries the three signals and nothing else. Confidence is carried **beside** the score, never summed into it.
+  - **Why not summed, on this ADR's own kind of ground — measured, and corpus-bounded.** The only cross-source pairing `build_match_key` can produce is a route-derived Semgrep member with a ZAP member (**G64**), so **every `fix_now` surface reachable from real scanner output contains an inferred member**. A term penalising `inferred` would close the top bucket outright; one rewarding it would reward inference. ADR-0037 decision 7 carries this with its own reopen condition, because it is a fact about two captured corpora and the shipped mappers rather than a theorem.
+  - **Decision 2 is honoured rather than widened.** `risk_engine/domain/` still names nothing belonging to another module: the per-member value arrives as a `shared_kernel` scalar at the one keyword-only construction site this decision established, and the surface-level value is a fold computed there.
+  - **Decision 3 is unaffected** — scoring still persists nothing. What is stored is a **Brief's** confidence, in `brief`'s own table, for the same reason a Brief stores its decision.
+  - **Decision 4 is UNCHANGED and is re-affirmed.** `Finding.confidence` stays declined; its re-propose condition — *"when a capture exhibits a state value, or a second tool supplies confidence"* — is still unmet, only codes `1`, `2` and `3` appearing across both captures. Its parenthetical distinction is what M8.5 turns on: *"An input; the Risk's own confidence, deferred in decision 1, is an output."* This amendment settles the **output**. The input is **G94**.
+  - **So this ADR now fully discharges ADR-0003's stated shape** — a bucket, a confidence and a `RiskReasoning` — which decision 1's closing paragraph said it did not. That ADR carries its own dated amendment saying so.
+
 ## Alternatives considered
 
 **A group is a vulnerability** (decision 0's option (b)). Rejected because the shipped grouping

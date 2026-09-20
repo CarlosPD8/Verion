@@ -332,6 +332,13 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     sender is OpenAI or the network path, not an attacker choosing the endpoint.
   - **Consequence.** It strengthens **G73**, which records it. The timeout's value stays G73's decision.
 
+- **2026-09-20 (M8.5, documentation commit): decision 3's "No confidence is emitted" is SUPERSEDED, and this ADR's prompt boundary is untouched by that.** ADR-0037.
+  - **What is superseded, and where it is also said.** Decision 3 states *"**G63** stays open, re-pointed at M7.2"*, and this ADR's Context states *"A scored Risk carries no confidence (**G63**), and tests assert the absence."* ADR-0037 decides a confidence — the Risk's **grouping provenance** — and it ships in M8.5's second commit, at which point both sentences describe M7.1 through M8.1 and no later state. **They are annotated rather than rewritten**, per this project's rule against editing an accepted Decision in line; this note is the record.
+  - **Why the annotation is written here at all**, when the code has not landed: the claim is cited from two other documents and three `src/` docstrings, and an earlier M8.5 draft struck it at its own site and nowhere else. That is the defect `CLAUDE.md` records — *"After a correction narrows or strikes a cited claim, grep the claim across the tree before closing the round"* — which cost ADR-0016 decision 3 a milestone of staleness.
+  - **Decision 2's prompt boundary is UNCHANGED, and deliberately.** ADR-0037 decision 9 sends the confidence to **neither** provider call. `ExplainableDecision` does not carry it (ADR-0037 decision 8), so *"the prompt's input ends at that carrier"* stays exactly true and `explain`'s prompt stays byte-identical at `PROMPT_VERSION = "m7.1-1"`. Nothing new leaves Verion.
+  - **Decision 3's own reasoning is vindicated rather than overturned.** It declined to choose because *"emitting one reaches a third module either way"*. It does: M8.5 spans `correlation`, `risk_engine`, `brief` and `shared_kernel`. What changed is that an issue was scoped to pay that cost, not that the cost was wrong.
+  - **Decisions 1, 4, 5, 6 and 7 are unaffected**, and decision 4's `CORROBORATION_DEFINITION` gains a sibling in `correlation` rather than a competitor: ADR-0037 decision 10 copies its shape — a definition declared beside the thing that computes it, carried to the reader verbatim.
+
 ## Alternatives considered
 
 **Re-exporting `RiskReasoning` through `risk_engine/ports/`.** Rejected in decision 1.
