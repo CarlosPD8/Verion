@@ -318,11 +318,15 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     `_async/http11.py` passes it to every `_receive_event`, in the response-body loop included, and
     `_receive_event` applies it to each `_network_stream.read`. It bounds the wait for the next
     bytes, not the response: a response delivering a chunk every 29 s never times out.
-  - **No overall deadline exists.** Nothing in the adapter, the use case or the route wraps the call in
-    one, so the hold is bounded neither by 30 s nor by the sum of the phases. `GitHubAdapter` records the
-    same per-operation behaviour and bounds its archive fetch with `asyncio.timeout`; this adapter has no
-    counterpart. `openai_adapter.py`'s comment above `_TIMEOUT_SECONDS`, *"httpx applies it per phase,
-    not to the whole call"*, is incomplete for the same reason: within the read phase it applies per read.
+  - ~~**No overall deadline exists.** Nothing in the adapter, the use case or the route wraps the call in
+    one, so the hold is bounded neither by 30 s nor by the sum of the phases.~~ `GitHubAdapter` records the
+    same per-operation behaviour and bounds its archive fetch with `asyncio.timeout`; ~~this adapter has no
+    counterpart.~~ *(Both clauses STRUCK 2026-09-21 as falsified by M8.6 commit 1, which gives this adapter
+    that counterpart: `_CALL_DEADLINE_SECONDS`, one `asyncio.timeout` per port call in `_complete`. See the
+    M8.6 amendment below.)* `openai_adapter.py`'s comment above `_TIMEOUT_SECONDS`, *"httpx applies it per
+    phase, not to the whole call"*, is incomplete for the same reason: within the read phase it applies per
+    read. *(That sentence stands as the dated reading it was; the comment it describes was qualified by the
+    same commit.)*
   - **What still holds.** A read that waits 30 s with nothing arriving times out, and the Brief then
     answers the fixed 502 and stores nothing. What is false is that every call longer than 30 s ends
     that way. The capture's one cut-off call fits a read timeout at 30.32 s but does not show one:
@@ -338,6 +342,63 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
   - **Decision 2's prompt boundary is UNCHANGED, and deliberately.** ADR-0037 decision 9 sends the confidence to **neither** provider call. `ExplainableDecision` does not carry it (ADR-0037 decision 8), so *"the prompt's input ends at that carrier"* stays exactly true and `explain`'s prompt stays byte-identical at `PROMPT_VERSION = "m7.1-1"`. Nothing new leaves Verion.
   - **Decision 3's own reasoning is vindicated rather than overturned.** It declined to choose because *"emitting one reaches a third module either way"*. It does: M8.5 spans `correlation`, `risk_engine`, `brief` and `shared_kernel`. What changed is that an issue was scoped to pay that cost, not that the cost was wrong.
   - **Decisions 1, 4, 5, 6 and 7 are unaffected**, and decision 4's `CORROBORATION_DEFINITION` gains a sibling in `correlation` rather than a competitor: ADR-0037 decision 10 copies its shape — a definition declared beside the thing that computes it, carried to the reader verbatim.
+
+- **2026-09-21 (M8.6 commit 1): the adapter now has an overall deadline, and it is a SECOND constant.**
+  The **2026-09-18** amendment is amended by it — not the entry directly above, which is unrelated:
+  two of that amendment's clauses are struck at their own site.
+  - **What landed.** `_CALL_DEADLINE_SECONDS = 30.0`, and one `asyncio.timeout(_CALL_DEADLINE_SECONDS)`
+    around the request in `_complete`. `_complete` is the one method `explain` and `describe` share, so
+    the deadline lands once and bounds **each port call** — never the pair. That is `fetch_source_archive`'s
+    structure read correctly: its single deadline covers the two HTTP requests of *one* port call, which
+    that adapter can see. `describe` and `explain` are two port calls made by the application layer, and
+    a deadline over both could not live here. It could not be 30 s either: over M7.3's capture the
+    per-Brief wall time has median **32.32 s** and maximum **49.03 s** across **n=29** exercises that ran
+    both calls, so one 30 s deadline over the pair would reject 17 of 29.
+  - **Two constants, because the 2026-09-18 amendment established two quantities.** `_TIMEOUT_SECONDS` keeps
+    its name and its meaning, the per-operation value; the deadline is a second name at the same value.
+    One constant serving both roles would contradict the document it corrects. **No number changed**:
+    this commit changes which quantity 30 s measures and prices nothing. The generous asynchronous bound
+    remains **G73**'s, handed to the queued job, and it is `_CALL_DEADLINE_SECONDS` that the job re-decides
+    — so the handoff sentence moved to that constant's comment rather than staying above the one the job
+    does not re-price. The precedent's deadline is six times its per-operation value; that ratio is the
+    job's to set. At today's equal values the per-operation bound can fire first only when a single read
+    consumes the whole budget, and that race is confined to which message this adapter raises: both are
+    `ExplanationUnavailable`, which `brief`'s router maps to one 502 with a fixed detail.
+  - **Decision 6 is satisfied, not changed.** The new failure raises a fixed message, `from None`, naming
+    no value — not even the number, since a deadline is neither a status code nor a `finish_reason`. No
+    response body is read on this path. Measured, not assumed: `from None` sets `__suppress_context__` and
+    leaves `__context__` populated, which is what stops the context being rendered; `test_github_adapter.py`
+    can assert `__context__ is None` only because that adapter raises outside its handler, a discipline
+    neither of `_complete`'s two handlers uses. The new test asserts `__suppress_context__` and the file's own
+    leak check, because the deadline expires **during** the POST that carries `Authorization: Bearer`
+    (**G71**).
+  - **Catching the deadline is the substance, and the claim spans two links measured separately.** A
+    builtin `TimeoutError` is not an `httpx2.HTTPError` — measured against the installed `httpx2` 2.12.0 on
+    CPython 3.12.14, `issubclass` is `False` in **both** directions, `TimeoutError` descending from
+    `OSError` and `httpx2.HTTPError` straight from `Exception`, so the two `except` clauses are disjoint
+    and their order is immaterial. `asyncio.TimeoutError` **is** the builtin, so one clause is the whole of
+    what the deadline can raise, and `socket.timeout` **is** the builtin too, so a socket timeout escaping
+    `httpcore2`'s wrapping lands in the same translation.
+    - **Link 1 — the adapter lets it escape.** Measured by mutation: with the `except TimeoutError` removed
+      and the `asyncio.timeout` kept, the deadline leaves `_complete` as a bare `TimeoutError`, raised at
+      `asyncio/timeouts.py`'s `raise TimeoutError from exc_val`.
+    - **Link 2 — nothing downstream catches it.** Measured by probe: a `TimeoutError` raised from the use
+      case is caught by none of the five `except` clauses on the POST route (the router has seven, the
+      other two belonging to the list route), FastAPI's three default handlers
+      cover `HTTPException` and the two validation errors only, no user middleware is installed, and
+      Starlette's `ServerErrorMiddleware` answers **500** — where decision 9 of ADR-0033 fixes this failure
+      at 502. Measured with `httpx2.ASGITransport(raise_app_exceptions=False)`, because at its default the
+      exception propagates into the client instead of becoming the response a server would send. **The
+      harness is not committed, so this figure is a record of the run, not a re-runnable claim.**
+    - **The chain is their conjunction.** Neither measurement alone shows it: the mutation puts a
+      `TimeoutError` on the wire out of the adapter, the probe shows what a caller then gets.
+  - **What this does NOT do, because "bounds the hold" is the easy misreading.** It caps the provider
+    call. The request's session is still opened by `get_db_session` and still held across the member reads
+    and both calls — now finite, at most two deadlines plus the request's own work, where before it was
+    unbounded. It is not released. **G73** stays live on that mechanism and on repeats, and its
+    2026-09-21 note carries the split.
+  - **Found on the way.** The link-2 probe returned its 500 as a full traceback, because `debug` defaults
+    to `True` and rule 11's validator never looks at it. **G98**.
 
 ## Alternatives considered
 

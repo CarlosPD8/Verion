@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 import httpx2
@@ -24,10 +25,32 @@ _CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 # `reasoning_effort` (figures and n in ADR-0032's Consequences). One, a `describe`, hit this bound
 # at 30.32 s of client wall time; the tail past it is unmeasured, so any larger value would be
 # invented. A synchronous bound answers to what a user will wait for, and by that 30 s is already
-# too long. So the exceedance is evidence that generation does not belong in a request, and this
-# value belongs to whatever makes generation asynchronous (**G73**), as one decision with it
-# (ADR-0032's M7.3 capture amendment). httpx applies it per phase, not to the whole call.
+# too long. So the exceedance is evidence that generation does not belong in a request — the
+# argument `_CALL_DEADLINE_SECONDS` below carries forward, and where the handoff to the
+# asynchronous work now sits (ADR-0032's M7.3 capture amendment).
+#
+# **This is the PER-OPERATION value.** httpx applies it per phase, not to the whole call, and
+# within the read phase it applies per read, so a response arriving in chunks under 30 s apart
+# never trips it (ADR-0032's 2026-09-18 amendment). What bounds the call is the deadline below.
 _TIMEOUT_SECONDS = 30.0
+
+# THE CALL DEADLINE, one per port call, on `GitHubAdapter._ARCHIVE_DEADLINE_SECONDS`'s precedent:
+# "httpx's timeout is per operation, so a server trickling one byte every nine seconds never trips
+# it; this does." `_complete` is the one method both `explain` and `describe` pass through, so the
+# deadline lands once and bounds each call — never the pair, which this adapter cannot see, and
+# which at the measured per-Brief wall times no single 30 s deadline could cover anyway.
+#
+# **It is 30 s because that is what `_TIMEOUT_SECONDS` already declared, not because 30 s was
+# chosen for a call.** M8.6 commit 1 changes which quantity 30 s measures and prices nothing. The
+# generous bound belongs to whatever makes generation asynchronous (**G73**), as one decision with
+# it, and THIS is the value that work re-decides. The precedent's deadline is six times its
+# per-operation value; that ratio is that work's to set too.
+#
+# At today's equal values the per-operation bound above can fire first only when one read consumes
+# the whole budget, where both expire together. That race is confined to which message this
+# adapter raises: both are `ExplanationUnavailable`, which `brief`'s router maps to one 502 with a
+# fixed detail, so no caller can tell which fired.
+_CALL_DEADLINE_SECONDS = 30.0
 
 # OpenAI's reasoning guide: "reserve at least 25,000 tokens for reasoning and outputs when
 # you start experimenting with these models". gpt-5-mini is a reasoning model and
@@ -95,14 +118,31 @@ class OpenAIExplanationProvider:
             "store": False,
         }
         try:
-            async with httpx2.AsyncClient(
-                timeout=_TIMEOUT_SECONDS, transport=self._transport
-            ) as client:
-                response = await client.post(
-                    _CHAT_COMPLETIONS_URL,
-                    json=body,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                )
+            # The deadline is OUTSIDE the client, so it covers connecting, sending, the wait and
+            # the body, which is the whole of what `_TIMEOUT_SECONDS` bounds only phase by phase.
+            async with asyncio.timeout(_CALL_DEADLINE_SECONDS):
+                async with httpx2.AsyncClient(
+                    timeout=_TIMEOUT_SECONDS, transport=self._transport
+                ) as client:
+                    response = await client.post(
+                        _CHAT_COMPLETIONS_URL,
+                        json=body,
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                    )
+        # Measured against the installed httpx2 2.12.0 on CPython 3.12.14, not assumed: these two
+        # are disjoint in BOTH directions, so their order is immaterial — `TimeoutError` descends
+        # from `OSError`, `httpx2.HTTPError` straight from `Exception`. Outward-in by convention.
+        #
+        # `asyncio.TimeoutError` IS the builtin, so this clause is the whole of what the deadline
+        # above can raise; `socket.timeout` IS the builtin too, so a socket-level timeout escaping
+        # httpcore2's wrapping lands here as well, which is the same translation. A cancelled
+        # request still raises `CancelledError`, a BaseException, so this cannot swallow one.
+        #
+        # Without this clause the deadline escapes every `except` in `brief`'s router and the
+        # request answers 500 where ADR-0033 decision 9 fixes this failure at 502 (ADR-0032's
+        # M8.6 amendment). It is the reason the bound is not a one-line change.
+        except TimeoutError:
+            raise ExplanationUnavailable("OpenAI did not answer within the deadline") from None
         except httpx2.HTTPError:
             raise ExplanationUnavailable("OpenAI request failed before a response") from None
 

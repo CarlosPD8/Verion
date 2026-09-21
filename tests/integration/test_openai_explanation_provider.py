@@ -26,6 +26,7 @@ every file in `tests/integration/`, it does need the Postgres service, because
 `conftest.py`'s autouse `_clean_all_tables` fixture migrates and cleans that database.
 """
 
+import asyncio
 import copy
 import json
 import logging
@@ -35,6 +36,9 @@ from pathlib import Path
 import httpx2
 import pytest
 
+from verion.modules.brief.adapters.outbound.explanation import (
+    openai_adapter as openai_adapter_module,
+)
 from verion.modules.brief.adapters.outbound.explanation.describe_prompt import (
     DESCRIBE_PROMPT_VERSION,
     build_describe_messages,
@@ -281,7 +285,16 @@ async def test_a_non_200_status_is_unavailable_and_names_only_the_status(status)
     assert _leaks(exc_info.value) == []
 
 
-async def test_a_timeout_is_unavailable():
+async def test_a_read_timeout_is_unavailable():
+    """Pins the TRANSLATION of one phase's timeout, not that the phase bound is reachable.
+
+    The handler raises `httpx2.ReadTimeout` synthetically rather than by elapsed time, so this
+    stays green whatever the two constants are set to. Since M8.6 commit 1 they are equal, and
+    `_TIMEOUT_SECONDS` can therefore fire before `_CALL_DEADLINE_SECONDS` only when a single read
+    consumes the whole budget — which is why the name says which timeout this is, and why the
+    adapter's comment carries what that equality means. The test below covers the deadline.
+    """
+
     def handler(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ReadTimeout("timed out", request=request)
 
@@ -289,6 +302,37 @@ async def test_a_timeout_is_unavailable():
 
     with pytest.raises(ExplanationUnavailable):
         await provider.explain(decision=_decision())
+
+
+async def test_a_call_that_outlasts_the_deadline_is_unavailable(monkeypatch):
+    """The whole call is bounded, which `_TIMEOUT_SECONDS` alone does not do.
+
+    httpx applies its timeout per phase and, within the read phase, per read, so a response
+    arriving in chunks under the bound never trips it (ADR-0032's 2026-09-18 amendment). The
+    handler here sleeps: no phase ever times out, and only `asyncio.timeout` ends the call. The
+    deadline is shortened, because a real one would take thirty seconds.
+
+    **The credential is in play here**, because the deadline expires during the POST that carries
+    `Authorization: Bearer` — so the leak assertions are the ground, not any absence of a key
+    (**G71**). `__suppress_context__` is what ADR-0032 decision 6's `from None` sets; it leaves
+    `__context__` populated and stops it being rendered, which `_leaks` reads.
+    `test_github_adapter.py`'s deadline test can assert `__context__ is None` only because that
+    adapter raises outside its handler, a stronger discipline neither of `_complete`'s two
+    handlers uses.
+    """
+    monkeypatch.setattr(openai_adapter_module, "_CALL_DEADLINE_SECONDS", 0.05)
+
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(5)
+        return httpx2.Response(200, json=_EXPLAIN_200)
+
+    provider, _ = _provider(handler)
+
+    with pytest.raises(ExplanationUnavailable) as exc_info:
+        await provider.explain(decision=_decision())
+
+    assert exc_info.value.__suppress_context__ is True
+    assert _leaks(exc_info.value) == []
 
 
 @pytest.mark.parametrize(
