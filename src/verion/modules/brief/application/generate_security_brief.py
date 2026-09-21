@@ -83,9 +83,20 @@ class GenerateSecurityBriefUseCase:
     (**G75**). The member reads rely on that verdict and take no second one: they carry data,
     keyed by the ids the ENGINE returned and scoped by project (ADR-0034 decision 2).
 
-    **Synchronous**, and billed twice per Brief. The request's session stays open across both
-    provider calls, and nothing bounds repeats (**G73**). Generation does not refuse while
-    normalization is unfinished (ADR-0033 decision 5, **G76**).
+    ~~**Synchronous**, and billed twice per Brief. The request's session stays open across both
+    provider calls, and nothing bounds repeats (**G73**).~~ *(Struck 2026-09-21, M8.6 commit 3.
+    **Billed twice per Brief still holds**; the rest does not. ADR-0038 makes generation a job,
+    so this runs in the worker under `RunBriefGenerationUseCase` and no request's session is
+    held — **G73**'s session half resolves at this commit. The worker's own session IS held
+    across both calls, bounded by arq's `max_jobs` default of 10 against a 15-connection pool
+    ceiling, which is why the entry resolves rather than transforms; that the inequality holds by
+    two library defaults nothing sets is **G101**. Repeats are still unbounded, now in
+    **G100**.)* Generation does not refuse while normalization is unfinished (ADR-0033
+    decision 5, **G76**).
+
+    **It raises; it does not classify.** Each of its five terminal exceptions maps to one of
+    three `failure_kind` values, and that mapping is `RunBriefGenerationUseCase`'s — deliberately
+    not here, so this class stays the narration and nothing else.
     """
 
     def __init__(

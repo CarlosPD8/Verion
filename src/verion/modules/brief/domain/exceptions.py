@@ -24,7 +24,11 @@ class WhatHappenedRejected(ExplanationUnavailable):
     """A *what happened* narrative failed output validation (ADR-0034 decision 5, M6).
 
     **A subclass of `ExplanationUnavailable`**, because to a caller it is the same outcome: no
-    usable narrative, nothing stored, and the route's fixed 502. It is its own type so a test
+    usable narrative, nothing stored, and ~~the route's fixed 502~~ **one `provider_unavailable`
+    generation with a fixed detail** *(M8.6 commit 3: no route returns a 502 on this path any
+    more — generation is a job, and `RunBriefGenerationUseCase` maps this type and its parent
+    onto one `failure_kind`, ADR-0038 decision 6. The reason the two collapse is unchanged,
+    which is why only the instrument is corrected.)*. It is its own type so a test
     can tell a rejection from a provider failure.
 
     **Its message names the check that failed and never quotes the output**, which is model text
@@ -47,6 +51,23 @@ class SecurityBriefAccessDenied(BriefError):
 
     Like the verdict beneath it (`ProjectAccessPort`), it does not distinguish "no such project"
     from "not a member", so a route answers 404 for both (ADR-0022 decision 2).
+    """
+
+
+class BriefGenerationAccessDenied(BriefError):
+    """The caller may not read this Brief generation. M8.6, ADR-0038 decision 8.
+
+    **One type for three different refusals, on purpose** (**G17**): the project is absent or the
+    caller is not a member; the generation does not exist; or it exists and somebody else
+    requested it. The poll authorizes on `may_read_project` **and** an actor match, so a
+    generation is readable only by the caller who asked for it, and every other member of the same
+    project is refused exactly as a stranger is.
+
+    That actor match is what makes decision 6's unobservability real rather than asserted: the
+    only caller who could read a row that terminated on a revoked membership is the one the poll
+    now refuses.
+
+    Its message names the path ids the caller supplied and nothing else.
     """
 
 

@@ -360,10 +360,18 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     this commit changes which quantity 30 s measures and prices nothing. The generous asynchronous bound
     remains **G73**'s, handed to the queued job, and it is `_CALL_DEADLINE_SECONDS` that the job re-decides
     — so the handoff sentence moved to that constant's comment rather than staying above the one the job
-    does not re-price. The precedent's deadline is six times its per-operation value; that ratio is the
+    does not re-price. ~~The precedent's deadline is six times its per-operation value; that ratio is the
     job's to set. At today's equal values the per-operation bound can fire first only when a single read
     consumes the whole budget, and that race is confined to which message this adapter raises: both are
-    `ExplanationUnavailable`, which `brief`'s router maps to one 502 with a fixed detail.
+    `ExplanationUnavailable`, which `brief`'s router maps to one 502 with a fixed detail.~~ *(All three
+    clauses struck 2026-09-21, M8.6 commit 3. The ratio **is now set, at 4x not 6x**. The values are
+    **no longer equal** — 30 s against 120 s — so the per-operation bound is the smaller and can fire
+    first at any single read over 30 s: the clause **inverted** rather than needing qualification. And
+    the router maps nothing to a 502 any more; both still raise `ExplanationUnavailable`, which the job
+    maps to one `provider_unavailable` outcome, so the conclusion that no caller can tell which fired
+    survives its three premises. **None of these three sites is on ADR-0038's owed list**, which named
+    `openai_adapter.py`'s copy of the same claim and not this one; they were found by grepping the claim
+    across the tree.)*
   - **Decision 6 is satisfied, not changed.** The new failure raises a fixed message, `from None`, naming
     no value — not even the number, since a deadline is neither a status code nor a `finish_reason`. No
     response body is read on this path. Measured, not assumed: `from None` sets `__suppress_context__` and
@@ -393,10 +401,15 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     - **The chain is their conjunction.** Neither measurement alone shows it: the mutation puts a
       `TimeoutError` on the wire out of the adapter, the probe shows what a caller then gets.
   - **What this does NOT do, because "bounds the hold" is the easy misreading.** It caps the provider
-    call. The request's session is still opened by `get_db_session` and still held across the member reads
+    call. ~~The request's session is still opened by `get_db_session` and still held across the member reads
     and both calls — now finite, at most two deadlines plus the request's own work, where before it was
     unbounded. It is not released. **G73** stays live on that mechanism and on repeats, and its
-    2026-09-21 note carries the split.
+    2026-09-21 note carries the split.~~ *(Struck 2026-09-21, M8.6 commit 3, which is true of that commit
+    and false now: the request holds no session across a provider call at all, because generation is a
+    job. The session held across both calls is the **worker's**, bounded by arq's `max_jobs` default of
+    10 under a 15-connection pool ceiling. **G73** resolves on that mechanism at commit 3 and its repeats
+    half passes to **G100**; that the inequality holds by two library defaults nothing declares is
+    **G101**.)*
   - **Found on the way.** The link-2 probe returned its 500 as a full traceback, because `debug` defaults
     to `True` and rule 11's validator never looks at it. **G98**.
 
@@ -418,7 +431,28 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     30.32 s, *is* the call that hit the bound, and `describe`'s 28.14 s and `explain`'s 25.47 s are
     clean only conditional on not having exceeded 30. Deriving a value from a single exceedance is
     what this ADR's M7.3 amendment refused, and ADR-0038 does not do it by the back door.
-  - **`_TIMEOUT_SECONDS` does not move**, and the M8.6 commit-1 amendment above stands in full.
+  - **`_TIMEOUT_SECONDS` does not move**, and ~~the M8.6 commit-1 amendment above stands in full~~
+    *(struck 2026-09-21, M8.6 commit 3: it does not. Four of its clauses are struck at their own site
+    by that commit — the 6x ratio, the equal-values race, the 502 mapping, and the request's session
+    being held across both calls. What stands is everything about **what landed at commit 1**: the two
+    constants, their disjointness measurement, decision 6 being satisfied, and both links of the
+    escape claim.)*
+
+- **2026-09-21 (M8.6 commit 3, ADR-0038): it is built, and the adapter's second process is real.**
+  - **`_CALL_DEADLINE_SECONDS` is 120.0.** `_TIMEOUT_SECONDS` stays 30.0. The ground is unchanged from
+    the commit-2 amendment above and is worth restating because the number invites the wrong reading:
+    the value is generous **because nothing waits on it under a job**, bounded by
+    `WorkerSettings.job_timeout` at 600 s, and **not** derived from any measured latency. Every
+    per-call figure this project holds is right-censored at 30 s.
+  - **`on_startup` builds `OpenAIExplanationProvider` into `ctx`**, reading `openai_api_key` and
+    `openai_model` from `Settings`. The rules analysis in the commit-2 amendment stands as written; what
+    changes is that it now describes code rather than a plan.
+  - **Rule 12's new surface, checked rather than asserted.** A provider failure reaching a worker log
+    is the surface commit 2 named. What holds it is unchanged — decision 6's fixed messages, `from None`
+    — and the code commit adds a second assertion the route tests could not make: the terminal
+    `brief_generations` row is queried directly and checked for a key-shaped sentinel, because a stored
+    `detail` column would have been the obvious place for a provider's message to land. There is no such
+    column; `detail` is derived from `failure_kind` at the adapter (ADR-0038 decision 6).
 
 ## Alternatives considered
 

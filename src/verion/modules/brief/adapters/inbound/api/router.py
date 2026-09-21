@@ -3,6 +3,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 
 from verion.modules.brief.adapters.inbound.api.schemas import (
+    BriefGenerationAcceptedResponse,
+    BriefGenerationResponse,
     BriefReasoningResponse,
     BriefSignalResponse,
     BriefThresholdsResponse,
@@ -16,9 +18,12 @@ from verion.modules.brief.application.list_security_briefs import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
 )
+from verion.modules.brief.domain.brief_generation import (
+    BriefGeneration,
+    BriefGenerationFailureKind,
+)
 from verion.modules.brief.domain.exceptions import (
-    BriefMemberMissing,
-    ExplanationUnavailable,
+    BriefGenerationAccessDenied,
     SecurityBriefAccessDenied,
     StoredBriefUnreadable,
 )
@@ -28,32 +33,42 @@ from verion.modules.brief.domain.security_brief import SecurityBrief
 # `.domain` and `.adapters`). The definition is declared once there and forwarded verbatim.
 from verion.modules.correlation.ports.candidate_risk import CONFIDENCE_DEFINITION
 
-# `risk_engine`'s PORT module, never its domain: the denials are declared there so this route
-# can catch them by type.
+# `risk_engine`'s PORT module, never its domain.
 from verion.modules.risk_engine.ports.explainable_decision import ExplainableSignal
-from verion.modules.risk_engine.ports.explainable_risk import (
-    ExplainableRiskAccessDenied,
-    ExplainableRiskInconsistent,
-    NoCurrentRisk,
-)
 from verion.platform.di import (
     CurrentUserIdDep,
-    GenerateSecurityBriefUseCaseDep,
+    GetBriefGenerationUseCaseDep,
     ListSecurityBriefsUseCaseDep,
+    RequestSecurityBriefUseCaseDep,
 )
 
 router = APIRouter()
 
 # Fixed details, never `str(exc)`, for every failure whose message is not the caller's own
-# input. In particular `ExplanationUnavailable`: its message is safe by ADR-0032 decision 6,
-# and the client still has no use for a provider's status code (G71's second path).
-_NO_CURRENT_RISK = (
-    "No current Risk in this project has exactly these findings. Re-read the scored Risks."
-)
-_INCONSISTENT = "This project's Risks could not be scored consistently."
-_NARRATION_UNAVAILABLE = "The Brief could not be generated. Nothing was stored."
+# input.
 _UNREADABLE = "A stored Brief for this project could not be read."
-_MEMBER_MISSING = "A finding in this Risk could not be read."
+
+# **One fixed sentence per `failure_kind`, DERIVED here rather than stored** (ADR-0038 decision
+# 6). Two things follow, both deliberate: no provider text can reach a client, because none of
+# these strings is built from an exception's message (rule 12, and `ExplanationUnavailable`'s
+# own message is safe by ADR-0032 decision 6 but still has nothing a client can use — **G71**'s
+# second path); and the table needs no `detail` column, which would have sat outside
+# `ck_brief_generations_outcome_shape` as a correlation held by convention.
+#
+# Each says what the client should DO, because that is the axis the vocabulary was chosen on.
+# The first is the wording the route used to return as a 404 body, preserved: it is the same
+# refusal, reported later (ADR-0033 decision 1).
+_FAILURE_DETAIL: dict[BriefGenerationFailureKind, str] = {
+    BriefGenerationFailureKind.SURFACE_CHANGED: (
+        "No current Risk in this project has exactly these findings. Re-read the scored Risks."
+    ),
+    BriefGenerationFailureKind.PROVIDER_UNAVAILABLE: (
+        "The Brief could not be generated. Nothing was stored. Asking again may succeed."
+    ),
+    BriefGenerationFailureKind.INTERNAL_ERROR: (
+        "This Brief could not be generated. Asking again will not help."
+    ),
+}
 
 
 def _signal_response(signal: ExplainableSignal) -> BriefSignalResponse:
@@ -106,66 +121,108 @@ def _brief_response(brief: SecurityBrief) -> SecurityBriefResponse:
     )
 
 
+def _generation_response(generation: BriefGeneration) -> BriefGenerationResponse:
+    return BriefGenerationResponse(
+        id=generation.id,
+        status=str(generation.status),
+        failure_kind=(None if generation.failure_kind is None else str(generation.failure_kind)),
+        # Derived, never stored. A kind with no entry here would be a `KeyError` rather than a
+        # `null` a client would read as "no detail", which is the loud failure of the two.
+        detail=(
+            None if generation.failure_kind is None else _FAILURE_DETAIL[generation.failure_kind]
+        ),
+        brief_id=generation.brief_id,
+    )
+
+
 @router.post(
     "/{project_id}/briefs",
-    status_code=status.HTTP_201_CREATED,
-    response_model=SecurityBriefResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=BriefGenerationAcceptedResponse,
 )
-async def generate_security_brief(
+async def request_security_brief(
     project_id: str,
     body: GenerateSecurityBriefRequest,
     user_id: CurrentUserIdDep,
-    use_case: GenerateSecurityBriefUseCaseDep,
-) -> SecurityBriefResponse:
-    """Narrate the current Risk whose members are exactly `finding_ids`, and store the Brief.
+    use_case: RequestSecurityBriefUseCaseDep,
+) -> BriefGenerationAcceptedResponse:
+    """Ask for the current Risk whose members are exactly `finding_ids` to be narrated.
 
-    **Every call is two billed provider calls and writes a new row** (ADR-0034 decision 3): one
-    narrates what the members report, one why the priority is what it is. Both succeed or
-    nothing is stored. Generation is append-only,
-    so a second call for the same set is a regeneration, not a no-op (ADR-0033 decision 3). It
-    is synchronous, holding this request open across both calls, and nothing bounds repeats
-    (**G73**).
+    **202, not 201: this enqueues a job and returns an addressable generation** (ADR-0038
+    decision 1, replacing ADR-0033 decision 8). Poll
+    `GET /projects/{project_id}/brief-generations/{id}` for the outcome, and read the Brief
+    itself on `GET /projects/{project_id}/briefs` once `brief_id` is set.
 
-    **The set selects; it does not address.** If findings joined or left the surface since the
-    caller read `/scored-risks`, this answers 404 and stores nothing (ADR-0033 decision 1). The
-    Brief's own identity is the `id` it returns.
+    **Every accepted request is still two billed provider calls and one new row** (ADR-0034
+    decision 3): one narrates what the members report, one why the priority is what it is. Both
+    succeed or nothing is stored. Generation is append-only, so a second request for the same
+    set is a regeneration, not a no-op (ADR-0033 decision 3) — and **nothing bounds repeats**
+    (**G100**), which this route makes cheaper to exercise, not dearer, because it returns
+    before the work.
 
-    **Member-level**, inherited from the read verdict through `risk_engine`'s port. That
-    coincides with owner-gating today only because nothing creates a non-owner membership
-    (**G75**). It does **not** refuse while normalization is unfinished, because a failed run
-    counts and is never retried, so that refusal would be permanent (ADR-0033 decision 5,
-    **G76**).
+    **The set selects; it does not address** (ADR-0033 decision 1). What changed at M8.6 is
+    *when*: the set is stored here and resolved in the worker, so a set that no longer names a
+    surface is a `surface_changed` generation rather than this route's 404.
+
+    **Two authorization gates, in two processes** (ADR-0038 decision 4). This route asks
+    `may_read_project` before it writes anything; the job re-authorizes through
+    `risk_engine`'s port with the stored `user_id`, which is what catches a membership revoked
+    between enqueue and run. The second is defence in depth, not an inherited verdict.
+
+    **Member-level**, which coincides with owner-gating today only because nothing creates a
+    non-owner membership (**G75**). It does **not** refuse while normalization is unfinished,
+    because a failed run counts and is never retried, so that refusal would be permanent
+    (ADR-0033 decision 5, **G76**).
     """
     try:
-        brief = await use_case.execute(
+        generation = await use_case.execute(
             project_id=project_id, user_id=user_id, finding_ids=tuple(body.finding_ids)
         )
-    except ExplainableRiskAccessDenied as exc:
-        # 404 for both denials (ADR-0022 decision 2), inherited through the port as M6.3's
-        # route inherits it. G17: one of the two routes this issue adds.
+    except BriefGenerationAccessDenied as exc:
+        # 404 for both denials (ADR-0022 decision 2). **G17**: the same body the list route
+        # and the poll return, so no refusal is distinguishable from another.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except NoCurrentRisk as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NO_CURRENT_RISK) from exc
-    except ExplainableRiskInconsistent as exc:
-        # A broken server-side invariant, chosen as a 500 rather than left to the framework's
-        # default handler (ADR-0030 decision 5).
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INCONSISTENT
-        ) from exc
-    except BriefMemberMissing as exc:
-        # The same class of broken invariant, one read later (ADR-0034 decision 2). Raised
-        # before any provider call, so nothing was billed.
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_MEMBER_MISSING
-        ) from exc
-    except ExplanationUnavailable as exc:
-        # Also `WhatHappenedRejected`, its subclass: a narrative failing output validation is,
-        # to the caller, no usable narrative (ADR-0034 decision 5).
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=_NARRATION_UNAVAILABLE
-        ) from exc
 
-    return _brief_response(brief)
+    return BriefGenerationAcceptedResponse(id=generation.id, status=str(generation.status))
+
+
+@router.get(
+    "/{project_id}/brief-generations/{generation_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=BriefGenerationResponse,
+)
+async def get_brief_generation(
+    project_id: str,
+    generation_id: str,
+    user_id: CurrentUserIdDep,
+    use_case: GetBriefGenerationUseCaseDep,
+) -> BriefGenerationResponse:
+    """What became of one generation. M8.6, ADR-0038 decision 8.
+
+    `status` is `pending`, `running`, `succeeded` or `failed`. On `succeeded`, `brief_id` names
+    the row to read on `GET /projects/{project_id}/briefs`. On `failed`, `failure_kind` is one
+    of three values chosen on **what the client should do** — `surface_changed` (re-read
+    `/scored-risks` and ask again), `provider_unavailable` (retry), `internal_error` (do not
+    retry) — and `detail` is a fixed sentence derived from it, never a provider's words.
+
+    **Readable only by the caller who requested it.** This route authorizes on its own and
+    inherits nothing from the POST, which may have been answered long before: `may_read_project`
+    **and** an actor match. Another member of the same project, an absent id, a generation of
+    another project and a non-member are one 404 with one body (**G17**).
+
+    **A `pending` row can stay `pending` forever** if its enqueue was lost after the commit.
+    Nothing re-drives it — ADR-0038 decision 11 declines a sweep, on the ground that a
+    generation is user-initiated and the user is already polling — so this route is what makes
+    that visible, and the recovery is asking again (**G87**).
+    """
+    try:
+        generation = await use_case.execute(
+            project_id=project_id, user_id=user_id, generation_id=generation_id
+        )
+    except BriefGenerationAccessDenied as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return _generation_response(generation)
 
 
 @router.get(

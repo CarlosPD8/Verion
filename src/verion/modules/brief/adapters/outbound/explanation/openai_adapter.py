@@ -26,8 +26,11 @@ _CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 # at 30.32 s of client wall time; the tail past it is unmeasured, so any larger value would be
 # invented. A synchronous bound answers to what a user will wait for, and by that 30 s is already
 # too long. So the exceedance is evidence that generation does not belong in a request — the
-# argument `_CALL_DEADLINE_SECONDS` below carries forward, and where the handoff to the
-# asynchronous work now sits (ADR-0032's M7.3 capture amendment).
+# argument `_CALL_DEADLINE_SECONDS` below carries forward, and ~~where the handoff to the
+# asynchronous work now sits~~ *(struck 2026-09-21, M8.6 commit 3: the handoff is spent. ADR-0038
+# decision 12 re-priced the deadline and generation is a job. This site is NOT on that ADR's owed
+# list; it was found by reading the whole of both comment blocks)* (ADR-0032's M7.3 capture
+# amendment).
 #
 # **This is the PER-OPERATION value.** httpx applies it per phase, not to the whole call, and
 # within the read phase it applies per read, so a response arriving in chunks under 30 s apart
@@ -40,17 +43,31 @@ _TIMEOUT_SECONDS = 30.0
 # deadline lands once and bounds each call — never the pair, which this adapter cannot see, and
 # which at the measured per-Brief wall times no single 30 s deadline could cover anyway.
 #
-# **It is 30 s because that is what `_TIMEOUT_SECONDS` already declared, not because 30 s was
+# ~~**It is 30 s because that is what `_TIMEOUT_SECONDS` already declared, not because 30 s was
 # chosen for a call.** M8.6 commit 1 changes which quantity 30 s measures and prices nothing. The
 # generous bound belongs to whatever makes generation asynchronous (**G73**), as one decision with
 # it, and THIS is the value that work re-decides. The precedent's deadline is six times its
-# per-operation value; that ratio is that work's to set too.
+# per-operation value; that ratio is that work's to set too.~~
 #
-# At today's equal values the per-operation bound above can fire first only when one read consumes
-# the whole budget, where both expire together. That race is confined to which message this
-# adapter raises: both are `ExplanationUnavailable`, which `brief`'s router maps to one 502 with a
-# fixed detail, so no caller can tell which fired.
-_CALL_DEADLINE_SECONDS = 30.0
+# **It is 120 s, priced by ADR-0038 decision 12, and the ground is that under a job a generous
+# bound is FREE — not that 120 was derived from anything measured.** Every per-call figure this
+# project holds is right-censored at 30 s: the observed maximum, 30.32 s, *is* the call that hit
+# the old bound, and `describe`'s 28.14 s and `explain`'s 25.47 s are clean only conditional on
+# not having exceeded 30. Deriving a value from a single exceedance is what ADR-0032's M7.3
+# amendment refused, and this does not do it by the back door. What bounds the choice is
+# `WorkerSettings.job_timeout`, 600 s and global to the worker: a generation is two calls plus the
+# member reads under it, so 2 x 120 = 240 leaves a wide margin without touching a figure
+# `scanning` owns. The ratio to `_TIMEOUT_SECONDS` is 4x, where the precedent's is 6x; nothing
+# rides on it.
+#
+# ~~At today's equal values the per-operation bound above can fire first only when one read
+# consumes the whole budget, where both expire together.~~ *(Struck 2026-09-21, M8.6 commit 3, as
+# FALSE at these values rather than imprecise: 30 < 120, so the per-operation bound can now
+# ALWAYS fire first — any single read over 30 s trips it with 90 s still on the deadline, and the
+# two no longer expire together in any case.)* Which one fires is still invisible to a caller:
+# both raise `ExplanationUnavailable`, which the job maps to one `provider_unavailable` outcome
+# with a fixed detail (ADR-0038 decision 6).
+_CALL_DEADLINE_SECONDS = 120.0
 
 # OpenAI's reasoning guide: "reserve at least 25,000 tokens for reasoning and outputs when
 # you start experimenting with these models". gpt-5-mini is a reasoning model and
@@ -138,9 +155,16 @@ class OpenAIExplanationProvider:
         # httpcore2's wrapping lands here as well, which is the same translation. A cancelled
         # request still raises `CancelledError`, a BaseException, so this cannot swallow one.
         #
-        # Without this clause the deadline escapes every `except` in `brief`'s router and the
-        # request answers 500 where ADR-0033 decision 9 fixes this failure at 502 (ADR-0032's
-        # M8.6 amendment). It is the reason the bound is not a one-line change.
+        # ~~Without this clause the deadline escapes every `except` in `brief`'s router and the
+        # request answers 500 where ADR-0033 decision 9 fixes this failure at 502~~ *(struck
+        # 2026-09-21, M8.6 commit 3: the router has no `ExplanationUnavailable` clause left and
+        # no request is on this path. **The clause is MORE load-bearing now, not less**, and the
+        # consequence of removing it is worse: an escaping `TimeoutError` is not one of the five
+        # types `RunBriefGenerationUseCase` names, so it would propagate to arq, which does not
+        # retry it, and strand the generation at `running` with nothing to re-drive it — G87.
+        # A caller polling would see it never finish, where today it reports
+        # `provider_unavailable` and says to retry.)* (ADR-0032's
+        # M8.6 amendments.) It is the reason the bound is not a one-line change.
         except TimeoutError:
             raise ExplanationUnavailable("OpenAI did not answer within the deadline") from None
         except httpx2.HTTPError:

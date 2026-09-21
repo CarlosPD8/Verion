@@ -4,6 +4,22 @@ from typing import Any
 from arq import cron, func
 from arq.connections import RedisSettings
 
+from verion.modules.brief.adapters.outbound.db.repository import (
+    PostgresBriefGenerationRepository,
+    PostgresSecurityBriefRepository,
+)
+from verion.modules.brief.adapters.outbound.explanation.openai_adapter import (
+    OpenAIExplanationProvider,
+)
+from verion.modules.brief.application.generate_security_brief import (
+    GenerateSecurityBriefUseCase,
+)
+from verion.modules.brief.application.run_brief_generation import RunBriefGenerationUseCase
+from verion.modules.brief.ports.explanation_provider import ExplanationProviderPort
+from verion.modules.correlation.application.candidate_risk_provider import (
+    CorrelationCandidateRisks,
+)
+from verion.modules.correlation.application.correlate_findings import CorrelateFindingsUseCase
 from verion.modules.identity.adapters.outbound.db.repository import (
     PostgresGitHubConnectionRepository,
 )
@@ -21,7 +37,14 @@ from verion.modules.normalization.application.sweep_pending_normalizations impor
 from verion.modules.normalization.ports.normalization_queue import NormalizationQueuePort
 from verion.modules.projects.adapters.outbound.db.repository import (
     PostgresConnectedRepoRepository,
+    PostgresProjectAccessReader,
+    PostgresRouteMapReader,
     PostgresScannerConfigRepository,
+    PostgresServingDeclarationVerdictReader,
+)
+from verion.modules.risk_engine.application.compute_risk import ComputeRiskUseCase
+from verion.modules.risk_engine.application.explainable_risk_provider import (
+    ScoredExplainableRisks,
 )
 from verion.modules.scanning.adapters.outbound.db.repository import (
     PostgresScanRepository,
@@ -48,12 +71,24 @@ async def on_startup(ctx: dict[str, Any]) -> None:
     #
     # Annotated as the ports rather than assigned straight into ctx: arq's ctx
     # is dict[str, Any], so anything stored in it is invisible to mypy. These
-    # lines are the only place an adapter meets its port here, and so the only
-    # place the type checker can verify conformance at all — every other
+    # lines are ~~the only place an adapter meets its port here, and so~~ the only
+    # place the type checker can verify conformance ~~at all~~ **for anything
+    # that goes through ctx** — every other
     # adapter in the project gets that for free from platform/di.py's
     # port-annotated factories. The dict annotation is what carries that
     # forward now that there are three: it checks all three against ScannerPort,
     # including the `tool`/`target_kind` members ADR-016 added.
+    #
+    # *(Narrowed 2026-09-21, M8.6 commit 3, and measured rather than reasoned: the
+    # guardian mutated four of `GenerateSecurityBriefUseCase`'s keyword arguments in
+    # `generate_brief` below and `mypy` failed at that call site each time. So this
+    # file now has conformance checks in two places — here, for what ctx carries, and
+    # at every port-annotated constructor parameter a job fills. The unqualified "at
+    # all" was the claim the same guardian round disproved in `di.py`; it is narrowed
+    # here for the same reason. What stays true is the part that matters: a value read
+    # back OUT of ctx is `Any`, so these annotations are the only thing standing
+    # between a wrong adapter and a green type check for `scanners`, `repo_checkout`
+    # and `explanations`.)*
     #
     # Keyed by ScannerTool rather than by str so a typo here is a type error,
     # not an UnknownScanner raised at scan time. `allow_private_targets` is
@@ -64,8 +99,23 @@ async def on_startup(ctx: dict[str, Any]) -> None:
         ScannerTool.ZAP: ZapAdapter(dns_resolver=SystemDnsResolver()),
     }
     repo_checkout: RepoCheckoutPort = GitRepoCheckout()
+    # M8.6, ADR-0038 decision 9. Stateless and session-free, so it belongs here beside
+    # `scanners` rather than being rebuilt per job — and annotated as its port for the same
+    # reason: this is the only place `mypy --strict` sees it in this process.
+    #
+    # **This line is what makes the WORKER process read `OPENAI_API_KEY`**, which until M8.6 only
+    # the API did. No document said otherwise — ADR-0032's "every non-local deployment inherits
+    # OPENAI_API_KEY" is process-agnostic — so this is new deployment surface, not a correction.
+    # Rule 11 is satisfied as to `openai_api_key`, already `_DEV_ONLY_DEFAULTS`' fourth entry,
+    # because the guard runs wherever `Settings` is constructed; rule 12 is the one that gains
+    # surface, since a provider failure now renders in a worker log rather than an HTTP response,
+    # and ADR-0032 decision 6's fixed messages raised `from None` are what hold it.
+    explanations: ExplanationProviderPort = OpenAIExplanationProvider(
+        api_key=settings.openai_api_key, model=settings.openai_model
+    )
     ctx["scanners"] = scanners
     ctx["repo_checkout"] = repo_checkout
+    ctx["explanations"] = explanations
 
 
 async def on_shutdown(ctx: dict[str, Any]) -> None:
@@ -211,6 +261,86 @@ async def normalize_scan(ctx: dict[str, Any], scan_id: str) -> None:
             await session.commit()
 
 
+async def generate_brief(ctx: dict[str, Any], generation_id: str) -> None:
+    """Thin arq wrapper for `RunBriefGenerationUseCase`. M8.6, ADR-0038.
+
+    This function's name is the arq job name, and it must stay identical to the string
+    `ArqBriefGenerationQueue` hardcodes — the same coupling `run_scan` and `normalize_scan`
+    document, since arq resolves jobs by name and not by Python identity.
+
+    **Two sessions, and the split is the state machine rather than tidiness** — `normalize_scan`'s
+    shape, for its reason. The claim commits alone, before the work starts, so a job killed
+    mid-flight is distinguishable from one that never started. Here that distinction buys less
+    than it does for normalization, which has a sweep to act on it; it is kept anyway, because a
+    redelivered job must not run twice and `claim`'s conditional UPDATE is what refuses it.
+
+    **The graph below is built per job, from `session_factory()`.** Six session-bound
+    repositories share one session, which is the whole point: everything this job reads sees one
+    consistent snapshot, and the `brief_generations` write lands in the same transaction as
+    nothing else, because the Brief's own write is the only other one. The provider comes from
+    `ctx` (ADR-0038 decision 9), and it is the ONE dependency a test can replace, which is why
+    the integration tests hand-build `ctx` rather than reaching for `app.dependency_overrides` —
+    that rewrites FastAPI's request graph and this function has no FastAPI in it at all.
+
+    **What `mypy` does and does not check here, measured rather than assumed.** `ctx` is
+    `dict[str, Any]`, so every read from it is unchecked — the hole `on_startup`'s comment
+    describes for `scanners`. Everything else below **is** checked: the constructors are called
+    by keyword into use cases whose parameters are port-annotated, so
+    `GenerateSecurityBriefUseCase.__init__` verifies **five** of its six arguments here
+    (swapping `briefs=` for the generation repository fails `mypy` at this call site), and
+    `CorrelateFindingsUseCase`'s and `RunBriefGenerationUseCase`'s parameters do the same for
+    theirs. The sixth, `explanations=ctx["explanations"]`, is `Any` and satisfies its annotation
+    vacuously; `on_startup`'s annotation on assignment is what covers that one, which is the
+    whole reason it is written there rather than assigned straight into `ctx`.
+    """
+    async with session_factory() as claim_session:
+        generations = PostgresBriefGenerationRepository(claim_session)
+        claimed = await generations.claim(generation_id)
+        await claim_session.commit()
+
+    if claimed is None:
+        # No such row, already claimed by another worker, or already terminal. All three mean
+        # the same thing here, as `normalize_scan`'s `run is None` does.
+        return
+
+    async with session_factory() as session:
+        findings = PostgresFindingRepository(session)
+        correlate = CorrelateFindingsUseCase(
+            project_access=PostgresProjectAccessReader(session),
+            findings=findings,
+            serving=PostgresServingDeclarationVerdictReader(session),
+            route_maps=PostgresRouteMapReader(session),
+        )
+        use_case = RunBriefGenerationUseCase(
+            generations=PostgresBriefGenerationRepository(session),
+            generate=GenerateSecurityBriefUseCase(
+                # `CorrelateFindingsUseCase` is where the verdict is taken, with the `user_id`
+                # `RunBriefGenerationUseCase` reads off the stored row. That is the second of
+                # ADR-0038 decision 4's two gates, and the only one in this process.
+                explainable_risks=ScoredExplainableRisks(
+                    ComputeRiskUseCase(
+                        candidate_risks=CorrelationCandidateRisks(correlate), findings=findings
+                    )
+                ),
+                findings=findings,
+                explanations=ctx["explanations"],
+                briefs=PostgresSecurityBriefRepository(session),
+                clock=SystemClock(),
+                ids=UuidIdGenerator(),
+            ),
+        )
+        # Same commit-in-`finally`, same reason as `run_scan` and `normalize_scan`: the use case
+        # writes its terminal row (succeeded or failed) before returning, and a blanket rollback
+        # here would silently undo it. An exception the use case does not name propagates past
+        # this to arq, which marks the job failed and — arq 0.28 — does not retry it, leaving the
+        # row `running` with nothing to re-drive it. That is **G87**, and ADR-0038 decision 11
+        # states the cost rather than adding a sweep.
+        try:
+            await use_case.execute(claimed)
+        finally:
+            await session.commit()
+
+
 async def sweep_pending_normalizations(ctx: dict[str, Any]) -> int:
     """Re-enqueue normalization for owed work that is not progressing.
 
@@ -250,7 +380,18 @@ class WorkerSettings:
     # carries strictly more than arq's result would. Dedup against a job that is
     # queued or genuinely in flight is unaffected — that is the in-progress key,
     # not the result key.
-    functions = [run_scan, func(normalize_scan, keep_result=0)]
+    #
+    # `generate_brief` is registered with `keep_result=0` too, and ADR-0038 decision 10 argues
+    # it rather than copying the flag: the reason above has two clauses, and BOTH hold here
+    # because of decision 2. Nobody reads a `generate_brief` result — the poll reads the
+    # `brief_generations` row — and that row is the record, carrying strictly more than arq's
+    # result would. The in-progress dedup is unaffected, which is the half that matters for a
+    # redelivered job.
+    functions = [
+        run_scan,
+        func(normalize_scan, keep_result=0),
+        func(generate_brief, keep_result=0),
+    ]
     # Every 5 minutes. The sweep is a backstop, not the trigger — the enqueue in
     # run_scan is what makes normalization prompt — so the interval only bounds
     # how late a LOST message is noticed, and a tick over an empty backlog is one

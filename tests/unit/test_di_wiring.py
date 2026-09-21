@@ -34,7 +34,11 @@ async def test_explanation_provider_puts_the_settings_key_in_the_header_and_the_
 ):
     """Through the REAL factory, to the wire (G65).
 
-    `get_explanation_provider`'s return annotation is the only place `mypy` checks this
+    `get_explanation_provider`'s return annotation is ~~the only place~~ *(M8.6 commit 3: one of
+    two — `platform/worker.py`'s `on_startup` annotates the same construction for the worker
+    process. This test still covers only the API factory; the worker's construction is a second
+    site with the same swap hazard and no equivalent test, which is worth knowing rather than
+    implied by an unqualified "only")* where `mypy` checks this
     wiring, and it checks shape: `api_key` and `model` are both `str`, so a factory passing
     them swapped type-checks and every adapter test — which builds the adapter directly —
     still passes. This test is the one thing that constructs the adapter the way production

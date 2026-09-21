@@ -289,10 +289,16 @@ async def test_a_read_timeout_is_unavailable():
     """Pins the TRANSLATION of one phase's timeout, not that the phase bound is reachable.
 
     The handler raises `httpx2.ReadTimeout` synthetically rather than by elapsed time, so this
-    stays green whatever the two constants are set to. Since M8.6 commit 1 they are equal, and
-    `_TIMEOUT_SECONDS` can therefore fire before `_CALL_DEADLINE_SECONDS` only when a single read
-    consumes the whole budget — which is why the name says which timeout this is, and why the
-    adapter's comment carries what that equality means. The test below covers the deadline.
+    stays green whatever the two constants are set to — which is what the name is for. The test
+    below covers the deadline.
+
+    ~~Since M8.6 commit 1 they are equal, and `_TIMEOUT_SECONDS` can therefore fire before
+    `_CALL_DEADLINE_SECONDS` only when a single read consumes the whole budget.~~ *(Struck
+    2026-09-21, M8.6 commit 3, ADR-0038 decision 12: they are no longer equal — 30 s against
+    120 s — so the phase bound is the smaller and can now fire first at any single read over
+    30 s. The clause INVERTED rather than needing qualification. What the two constants mean is
+    the adapter's comment's job, not this docstring's, which is why this sentence is struck
+    rather than restated here.)*
     """
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -310,7 +316,10 @@ async def test_a_call_that_outlasts_the_deadline_is_unavailable(monkeypatch):
     httpx applies its timeout per phase and, within the read phase, per read, so a response
     arriving in chunks under the bound never trips it (ADR-0032's 2026-09-18 amendment). The
     handler here sleeps: no phase ever times out, and only `asyncio.timeout` ends the call. The
-    deadline is shortened, because a real one would take thirty seconds.
+    deadline is shortened, because a real one would take ~~thirty~~ **a hundred and twenty**
+    seconds *(M8.6 commit 3: ADR-0038 decision 12 re-priced `_CALL_DEADLINE_SECONDS` to 120.0,
+    which is free under a job and bounded by the worker's 600 s `job_timeout` — not derived from
+    any observed latency, every per-call figure being right-censored at 30 s)*.
 
     **The credential is in play here**, because the deadline expires during the POST that carries
     `Authorization: Bearer` — so the leak assertions are the ground, not any absence of a key

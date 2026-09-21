@@ -6,14 +6,27 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from verion.modules.brief.adapters.outbound.db.repository import PostgresSecurityBriefRepository
+from verion.modules.brief.adapters.outbound.db.repository import (
+    PostgresBriefGenerationRepository,
+    PostgresSecurityBriefRepository,
+)
 from verion.modules.brief.adapters.outbound.explanation.openai_adapter import (
     OpenAIExplanationProvider,
+)
+from verion.modules.brief.adapters.outbound.queue.after_commit_brief_generation_queue import (
+    AfterCommitBriefGenerationQueue,
+)
+from verion.modules.brief.adapters.outbound.queue.arq_brief_generation_queue import (
+    ArqBriefGenerationQueue,
 )
 from verion.modules.brief.application.generate_security_brief import (
     GenerateSecurityBriefUseCase,
 )
+from verion.modules.brief.application.get_brief_generation import GetBriefGenerationUseCase
 from verion.modules.brief.application.list_security_briefs import ListSecurityBriefsUseCase
+from verion.modules.brief.application.request_security_brief import RequestSecurityBriefUseCase
+from verion.modules.brief.ports.brief_generation_queue import BriefGenerationQueuePort
+from verion.modules.brief.ports.brief_generation_repository import BriefGenerationRepositoryPort
 from verion.modules.brief.ports.explanation_provider import ExplanationProviderPort
 from verion.modules.brief.ports.security_brief_repository import SecurityBriefRepositoryPort
 from verion.modules.correlation.application.candidate_risk_provider import (
@@ -651,8 +664,17 @@ HandleGitHubWebhookUseCaseDep = Annotated[
 ]
 
 
-# A factory's PORT-annotated return type is the only place `mypy --strict` ever
-# verifies that an adapter satisfies its Protocol (CLAUDE.md's Tier 1 table). This
+# A factory's PORT-annotated return type is ~~the only place~~ **one of two places**
+# `mypy --strict` ever
+# verifies that an adapter satisfies its Protocol. *(Narrowed 2026-09-21, M8.6 commit 3.
+# CLAUDE.md's Tier 1 table always said both — "a `di.py` factory's return type, **or an
+# explicit annotation**" — so this comment misreported the row it cites. The other place is
+# an explicit annotation at a construction site, and `platform/worker.py` now has several:
+# `on_startup`'s `explanations: ExplanationProviderPort = ...`, and every port-annotated
+# constructor parameter `generate_brief` fills by keyword, which the guardian verified by
+# mutation. The practical point this comment exists to make survives: an adapter constructed
+# into an `Any` is unchecked, so wiring it somewhere port-annotated is what buys the check.)*
+# This
 # one shipped in M4.3 with no route depending on it, for that reason alone; since
 # M4.5 the two use cases below consume it and the route is real.
 def get_finding_repository(session: DbSessionDep) -> FindingRepositoryPort:
@@ -802,8 +824,12 @@ CandidateRiskPortDep = Annotated[CandidateRiskPort, Depends(get_candidate_risk_p
 # Consumed by `get_list_scored_risks_use_case` below, which M6.3's route consumes. Until
 # that route shipped this factory had no consumer at all and was wired so the conformance
 # site above would exist alongside the code it checks; that is no longer the reason it is
-# here. ADR-0005 decision 3 still has this use case persist nothing, so there is no worker
-# path — the only caller is the read surface.
+# here. ADR-0005 decision 3 still has this use case persist nothing, so ~~there is no worker
+# path — the only caller is the read surface~~ *(struck 2026-09-21, M8.6 commit 3: there is now
+# a worker path. `platform/worker.py`'s `generate_brief` builds this use case per job, beneath
+# `ScoredExplainableRisks`, to narrate a Brief off the request path — ADR-0038 decision 9. What
+# survives is the persistence clause: it still persists nothing, which is why the worker
+# recomputes the project's whole scored set on every job — **G61**.)*
 def get_compute_risk_use_case(
     candidate_risks: CandidateRiskPortDep, findings: FindingRepositoryDep
 ) -> ComputeRiskUseCase:
@@ -833,8 +859,13 @@ ListScoredRisksUseCaseDep = Annotated[
 #
 # Wired at M7.1 with no consumer, on M6.2's precedent of wiring a conformance site before its
 # consumer. Since M7.2 it is consumed by `get_generate_security_brief_use_case` below, the
-# first production caller of `explain`. This return annotation is still the only place
-# `mypy --strict` checks OpenAIExplanationProvider against ExplanationProviderPort.
+# first production caller of `explain`. ~~This return annotation is still the only place
+# `mypy --strict` checks OpenAIExplanationProvider against ExplanationProviderPort.~~ *(Struck
+# 2026-09-21, M8.6 commit 3: `platform/worker.py`'s `on_startup` now annotates
+# `explanations: ExplanationProviderPort = OpenAIExplanationProvider(...)` before putting it in
+# `ctx`, which is a second checked site — and the one that matters in the worker process, where
+# every `ctx` read is `Any`. The same sentence has a copy in `tests/unit/test_di_wiring.py`,
+# struck there too.)*
 # That checks SHAPE only: both constructor arguments are `str`, so swapping them type-checks,
 # which is why `tests/unit/test_di_wiring.py` sends a request through this factory and
 # asserts which value landed in the header and which in the body (G65).
@@ -849,10 +880,13 @@ ExplanationProviderDep = Annotated[ExplanationProviderPort, Depends(get_explanat
 # @lru_cache'd: each reaches DbSessionDep, directly or through what it depends on, and caching
 # one would leak a stale session across requests (rule 15).
 #
-# The port factory's return annotation is the only place `mypy --strict` checks
-# ScoredExplainableRisks against ExplainableRiskPort. Unlike `get_explanation_provider`, no
-# factory below takes two arguments of one type, so a swapped wiring fails the type check
-# rather than needing a test to see it.
+# ~~The port factory's return annotation is the only place `mypy --strict` checks
+# ScoredExplainableRisks against ExplainableRiskPort.~~ *(Struck 2026-09-21, M8.6 commit 3:
+# `platform/worker.py`'s `generate_brief` passes `ScoredExplainableRisks(...)` into
+# `GenerateSecurityBriefUseCase`'s `explainable_risks: ExplainableRiskPort` parameter, a second
+# checked site. The clause below about swapped wiring is unaffected and still holds.)*
+# Unlike `get_explanation_provider`, no factory below takes two arguments of one type, so a
+# swapped wiring fails the type check rather than needing a test to see it.
 def get_explainable_risk_port(compute: ComputeRiskUseCaseDep) -> ExplainableRiskPort:
     return ScoredExplainableRisks(compute)
 
@@ -869,6 +903,81 @@ SecurityBriefRepositoryDep = Annotated[
 ]
 
 
+def get_brief_generation_repository(session: DbSessionDep) -> BriefGenerationRepositoryPort:
+    return PostgresBriefGenerationRepository(session)
+
+
+BriefGenerationRepositoryDep = Annotated[
+    BriefGenerationRepositoryPort, Depends(get_brief_generation_repository)
+]
+
+
+# M8.6, ADR-0038 decision 3. `get_job_queue`'s shape one module over, and the same reasoning:
+# deferred to after the request's commit so a worker never takes a job whose row it cannot see
+# (ADR-0035 decision 5). Session-dependent, so never @lru_cache (rule 15).
+#
+# The wrapper is `brief`'s OWN, not `scanning`'s `AfterCommitJobQueue` — the class is typed to
+# one port and one method name, so no module enqueueing anything else can reuse it. Registered
+# as **G99**, which also names why this file could have handed the existing class over if the
+# types had allowed: no import-linter contract names `verion.platform`.
+def get_brief_generation_queue(pool: ArqPoolDep, session: DbSessionDep) -> BriefGenerationQueuePort:
+    return AfterCommitBriefGenerationQueue(ArqBriefGenerationQueue(pool), session)
+
+
+BriefGenerationQueueDep = Annotated[BriefGenerationQueuePort, Depends(get_brief_generation_queue)]
+
+
+def get_request_security_brief_use_case(
+    project_access: ProjectAccessDep,
+    generations: BriefGenerationRepositoryDep,
+    queue: BriefGenerationQueueDep,
+    clock: ClockDep,
+    ids: IdGeneratorDep,
+) -> RequestSecurityBriefUseCase:
+    return RequestSecurityBriefUseCase(
+        project_access=project_access,
+        generations=generations,
+        queue=queue,
+        clock=clock,
+        ids=ids,
+    )
+
+
+RequestSecurityBriefUseCaseDep = Annotated[
+    RequestSecurityBriefUseCase, Depends(get_request_security_brief_use_case)
+]
+
+
+def get_get_brief_generation_use_case(
+    project_access: ProjectAccessDep, generations: BriefGenerationRepositoryDep
+) -> GetBriefGenerationUseCase:
+    return GetBriefGenerationUseCase(project_access=project_access, generations=generations)
+
+
+GetBriefGenerationUseCaseDep = Annotated[
+    GetBriefGenerationUseCase, Depends(get_get_brief_generation_use_case)
+]
+
+
+# **No request builds this use case since M8.6.** The POST answers 202, and
+# `platform/worker.py`'s `generate_brief` constructs the whole graph per job from
+# `session_factory()` instead.
+#
+# It stays wired, with no consumer, on `get_explanation_provider`'s precedent above — M6.2's
+# rule of wiring a conformance site before its consumer. ~~this factory's return annotation and
+# its six port-annotated parameters are the only place `mypy --strict` checks any of that
+# graph's conformance at all. The worker assembles it through `ctx` and local variables, where
+# `ctx["..."]` arrives as `Any` and nothing is checked.~~
+#
+# **That was false and the guardian disproved it by mutation**: swapping `briefs=` for the
+# wrong repository in `generate_brief` makes `mypy` fail at `worker.py`, because
+# `GenerateSecurityBriefUseCase.__init__`'s parameters are port-annotated and the worker calls
+# it by keyword with really-typed adapters. **Five of the six are checked there too.** The one
+# that is not is `explanations=ctx["explanations"]`, which arrives as `Any` and satisfies its
+# annotation vacuously — and `on_startup` annotates it as `ExplanationProviderPort` on
+# assignment precisely to cover that one. So what this factory uniquely buys is not the
+# conformance check; it is a single site where the whole graph is declared in port terms, which
+# is worth keeping and is a smaller claim.
 def get_generate_security_brief_use_case(
     explainable_risks: ExplainableRiskPortDep,
     findings: FindingRepositoryDep,

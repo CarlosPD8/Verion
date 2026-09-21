@@ -6,8 +6,13 @@ from pydantic import BaseModel, Field, field_validator
 class GenerateSecurityBriefRequest(BaseModel):
     """Which current Risk to narrate: its exact member set, as `/scored-risks` lists it.
 
-    **A selector, never an address** (ADR-0033 decision 1). It is resolved once, in this
-    request, by exact set equality, and a set that no longer matches a surface is refused.
+    **A selector, never an address** (ADR-0033 decision 1). It is resolved by exact set equality,
+    and a set that no longer matches a surface is refused. ~~It is resolved once, in this
+    request~~ *(struck 2026-09-21, M8.6 commit 3: the resolution moved to the worker, ADR-0038
+    decision 1. The request stores this set and answers 202; a set that no longer names a surface
+    now reaches the poll as `surface_changed` rather than this request as a 404. **This site is
+    not on ADR-0038's owed list** — it was found by grepping the struck claim rather than at the
+    sites the ADR named.)*
 
     **Duplicates are refused rather than collapsed**, so the set a client sends is the set that
     is compared. **No maximum length**: nothing bounds a surface's member count, and request
@@ -137,3 +142,56 @@ class ProjectSecurityBriefsResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class BriefGenerationAcceptedResponse(BaseModel):
+    """`POST /projects/{project_id}/briefs`'s 202 body. M8.6, ADR-0038 decisions 1 and 8.
+
+    **`ScanAcceptedResponse`'s shape, deliberately**: the id, because a caller cannot poll a
+    generation it cannot address, and the status, which is always `pending` on this path. Rule
+    10: never the domain `BriefGeneration`, whose `user_id` and `finding_ids` this route has no
+    reason to echo back.
+
+    **202 rather than 201** because the work is enqueued, not completed — and a 202 here means
+    the row exists *and* the job is queued, which the after-commit enqueue is what guarantees.
+
+    The key set is pinned by an equality assertion in `test_security_brief_routes.py`.
+    """
+
+    id: str
+    status: str
+
+
+class BriefGenerationResponse(BaseModel):
+    """`GET /projects/{project_id}/brief-generations/{id}`. M8.6, ADR-0038 decision 8.
+
+    **`failure_kind` is a closed vocabulary of three, chosen on what a client DOES** (decision
+    6), not on how many ways generation can fail — five terminal failures map onto three
+    actions: `surface_changed` (re-read `/scored-risks` and ask again), `provider_unavailable`
+    (retry), `internal_error` (do not retry). Not one free-text field, which is `scans`' shape
+    and removes the client's ability to choose; not five, which encodes distinctions no client
+    acts on. The client is M8.3, two issues out.
+
+    **No kind names an access denial.** A caller who may not read this generation gets a 404
+    from this route's own verdict and never a body (**G17**).
+
+    **`detail` is DERIVED from `failure_kind`, not stored.** A fixed sentence per kind, owned by
+    the router. Two consequences, both deliberate: it carries no provider text by construction
+    (rule 12), and it needs no column outside `ck_brief_generations_outcome_shape` — which would
+    have been a correlation held by convention, the shape decision 7 refuses to copy from
+    `scans`.
+
+    `brief_id` is `null` until `succeeded`, and is how a client reaches the Brief on
+    `GET …/briefs`. `failure_kind` and `detail` are `null` unless `failed`.
+
+    **Deliberately absent**: `project_id` (the path parameter, ADR-0022 decision 1), `user_id`
+    (the caller's own, and a step toward naming who may read a row), `finding_ids` (the caller
+    sent them), and any timestamp — nothing reads one (ADR-0038 decision 11 declines the sweep
+    that would).
+    """
+
+    id: str
+    status: str
+    failure_kind: str | None
+    detail: str | None
+    brief_id: str | None

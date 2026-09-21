@@ -1,10 +1,18 @@
 from dataclasses import fields
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from verion.modules.brief.adapters.outbound.db.models import SecurityBriefModel
+from verion.modules.brief.adapters.outbound.db.models import (
+    BriefGenerationModel,
+    SecurityBriefModel,
+)
+from verion.modules.brief.domain.brief_generation import (
+    BriefGeneration,
+    BriefGenerationFailureKind,
+    BriefGenerationStatus,
+)
 from verion.modules.brief.domain.exceptions import StoredBriefUnreadable
 from verion.modules.brief.domain.explanation import Explanation
 from verion.modules.brief.domain.security_brief import SecurityBrief
@@ -189,3 +197,95 @@ class PostgresSecurityBriefRepository:
             .where(SecurityBriefModel.project_id == project_id)
         )
         return result.scalar_one()
+
+
+def _generation_to_domain(model: BriefGenerationModel) -> BriefGeneration:
+    return BriefGeneration(
+        id=model.id,
+        project_id=model.project_id,
+        user_id=model.user_id,
+        finding_ids=tuple(model.finding_ids),
+        # Reconstructed as the enum, never the raw column, for `_to_domain`'s `confidence`
+        # reason (ADR-0018 decision 2's asymmetry). An unrecognised stored value raises
+        # `ValueError` here rather than flowing on as a str.
+        status=BriefGenerationStatus(model.status),
+        brief_id=model.brief_id,
+        failure_kind=(
+            None if model.failure_kind is None else BriefGenerationFailureKind(model.failure_kind)
+        ),
+        requested_at=model.requested_at,
+    )
+
+
+class PostgresBriefGenerationRepository:
+    """`BriefGenerationRepositoryPort` over Postgres. M8.6, ADR-0038.
+
+    **Flushes, never commits**, like its sibling above — with one consequence worth naming: the
+    worker calls `claim` inside a session it commits immediately and alone, because the claim
+    must be durable before the work starts (`normalize_scan`'s split, for its reason).
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, generation: BriefGeneration) -> None:
+        self._session.add(
+            BriefGenerationModel(
+                id=generation.id,
+                project_id=generation.project_id,
+                user_id=generation.user_id,
+                finding_ids=list(generation.finding_ids),
+                status=str(generation.status),
+                brief_id=generation.brief_id,
+                failure_kind=(
+                    None if generation.failure_kind is None else str(generation.failure_kind)
+                ),
+                requested_at=generation.requested_at,
+            )
+        )
+        await self._session.flush()
+
+    async def claim(self, generation_id: str) -> BriefGeneration | None:
+        # **Conditional on `pending`, which is what makes a redelivered job a no-op.** One
+        # statement, so two workers racing cannot both win: Postgres serialises the row lock and
+        # the loser's WHERE no longer matches. `returning` avoids a second SELECT that could read
+        # a row another transaction has since moved.
+        result = await self._session.execute(
+            update(BriefGenerationModel)
+            .where(
+                BriefGenerationModel.id == generation_id,
+                BriefGenerationModel.status == str(BriefGenerationStatus.PENDING),
+            )
+            .values(status=str(BriefGenerationStatus.RUNNING))
+            .returning(BriefGenerationModel)
+        )
+        model = result.scalar_one_or_none()
+        return None if model is None else _generation_to_domain(model)
+
+    async def succeed(self, *, generation_id: str, brief_id: str) -> None:
+        await self._session.execute(
+            update(BriefGenerationModel)
+            .where(BriefGenerationModel.id == generation_id)
+            .values(status=str(BriefGenerationStatus.SUCCEEDED), brief_id=brief_id)
+        )
+        await self._session.flush()
+
+    async def fail(self, *, generation_id: str, failure_kind: BriefGenerationFailureKind) -> None:
+        await self._session.execute(
+            update(BriefGenerationModel)
+            .where(BriefGenerationModel.id == generation_id)
+            .values(status=str(BriefGenerationStatus.FAILED), failure_kind=str(failure_kind))
+        )
+        await self._session.flush()
+
+    async def get(self, *, project_id: str, generation_id: str) -> BriefGeneration | None:
+        # Scoped to the project in the caller's own path, so a generation of another project is
+        # `None` here and indistinguishable from an absent id at the route (**G17**).
+        result = await self._session.execute(
+            select(BriefGenerationModel).where(
+                BriefGenerationModel.id == generation_id,
+                BriefGenerationModel.project_id == project_id,
+            )
+        )
+        model = result.scalar_one_or_none()
+        return None if model is None else _generation_to_domain(model)

@@ -75,7 +75,12 @@ ports where a database would be:
     resolved in the worker. The resolution itself is unchanged — same port, same exact equality —
     and the rest of this decision stands, including the fail-closed clause below, whose refusal
     becomes ADR-0038 decision 6's `surface_changed`.)*
-  - **Fails closed.** A membership change produces a 404 and writes nothing. That turns the defect
+  - **Fails closed.** A membership change produces ~~a 404~~ **a terminal `failed` /
+    `surface_changed` generation** *(M8.6 commit 3, ADR-0038 decision 6: the refusal moved to the
+    poll with the resolution itself. **Fails closed is the property and it is untouched** — the set
+    still selects by exact equality, and still writes nothing. The strike note above this bullet,
+    written at commit 2, says this clause "stands"; that was true of the property and wrong about
+    the status code, and this is the correction.)* and writes nothing. That turns the defect
     ADR-0025 decision 1 names for *held* addresses (*"silently repoints a held URL"*) into a correct
     refusal at the only moment the set is read.
 
@@ -177,7 +182,9 @@ only. It stays green whatever `brief/domain` imports from elsewhere. Registered 
   decision moved.
 - **The cost is stated, not denied.** Every POST is a billed provider call, and nothing bounds how
   many a member sends. The bound belongs to request rate limiting at M10.2 (ADR-0022 decision 1:
-  *"independently rate-limitable at M10.2"*), and it is registered with **G73**.
+  *"independently rate-limitable at M10.2"*), and it is registered with ~~**G73**~~ **G100**
+  *(M8.6 commit 3: G73 resolved on its session half and the repeats half became its own entry, on
+  G53 → G95's shape. A pointer at G73 now lands on a resolved entry.)*.
 
 ### 4. One list-shaped read, and no completeness envelope on either route
 
@@ -185,6 +192,12 @@ only. It stays green whatever `brief/domain` imports from elsewhere. Registered 
 POST /projects/{project_id}/briefs          # body {finding_ids}; 201, the stored Brief
 GET  /projects/{project_id}/briefs          # paged; each item carries its finding_ids
 ```
+
+*(Amended 2026-09-21, M8.6 commit 3, ADR-0038 decisions 1 and 8. The POST's row above is
+superseded: it answers **202** with `{id, status}`, and a third route,
+`GET /projects/{project_id}/brief-generations/{id}`, reports the outcome. The `GET …/briefs` row
+is unchanged, and this decision's own subject — one list-shaped read, no completeness envelope —
+survives whole: the poll is not a second read of a Brief and carries no envelope either.)*
 
 **Why a list rather than a GET by id.** A client listing `/scored-risks` holds `finding_ids` and no
 id. A by-id route would serve only the caller that just generated a Brief. The list serves the client
@@ -262,7 +275,10 @@ permits. No contract changes, and G35 stays open.
   also writes owners. So ADR-0016 decision 3's owner-gating of costly writes is satisfied by
   coincidence, not by design.
 - **In the test suite it does not coincide**: `Role.MEMBER` is seeded directly in 14 files. A route
-  test pins a `Role.MEMBER` generation at 201. **G75** carries the day the two diverge.
+  test pins a `Role.MEMBER` generation at ~~201~~ **202** *(M8.6 commit 3: the status moved with
+  ADR-0038 decision 1, and the pin now also covers the worker's re-authorization, since the test
+  runs the job and asserts the generation succeeded — so **both** of decision 4's gates are shown
+  to admit a plain member, where before there was one)*. **G75** carries the day the two diverge.
 - **This reason does not decide G70.** ADR-0016 decision 3 gated a write that *"costs real compute
   and can point an attack tool at a URL"*, with both conditions together. A Brief costs money and
   nothing else. A scan trigger also mutates `Scan` state under consent that is itself owner-gated
@@ -306,6 +322,17 @@ configuration that enables it"*.
 | `ExplainableRiskInconsistent` | 500 | fixed (ADR-0030 decision 5) |
 | `ExplanationUnavailable` | 502 | fixed, never `str(exc)` |
 | Empty or duplicate `finding_ids` | 422 | |
+
+*(Amended 2026-09-21, M8.6 commit 3, ADR-0038 decision 6. **Rows 2–4 are superseded**: those three
+failures no longer happen in the request, so the POST cannot report them. It answers 202, and the
+job maps five terminal failures onto three `failure_kind` values the poll reports — `NoCurrentRisk`
+to `surface_changed`, `ExplanationUnavailable` and `WhatHappenedRejected` to `provider_unavailable`,
+`ExplainableRiskInconsistent` and `BriefMemberMissing` to `internal_error`. Rows 1 and 5 stand: the
+access denial is still a 404 from the route's own `may_read_project`, and the 422 is still the
+request schema's. **This decision's own subject survives** — fixed details, never `str(exc)` — and
+is now held by a dict in the router keyed on `failure_kind`, with no stored `detail` column for a
+provider's words to reach. This site was NOT on ADR-0038's owed list; it was found by the guardian
+grepping `502` across the tree.)*
 
 No maximum length is set: nothing bounds a surface's member count, and request limits are M10.2's.
 

@@ -169,8 +169,14 @@ never writes `None`.
 5. One append.
 
 If step 3 fails or is rejected, `explain` is never called. If step 4 fails, one call is billed and
-nothing is stored. Both answer 502 with the existing fixed detail. The request's session is held across
-both calls (**G73**).
+nothing is stored. ~~Both answer 502 with the existing fixed detail. The request's session is held across
+both calls (**G73**).~~ *(Struck 2026-09-21, M8.6 commit 3, ADR-0038. Both now terminate the
+generation as `failed` / `provider_unavailable` with a fixed detail — the same collapse of the two
+failures onto one client outcome, reported by the poll instead of by the request. And the session
+held across both calls is the **worker's**, not a request's: **G73** resolved on that mechanism, its
+repeats half is **G100**, and the worker's hold is bounded by arq's `max_jobs` of 10 under a
+15-connection pool ceiling (**G101**). **The billing and ordering claims above are untouched**, which
+is this decision's actual subject. Not on ADR-0038's owed list; found by grepping `502`.)*
 
 ### 4. The prompt budget
 
@@ -213,7 +219,7 @@ forbidden character or exceeding its cap, so the type cannot carry unsanitized t
 | **M3** | Member cap | A rendered-prompt test with 21 members, and a use-case test that exactly 20 reads were made. |
 | **M4** | Members rendered as one `json.dumps(..., ensure_ascii=False)` array in the user message, after a fixed preamble declaring it data; `ensure_ascii=False` so non-ASCII text reaches the model as written rather than as `\u` escapes | A title that tries to close its object and open another; `json.loads` of the rendered block must yield exactly the input count, the title round-tripped. |
 | **M5** | Cross-call separation (decision 3) | Two requests over `MockTransport` with sentinel member values: `explain`'s body must carry no sentinel, and `describe`'s must carry no bucket, score, threshold or signal definition. |
-| **M6** | Output validation of `describe`, in `brief/application` | A scripted adversarial fake for each check below, answering 502 with nothing stored and `explain` never called; and the denial-of-service test below. |
+| **M6** | Output validation of `describe`, in `brief/application` | A scripted adversarial fake for each check below, answering ~~502~~ **a `provider_unavailable` generation** *(M8.6 commit 3)* with nothing stored and `explain` never called; and the denial-of-service test below. |
 | **M7** | Payload exclusion | Members filled through the real fill site from the committed active ZAP capture, whose `raw_payload` holds `<p>` and alert `6-5`'s 3,791-character `solution`: neither `<p>` nor any 40-character slice of that solution may appear in the rendered prompt. |
 
 **M6's governing rule: output validation must never reject on text the members themselves supplied.**
@@ -235,7 +241,12 @@ A test with a Trivy member whose `package` is `fix_now` and a Semgrep member who
 `src/fix_now.py`, echoed by the fake, must generate a Brief.
 
 **Known gap of M6.** `plan`, `monitor` and `priority` are not checked: all three are ordinary English,
-and the model's own phrasing (*"a high-priority dependency"*) would otherwise answer 502. A `fix_now`
+and the model's own phrasing (*"a high-priority dependency"*) would otherwise ~~answer 502~~ **fail
+the generation as `provider_unavailable`** *(M8.6 commit 3: the rejection is unchanged, only what
+reports it. **The denial-of-service concern this paragraph is about gets slightly worse under a
+job**: the rejection now costs a queued job before the caller learns anything, where before it
+came back in the response they were already waiting on. The one billed call is unchanged —
+decision 3 above already prices a rejection at one call rather than two.)*. A `fix_now`
 the members supplied is not checked either, by the rule above.
 
 **Role separation is a regression pin, not an M7.3 deliverable.** Instructions as `developer` and data
@@ -335,6 +346,15 @@ into the fixtures directory unless every pattern reports zero**, and a failed ca
 |---|---|---|
 | `BriefMemberMissing` | 500 | fixed |
 | `describe` output rejected by M6 | 502 | the existing fixed detail, *"The Brief could not be generated. Nothing was stored."* |
+
+*(Amended 2026-09-21, M8.6 commit 3, ADR-0038 decision 6. **Both rows are superseded**: neither
+failure happens in the request now. `BriefMemberMissing` terminates the generation as
+`internal_error` — *do not retry*, since nothing a client does clears a broken invariant — and a
+rejected `describe` as `provider_unavailable`, beside `ExplanationUnavailable`, because
+`WhatHappenedRejected` is its subclass and the two are one outcome to a client. **What this
+decision actually fixed survives**: both are fixed details, never `str(exc)`, and never the
+rejected output, which is model text written over scanned content. Not on ADR-0038's owed list;
+found by grepping `502`.)*
 
 ## Consequences
 
