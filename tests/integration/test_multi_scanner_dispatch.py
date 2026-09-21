@@ -97,7 +97,7 @@ async def _seed_project(db_session, run_id: str, enabled_tools, zap_target_url):
         created_at=datetime.now(UTC),
     )
     await PostgresProjectRepository(db_session).add(project)
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
             id=f"repo-multi-{run_id}",
             project_id=project.id,

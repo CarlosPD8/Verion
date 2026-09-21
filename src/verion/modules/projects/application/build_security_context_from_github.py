@@ -123,10 +123,6 @@ class BuildSecurityContextFromGitHubUseCase:
           above still raises as it always has, because at that point nothing has been
           built and there is nothing to degrade to.
 
-        **A degraded map is effectively permanent for the project**, not recoverable by
-        retrying: a second detect writes a duplicate `security_contexts` row, and that
-        project's context reads then raise. That is **G55**, and it is why nothing here
-        speaks of retrying.
         """
         if not extracts_routes_for(framework):
             return extract_routes(framework=framework, files={}), None

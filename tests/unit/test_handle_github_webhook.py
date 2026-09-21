@@ -19,8 +19,8 @@ class _SpyConnectedRepoRepository:
         self._inner = inner
         self.get_by_url_calls: list[str] = []
 
-    async def add(self, connected_repo: ConnectedRepo) -> None:
-        await self._inner.add(connected_repo)
+    async def upsert(self, connected_repo: ConnectedRepo) -> None:
+        await self._inner.upsert(connected_repo)
 
     async def get_by_id(self, connected_repo_id: str):
         return await self._inner.get_by_id(connected_repo_id)
@@ -58,7 +58,7 @@ async def _seed_connected_project(
 ) -> Project:
     project = Project(id=project_id, owner_id=owner_id, name="Verion", created_at=clock.now())
     await project_repository.add(project)
-    await connected_repo_repository.add(
+    await connected_repo_repository.upsert(
         ConnectedRepo(
             id=id_generator.new_id(),
             project_id=project_id,
@@ -204,7 +204,7 @@ async def test_raises_project_not_found_when_connected_repo_outlives_its_project
     # no FK across module-owned tables (module-independence precedent), so
     # this data-integrity edge case is reachable and must fail loudly, not
     # silently trigger a scan for a phantom project.
-    await connected_repo_repository.add(
+    await connected_repo_repository.upsert(
         ConnectedRepo(
             id=id_generator.new_id(),
             project_id="does-not-exist",

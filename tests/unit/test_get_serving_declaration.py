@@ -66,7 +66,7 @@ async def _seed(
     await membership_repository.add(
         ProjectMembership(project_id=_PROJECT_ID, user_id=user_id, role=role)
     )
-    await connected_repo_repository.add(
+    await connected_repo_repository.upsert(
         ConnectedRepo(
             id="repo-1",
             project_id=_PROJECT_ID,

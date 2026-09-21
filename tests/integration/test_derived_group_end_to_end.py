@@ -161,7 +161,7 @@ async def _declared_project(client, db_session) -> str:
     created = await client.post("/projects/", json={"name": "Demo"}, headers=_auth_headers(_OWNER))
     project_id = created.json()["id"]
 
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
             id="repo-1",
             project_id=project_id,
@@ -291,8 +291,13 @@ async def test_the_same_built_map_produces_no_group_once_the_declaration_is_out_
 async def test_a_failed_archive_download_is_stored_as_such_and_derives_nothing(client, db_session):
     """The failure is distinguishable from "no routes", and the context build still succeeds.
 
-    **Effectively permanent for this project** — re-running detect would duplicate its
-    `security_contexts` row (G55) — which is why this test does not retry.
+    ~~**Effectively permanent for this project** — re-running detect would duplicate its
+    `security_contexts` row (G55) — which is why this test does not retry.~~
+    *(Struck 2026-09-21, M8.7: G55 is fixed, so a stored `FETCH_FAILED` is no longer
+    permanent — a second detect now replaces the row rather than duplicating it, which
+    is the recovery that entry said every path ran through. This test still does not
+    retry, but that is now a choice about its scope rather than a thing the schema
+    forbade.)*
     """
     app.dependency_overrides[get_vcs_provider] = lambda: _github(codeload_status=500)
     project_id = await _declared_project(client, db_session)

@@ -43,17 +43,26 @@ class BuildSecurityContextUseCase:
 
         result = self._detector(files)
 
+        existing = await self._security_contexts.get_by_project_id(project_id)
         context = SecurityContext(
-            id=self._id_generator.new_id(),
+            # Reuses the existing row's id and created_at, on UpdateScannerConfigUseCase's
+            # precedent: this is one Security Context per project being refreshed, not a
+            # new record each time detect runs. The upsert keeps both columns, so minting
+            # fresh ones here would return values the row does not carry.
+            id=existing.id if existing is not None else self._id_generator.new_id(),
             project_id=project_id,
             language=result.language,
             framework=result.framework,
             database=None,
             deployment_target=result.deployment_target,
             ci_provider=result.ci_provider,
-            exposure_tags=[],
-            created_at=self._clock.now(),
+            # The owner's confirmed tags, carried through unchanged. The upsert's set_
+            # omits the column so a re-detect cannot touch it (ADR-0039 decision 3); this
+            # is what makes the RETURNED context agree with the stored row, which it
+            # would not if it reported [] for a project that has tags.
+            exposure_tags=list(existing.exposure_tags) if existing is not None else [],
+            created_at=existing.created_at if existing is not None else self._clock.now(),
         )
-        await self._security_contexts.add(context)
+        await self._security_contexts.upsert_detected(context)
 
         return context

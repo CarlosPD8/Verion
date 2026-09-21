@@ -56,7 +56,7 @@ async def test_run_scan_use_case_completes_with_trivy_adapter_injected(db_sessio
         url=_REPO_URL,
         default_branch="master",
     )
-    await PostgresConnectedRepoRepository(db_session).add(connected_repo)
+    await PostgresConnectedRepoRepository(db_session).upsert(connected_repo)
     # Empty token, deliberately — same reasoning as test_worker_run_scan.py's
     # own setup: GitRepoCheckout only attaches an auth header when
     # access_token is truthy, and a fake non-empty token would make GitHub

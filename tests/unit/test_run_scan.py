@@ -111,7 +111,7 @@ async def _seed(
     them to register a Trivy fake. The default path has its own test below.
     """
     await scan_repository.add(scan)
-    await connected_repo_repository.add(_connected_repo())
+    await connected_repo_repository.upsert(_connected_repo())
     await github_connection_repository.add(_github_connection())
     if scanner_config_repository is not None:
         await scanner_config_repository.upsert(config if config is not None else _config())
@@ -807,7 +807,7 @@ async def test_missing_github_connection_marks_the_scan_failed(
 ):
     scan = _pending_scan()
     await scan_repository.add(scan)
-    await connected_repo_repository.add(_connected_repo())
+    await connected_repo_repository.upsert(_connected_repo())
     await scanner_config_repository.upsert(_config())
     # No github connection seeded for the owner.
     use_case = _use_case(
@@ -845,7 +845,7 @@ async def test_unsupported_provider_marks_the_scan_failed(
 ):
     scan = _pending_scan()
     await scan_repository.add(scan)
-    await connected_repo_repository.add(_connected_repo(provider="gitlab"))
+    await connected_repo_repository.upsert(_connected_repo(provider="gitlab"))
     await github_connection_repository.add(_github_connection())
     await scanner_config_repository.upsert(_config())
     use_case = _use_case(

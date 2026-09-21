@@ -35,13 +35,18 @@ class ConnectRepositoryUseCase:
         # `https://github.com/{owner}/{repo}` itself, whose netloc is always github.com.
         validate_connected_repo_url(url)
 
+        existing = await self._connected_repos.get_by_project_id(project_id)
         connected_repo = ConnectedRepo(
-            id=self._id_generator.new_id(),
+            # Reuses the existing row's id when there is one: this is one repository per
+            # project being re-pointed, not a new record each time it changes —
+            # UpdateScannerConfigUseCase's wording, one relation over. Without the reuse
+            # the upsert keeps the stored id and this would return a different one.
+            id=existing.id if existing is not None else self._id_generator.new_id(),
             project_id=project_id,
             provider=provider,
             url=url,
             default_branch=default_branch,
         )
-        await self._connected_repos.add(connected_repo)
+        await self._connected_repos.upsert(connected_repo)
 
         return connected_repo

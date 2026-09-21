@@ -131,8 +131,8 @@ def validate_declared_repo_url(url: str) -> None:
     **The residue, stated rather than discovered:** a project whose connected repository
     URL already carries userinfo cannot declare at all, because the value it would have
     to declare is the value this refuses. That is the safe direction and it surfaces a
-    real defect rather than hiding one — but it is a refusal the owner cannot resolve
-    from this route, since nothing lets them edit a connected repository (**G51**). Since
+    real defect rather than hiding one — the owner resolves it by re-connecting the
+    repository, which since M8.7 replaces the stored row. Since
     2026-09-15 `validate_connected_repo_url` refuses userinfo when a repository is connected,
     so this residue is confined to rows written before then.
 

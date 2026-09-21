@@ -76,7 +76,7 @@ async def _seed(db_session, run_id: str) -> Scan:
         created_at=datetime.now(UTC),
     )
     await PostgresProjectRepository(db_session).add(project)
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
             id=f"repo-handoff-{run_id}",
             project_id=project.id,

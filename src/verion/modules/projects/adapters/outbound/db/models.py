@@ -20,6 +20,13 @@ class ProjectModel(Base):
 
 class ConnectedRepoModel(Base):
     __tablename__ = "connected_repos"
+    # M8.7, ADR-0039 decisions 4 and 6. Named explicitly, the ScannerConfigModel idiom, so
+    # the repository's ON CONFLICT can target it by name — and so one-row-per-project is
+    # enforced at the storage layer rather than by convention. Before this, two owner-
+    # authorized connect calls left a project on which scanning stopped (G51): the read
+    # ends in scalar_one_or_none and raised on the second row, from run_scan's checkout
+    # path rather than from the route that caused it.
+    __table_args__ = (UniqueConstraint("project_id", name="uq_connected_repos_project_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False)
@@ -39,6 +46,11 @@ class ProjectMembershipModel(Base):
 
 class SecurityContextModel(Base):
     __tablename__ = "security_contexts"
+    # M8.7, ADR-0039 decisions 2 and 6, the same idiom one table over. Before this, a
+    # second detect added a second row and every context read for that project then
+    # raised (G55) — which froze the project's route map at its first detect and made a
+    # stored FETCH_FAILED permanent, because every recovery runs through a second detect.
+    __table_args__ = (UniqueConstraint("project_id", name="uq_security_contexts_project_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False)

@@ -10,12 +10,6 @@ class RouteMapRecord:
 
     One per project, written at Security Context build time.
 
-    **Effectively written once today, and that is G55's doing rather than this entity's.** A
-    second detect does overwrite this record, but it also writes a duplicate
-    `security_contexts` row, after which that project's context reads raise. So the map
-    cannot be refreshed without breaking the project, and a failed archive fetch is in
-    practice permanent for it.
-
     `framework` is the key `extract_routes` was called with, stored so an empty map for a
     non-Flask tree describes itself rather than depending on `SecurityContext.framework`,
     which a later exposure-tags edit can create as `None`.

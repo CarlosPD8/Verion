@@ -84,13 +84,13 @@ async def test_connect_via_github_success_returns_real_metadata(client, db_sessi
     await _connect_github_account(db_session, "owner-1")
     project_id = await _create_project(client, "owner-1")
 
-    response = await client.post(
+    response = await client.put(
         f"/projects/{project_id}/repositories/github",
         json={"owner": "example", "repo": "repo"},
         headers=_auth_headers("owner-1"),
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 200
     body = response.json()
     assert body["provider"] == "github"
     assert body["url"] == "https://github.com/example/repo"
@@ -100,7 +100,7 @@ async def test_connect_via_github_success_returns_real_metadata(client, db_sessi
 async def test_connect_via_github_without_github_connection_returns_400(client):
     project_id = await _create_project(client, "owner-1")
 
-    response = await client.post(
+    response = await client.put(
         f"/projects/{project_id}/repositories/github",
         json={"owner": "example", "repo": "repo"},
         headers=_auth_headers("owner-1"),
@@ -114,7 +114,7 @@ async def test_connect_via_github_api_error_returns_502(client, db_session):
     await _connect_github_account(db_session, "owner-1")
     project_id = await _create_project(client, "owner-1")
 
-    response = await client.post(
+    response = await client.put(
         f"/projects/{project_id}/repositories/github",
         json={"owner": "example", "repo": "repo"},
         headers=_auth_headers("owner-1"),
@@ -127,7 +127,7 @@ async def test_connect_via_github_unknown_project_returns_404(client, db_session
     app.dependency_overrides[get_vcs_provider] = lambda: _FakeVcsProvider()
     await _connect_github_account(db_session, "owner-1")
 
-    response = await client.post(
+    response = await client.put(
         "/projects/does-not-exist/repositories/github",
         json={"owner": "example", "repo": "repo"},
         headers=_auth_headers("owner-1"),
@@ -145,7 +145,7 @@ async def test_connect_via_github_as_non_owner_returns_403(client, db_session):
     )
     await db_session.commit()
 
-    response = await client.post(
+    response = await client.put(
         f"/projects/{project_id}/repositories/github",
         json={"owner": "example", "repo": "repo"},
         headers=_auth_headers("member-1"),
@@ -159,10 +159,16 @@ async def test_connect_via_github_response_never_contains_the_access_token(clien
     await _connect_github_account(db_session, "owner-1")
     project_id = await _create_project(client, "owner-1")
 
-    response = await client.post(
+    response = await client.put(
         f"/projects/{project_id}/repositories/github",
         json={"owner": "example", "repo": "repo"},
         headers=_auth_headers("owner-1"),
     )
 
+    # The status assert is what makes the leak assert mean anything. Without it this
+    # test passes against ANY response that happens not to contain the token — a 405,
+    # a 404, an empty body. M8.7 moved this route from POST to PUT, and had the verb
+    # not been changed here the test would have gone green on a 405 while proving
+    # nothing about the success path it is named for.
+    assert response.status_code == 200
     assert "gho_storedtoken" not in response.text

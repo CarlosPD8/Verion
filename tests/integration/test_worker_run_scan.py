@@ -64,7 +64,7 @@ async def test_worker_processes_a_real_enqueued_scan_job_end_to_end(db_session):
         url=_REPO_URL,
         default_branch="master",
     )
-    await PostgresConnectedRepoRepository(db_session).add(connected_repo)
+    await PostgresConnectedRepoRepository(db_session).upsert(connected_repo)
     # Empty token, deliberately: proves the GitHubConnection lookup/wiring
     # works end to end without attaching a real Authorization header to a
     # request against a real, public repo — GitHub rejects an *invalid*
@@ -200,7 +200,7 @@ async def test_no_access_token_leaks_into_the_persisted_failure_reason(db_sessio
         url="https://github.com/octocat/this-repo-does-not-exist-verion-test",
         default_branch="main",
     )
-    await PostgresConnectedRepoRepository(db_session).add(connected_repo)
+    await PostgresConnectedRepoRepository(db_session).upsert(connected_repo)
     secret_token = "super-secret-token"
     github_connection = GitHubConnection(
         user_id=project.owner_id,
@@ -328,7 +328,7 @@ async def _seed_scan_for_fake_run(db_session, run_id: str) -> Scan:
         created_at=datetime.now(UTC),
     )
     await PostgresProjectRepository(db_session).add(project)
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
             id=f"repo-enq-{run_id}",
             project_id=project.id,

@@ -37,14 +37,18 @@ class ConnectRepositoryViaGitHubUseCase:
 
         metadata = await self._vcs_provider.fetch_repo_metadata(access_token, owner, repo)
 
+        existing = await self._connected_repos.get_by_project_id(project_id)
         connected_repo = ConnectedRepo(
-            id=self._id_generator.new_id(),
+            # Reuses the existing row's id, for the reason ConnectRepositoryUseCase
+            # gives: the upsert keeps the stored id, so minting a fresh one here would
+            # return an id the row does not carry.
+            id=existing.id if existing is not None else self._id_generator.new_id(),
             project_id=project_id,
             provider="github",
             url=f"https://github.com/{owner}/{repo}",
             default_branch=metadata.default_branch,
         )
-        await self._connected_repos.add(connected_repo)
+        await self._connected_repos.upsert(connected_repo)
 
         # M3.6: registers this app's push webhook using the same scope=repo
         # token already granted at OAuth-connect time (M1.5a) — no new

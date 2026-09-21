@@ -109,11 +109,9 @@ GitHubConnection   # M1.5a
 
 Project
  ├── id, owner_id, name, created_at
- ├── connected_repos: [ConnectedRepo]     # ADR-0039 DECIDES one per project. Left standing and
- │                                        #   marked, not struck: nothing constrains this today,
- │                                        #   the schema permits many and the read refuses them
- │                                        #   (G51). The list goes at M8.7's code commit, with
- │                                        #   the constraint that makes its removal true.
+ ├── connected_repo: ConnectedRepo        # ~~connected_repos: [ConnectedRepo]~~ struck M8.7,
+ │                                        #   ADR-0039: one per project, enforced by
+ │                                        #   uq_connected_repos_project_id (G51 resolved)
  └── security_context: SecurityContext
 
 ProjectMembership   # M1.3
@@ -134,22 +132,20 @@ RouteMapRecord   # M5.6 commit 4 — projects; one per project (ADR-0029)
  └── route_map: RouteMap         # routes with their spans, plus what was not mapped and why
 
 ConnectedRepo   # named to avoid colliding with the *RepositoryPort persistence-pattern suffix (M1.3)
- ├── id, project_id   # NO constraint today (G51). ADR-0039 decides UNIQUE(project_id) with a
- │                    #   second connect REPLACING; it ships at M8.7's code commit, not here.
+ ├── id, project_id   # UNIQUE — one row per project (M8.7, ADR-0039); a second connect
+ │                    #   REPLACES it, keeping this id. PUT /{id}/repositories, 200.
  ├── provider (github), url, default_branch
 
 SecurityContext
- ├── id, project_id   # NO constraint today (G55). ADR-0039 decides UNIQUE(project_id) with a
- │                    #   second detect REPLACING; it ships at M8.7's code commit, not here.
+ ├── id, project_id   # UNIQUE — one row per project (M8.7, ADR-0039); a second detect
+ │                    #   REPLACES it, keeping this id and created_at.
  ├── language, framework, database   # database is hard-coded None; DetectionResult carries four
  ├── deployment_target, ci_provider  #   of these five, and nothing detects a database yet
  ├── exposure_tags: [public_facing, handles_pii, ...]  (user-confirmed)
- #  Under ADR-0039 d3 a re-detect will NOT overwrite these: the upsert's set_ will omit
- #  the column, so a LATER detect refreshes the detected fields and leaves the tags. No
- #  such upsert exists here — the port has add/get_by_project_id/update and today a
- #  second detect adds a row; it ships at M8.7's code commit, not here. The FIRST detect
- #  still writes exposure_tags=[] through the insert branch, so PATCH is the tags' only
- #  writer on re-detect, not their only writer outright.
+ #  A re-detect does NOT overwrite these (ADR-0039 d3): upsert_detected's set_ omits the
+ #  column, for the reason it omits id. So PATCH is the tags' only writer ON RE-DETECT —
+ #  not their only writer outright, since a FIRST detect still writes [] through the
+ #  insert branch. This is the decision that keeps M8.4's confirm step from being undone.
 
 ScannerConfig   # M3.7 — projects; operational config, deliberately not on SecurityContext
  ├── id, project_id   # UNIQUE — one row per project
@@ -305,7 +301,7 @@ RiskReasoning
  # reachability_signal, asset_sensitivity_signal and environment_signal have NO SOURCE
  # in src/ and are declined for M6. exposure_signal is supplied by "a DAST member
  # exists", not by SecurityContext.exposure_tags, which is free text behind a
- # persistence port and unreadable after a second detect (G55).
+ # persistence port another module must not consume.
  # A Risk scores a SURFACE — the package or route path its match key names — never
  # "the same vulnerability". The Risk's own `confidence` is NOT decided by ADR-0005:
  # the scale was cut by that issue's byte ceiling and deferred to M6.2 (G63).
@@ -378,13 +374,12 @@ SecurityBrief   # M7.2 — brief; SHIPPED (ADR-0033). Append-only: one row per g
 erDiagram
     USER ||--o{ PROJECT : owns
     USER ||--o| GITHUB_CONNECTION : connects
-    %% Neither edge below is enforced today. CONNECTED_REPO is o{ because nothing constrains
-    %% it (G51), not because many are intended; SECURITY_CONTEXT reads || but nothing makes it
-    %% one, and a second detect adds a row (G55). ADR-0039 decides one per project for both;
-    %% they become o| at M8.7's code commit, with the constraints that make them true.
-    PROJECT ||--o{ CONNECTED_REPO : has
+    %% Both edges below are enforced since M8.7 (ADR-0039): uq_connected_repos_project_id
+    %% and uq_security_contexts_project_id. Zero-or-one, not exactly-one — a project may
+    %% have neither, and a second write replaces rather than adding.
+    PROJECT ||--o| CONNECTED_REPO : has
     PROJECT ||--o{ PROJECT_MEMBERSHIP : has
-    PROJECT ||--|| SECURITY_CONTEXT : has
+    PROJECT ||--o| SECURITY_CONTEXT : has
     PROJECT ||--|| SCANNER_CONFIG : configures
     PROJECT ||--o| SERVING_DECLARATION : declares
     PROJECT ||--o| ROUTE_MAP : maps
@@ -448,7 +443,7 @@ erDiagram
 | `ScannerConfigRepositoryPort` | Persist/query which scanners a project runs; read by `scanning` (M3.7) | Postgres adapter |
 | `ServingDeclarationRepositoryPort` | Persist/query the per-project declaration that the scanned URL serves the scanned tree (M5.5, ADR-0028) | Postgres adapter |
 | `ServingDeclarationPort` | **Whether a project's scanned URL is declared to serve its scanned tree — the verdict, not the rows** (M5.6 commit 3, ADR-0028 decision 4). Returns one `bool`. `correlation/application/` reads it to gate the SAST↔DAST derivation, and the rule stays in `projects/domain/serving_declaration.declaration_in_force`. `True` means declared and not reconfigured since. It never means the deployment runs the scanned code (G47) | `PostgresServingDeclarationVerdictReader` |
-| `RouteMapPort` | A project's Flask route map. `correlation` reads it to derive a route path for a finding with no signal, taking the `RouteMap` by inference and calling its `paths_serving` method (M5.6 commit 3, ADR-0029). Since M5.6 commit 4 it reads the map stored at Security Context build; a project with none reads `UnreadTree.NOT_BUILT`, which derives nothing and stays distinguishable from a built map with no routes. *(Until commit 4 production wired `EmptyRouteMapReader` and derived nothing.)* The map is effectively written once per project (G55) | `PostgresRouteMapReader` |
+| `RouteMapPort` | A project's Flask route map. `correlation` reads it to derive a route path for a finding with no signal, taking the `RouteMap` by inference and calling its `paths_serving` method (M5.6 commit 3, ADR-0029). Since M5.6 commit 4 it reads the map stored at Security Context build; a project with none reads `UnreadTree.NOT_BUILT`, which derives nothing and stays distinguishable from a built map with no routes. *(Until commit 4 production wired `EmptyRouteMapReader` and derived nothing.)* ~~The map is effectively written once per project (G55)~~ *(struck M8.7: G55 is fixed, so a re-detect replaces the Security Context row and rewrites the map — the first working rebuild path)* | `PostgresRouteMapReader` |
 | `RouteMapRepositoryPort` | Persist/query a project's `RouteMapRecord` — the map, its residue, the commit its source archive was cut from, and why a tree was not read — one row per project, written by `BuildSecurityContextFromGitHubUseCase` (M5.6 commit 4, ADR-0029) | Postgres adapter |
 | `ScanRepositoryPort` | Persist/query scans | Postgres adapter |
 | `ScanResultRepositoryPort` | Persist per-tool raw output; `get_succeeded_by_scan_id` is **M4's entry point** (M3.7) | Postgres adapter |
@@ -742,7 +737,7 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
   *(Updated 2026-09-15, M5.6 commit 4:)*
   - *The map is now populated. `BuildSecurityContextFromGitHubUseCase` fetches the default branch as one archive and stores the map in `route_maps`, so production produces a derived group, and G27 is resolved on `test_derived_group_end_to_end.py`. The sentence above saying production produces none "until then" is dated by this.*
   - *The storage decision (one row per project, spans in this repository's first JSONB column, residue persisted) and the archive parser's bounds are in that ADR's commit-4 amendment.*
-  - *The map is effectively written once per project, because a second detect duplicates the `security_contexts` row (G55). Its stored commit describes the map's tree only (G56).*
+  - *~~The map is effectively written once per project, because a second detect duplicates the `security_contexts` row (G55).~~ (Struck M8.7: a second detect now replaces that row, so the map is rebuildable — the freeze this line recorded is over.) Its stored commit describes the map's tree only (G56).*
 
 - **ADR-0030 — The scored Risk read surface: where ranking lives, what a response must carry to be re-derivable, and what the first measurement of a scored request does not show.** M6.3. A **new route under `risk_engine`** — `GET /projects/{project_id}/scored-risks` — rather than scores added to M5.2's listing: `cross-module-correlation` forbids `risk_engine.domain`, so a mapper in `correlation` could not **annotate** `ScoredSurface` and would have to survive on inference inline in that module's handler, which puts FR-7's output in FR-6's adapter against §3 and against ADR-0005's own rejected "score inside `correlation`" alternative. Retiring the M5.2 route instead is refused as a second deliverable and registered as **G66**, whose subject is that the scored response is a strict superset of the unscored one while the only thing distinguishing them — the ORDER — is named in neither URL. Ranking is a **pure domain function** under a second use case on `ListProjectRisksUseCase`'s shape, never a sort in the adapter, so `ComputeRiskUseCase` still returns correlation's group order and the test pinning that stays true; the tie-order agreement between the two routes is a cross-module invariant and therefore ships with a test importing **both** orderings, since a prose claim over two functions is this project's recorded failure class. The bucket **thresholds ship in the envelope**, read from `scoring.py`'s `FIX_NOW_AT`/`PLAN_AT`, because signals and a sum let a reader re-derive the sum and not the bucket, which is what ADR-0005 decision 1 claims. ADR-0022 decision 3's completeness envelope is **carried**, and widening `CandidateRiskPort` to supply it is rejected on ADR-0005 decision 3's own ground — it would make `correlation` decide what `risk_engine` needs — at the price of a **second** carrier of `NormalizationRun`'s six fields, whose obvious later repair puts a *transported* structure in `shared_kernel/` against ADR-0018's criterion (**G67**). `MemberFindingMissing` is a deliberate **500** rather than a framework default. Authorization is inherited **indirectly**, through `CandidateRiskPort` rather than a second `ProjectAccessPort` consumer, making this the fourth route answering 404 for both denials (**G17**). **The optional early write is not taken**, so G37 and G11 stay latent and M8.1 remains the forced one. **G64's closure is stated in the route and schema docstrings and pinned by an endpoint assertion**, this being the first place that ordering is shown to anyone. And the first measurement of a scored request corrects the framing it was scoped against: the doubled read is measurable without reshaping the generator, because both reads are the same statement over the same rows, so the Python-side figure is reported as an **upper bound with its shape beside it** — 2,000 singleton surfaces — and never as a bare per-request latency. *(Amended M8.5, 2026-09-20: decision 3's enumeration gains `confidence` on the **item** and `confidence_definition` on the **envelope**, the binding key-set assertion widening to both; the definition sits on the envelope for the same reason the thresholds do, while a Brief carries it on its item, having no envelope. **G66**'s "the only difference between them is the ORDER" is struck by that change, its superset clause holding and widening.)*
 - **ADR-0031 — The frontend's token holding, its transport to the API, and what ADR-0009 covers in an npm tree.** M8.3, started early. **Decision 2 was confirmed by precondition P1 on 2026-09-16, before any screen code:** a Next rewrite forwards `Authorization` byte-identical under `next dev` and `next start`, and a non-member gets 404 through it. One route is unreachable through the rewrite — `POST /projects/`, the only slash-terminated route of ~~19~~ **23 paths / 27 operations** *(re-derived 2026-09-21, M8.6 commit 3, which adds one path; still the only slash-terminated one)* — and that bound is inherited by M8.4. The access token is held **in memory only**: an XSS can use it for up to its 30-minute lifetime, with no revocation, and a reload means logging in again. The browser calls `/api/*` on the frontend's own origin, and a **Next rewrite** forwards to the API, so `create_app` gains no CORS middleware. ADR-0009 covers **direct npm dependencies only** — an enumerated set, pinned, installed from a committed lockfile — and the transitive tree is stated as unverified (**G69**). M8.4 re-opens token holding, because `github_login` needs a Bearer header on a browser navigation; M10.2 inherits the client-address question the proxy raises.
@@ -786,7 +781,7 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
   - **No sweep**, because a generation is user-initiated and the user is already polling, unlike a normalization run; the recovery is a repeat POST, which ADR-0033 decision 3 already licenses.
   - **Register.** Confirms **G87** a second time, in a second table. Opens **G99** — ~~(an import-linter contract forces `AfterCommitJobQueue` to be copied)~~ *(corrected 2026-09-21: that framing was retracted inside G99's own first round. `di.py` constructs the class and no contract names `verion.platform`, so what forces the copy is the class being typed to one port and one method name; the contract only removes the fallback of importing it.)* **G73**'s session half **resolves at M8.6's code commit**, where the request stops holding a connection across a provider call and the worker's hold is bounded by arq's `max_jobs` (10) under a 15-connection pool ceiling; that the inequality holds by two library defaults nothing sets is **G101**. Its repeats half passes to **G100**, still M10.2's.
 
-- **ADR-0039 — One repository and one Security Context per project: what a second write does, and what the constraint does not reach.** M8.7, written before its code. **Design, not yet built** — the code commit follows. One fork answered once across two tables: a second write **replaces** the first, under `uq_connected_repos_project_id` and `uq_security_contexts_project_id` on `uq_scanner_configs_project_id`'s template. Resolves **G51** and **G55** at the code commit, which is what makes a route map refreshable for the first time.
+- **ADR-0039 — One repository and one Security Context per project: what a second write does, and what the constraint does not reach.** M8.7, written before its code. ~~**Design, not yet built** — the code commit follows.~~ *(Struck 2026-09-21, M8.7 commit 2: **built**. Migration `f7a3b0c94e18`, both `__table_args__`, both upserts, both routes and the tests all land in that commit.)* One fork answered once across two tables: a second write **replaces** the first, under `uq_connected_repos_project_id` and `uq_security_contexts_project_id` on `uq_scanner_configs_project_id`'s template. **Resolves G51 and G55**, which is what makes a route map refreshable for the first time since M5.6 commit 4.
   - **`exposure_tags` survives a re-detect**, because the upsert's `set_` omits it exactly as `ScannerConfig`'s omits `id`. `BuildSecurityContextUseCase` writes `exposure_tags=[]`, so a `set_` listing every column would erase the owner's confirmed tags on every re-detect — the step M8.4's first bullet performs. No `updated_at` is added; `route_maps.derived_at` already records the detect.
   - **Both connect routes become `PUT`, answering 200**, on the rule `declare_serving`'s docstring already states for a one-per-project relation. Free only now: neither route has a frontend consumer, and M8.4 is what writes them.
   - **The constraint does not reach `get_by_url`**, which takes a URL and no project — so two *different* projects on one repository URL still raise, on the webhook path, for both. Stated in the ADR so the migration is never read as having covered it. Opens **G102**.

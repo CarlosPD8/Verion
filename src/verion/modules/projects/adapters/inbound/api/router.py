@@ -56,9 +56,9 @@ async def create_project(
     )
 
 
-@router.post(
+@router.put(
     "/{project_id}/repositories",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_200_OK,
     response_model=ConnectedRepoResponse,
 )
 async def connect_repository(
@@ -105,9 +105,9 @@ def _security_context_response(context: SecurityContext) -> SecurityContextRespo
     )
 
 
-@router.post(
+@router.put(
     "/{project_id}/repositories/github",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_200_OK,
     response_model=ConnectedRepoResponse,
 )
 async def connect_repository_via_github(
@@ -117,6 +117,15 @@ async def connect_repository_via_github(
     access_token: CurrentGitHubAccessTokenDep,
     use_case: ConnectRepositoryViaGitHubUseCaseDep,
 ) -> ConnectedRepoResponse:
+    """PUT rather than POST, and 200 rather than 201 — both connect routes, M8.7.
+
+    `declare_serving` below already states the rule this follows: *"PUT because there is
+    one declaration per project and re-declaring replaces it, which is
+    `update_scanner_config`'s shape one resource over."* ADR-0039 decision 4 makes
+    `connected_repos` the third such relation, so decision 5 applies that sentence rather
+    than choosing among verbs. Re-connecting replaces, keeps the stored id, and is the
+    only way to correct a repository connected by mistake.
+    """
     try:
         connected_repo = await use_case.execute(
             project_id=project_id,

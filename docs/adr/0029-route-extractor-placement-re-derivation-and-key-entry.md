@@ -584,9 +584,12 @@ on framework, with fixture tests for the miss case the demo target cannot supply
   - G52's trigger did not fire, because `fetch_source_archive` takes no `ref` parameter.
 
   **What commit 4 actually delivers is narrower than the commit-3 amendment implied, because of
-  G55.** The decision to persist at build time assumed a rebuild refreshes the map. It cannot
+  G55.** ~~The decision to persist at build time assumed a rebuild refreshes the map. It cannot
   without breaking the project: `security_contexts` has no unique constraint, both of its writers
-  `add`, and after a second detect that project's context reads raise. So:
+  `add`, and after a second detect that project's context reads raise.~~ *(Struck 2026-09-21,
+  M8.7: `uq_security_contexts_project_id` exists and a second detect replaces the row, so a
+  rebuild does refresh the map and all four bullets below are spent. They stand as the record of
+  what commit 4 delivered.)* So:
 
   - the map is written at a project's **first** detect;
   - a stored failure is **effectively permanent**;

@@ -228,7 +228,7 @@ async def test_a_declared_project_with_no_built_route_map_gets_no_derived_group(
             updated_at=_AT,
         )
     )
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
             id="repo-1",
             project_id=_PROJECT,

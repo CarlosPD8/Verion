@@ -66,11 +66,15 @@ async def _seed_project(client, db_session, *, target: str | None = _TARGET) -> 
     )
     project_id = response.json()["id"]
 
-    await client.post(
+    # Asserted, not fired and forgotten: ten tests below depend on this row existing,
+    # and an unchecked call meant a route change here surfaced as an unrelated-looking
+    # 404 from the declare route rather than as a failure at the seed.
+    connect_response = await client.put(
         f"/projects/{project_id}/repositories",
         json={"provider": "github", "url": _REPO_URL, "default_branch": _BRANCH},
         headers=_auth_headers("owner-1"),
     )
+    assert connect_response.status_code == 200, connect_response.text
     if target is not None:
         await client.put(
             f"/projects/{project_id}/scanner-config",

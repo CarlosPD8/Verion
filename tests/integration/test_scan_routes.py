@@ -324,7 +324,7 @@ async def test_failure_reason_carries_neither_the_token_nor_the_checkout_path(
     """
     secret_token = "super-secret-token-m88"
     await _seed_project(db_session)
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
             id="repo-scans",
             project_id=_PROJECT,

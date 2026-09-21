@@ -42,7 +42,7 @@ async def _seed_connected_repo(
         url=url,
         default_branch=default_branch,
     )
-    await connected_repo_repository.add(connected_repo)
+    await connected_repo_repository.upsert(connected_repo)
     return connected_repo
 
 

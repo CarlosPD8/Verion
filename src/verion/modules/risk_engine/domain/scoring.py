@@ -199,8 +199,7 @@ def _exposure_signal(members: Sequence[SurfaceMember]) -> Signal:
     scanner reached the surface over the network, which is explicit and already in the data.
     FR-7's exposure — the project's own statement about the asset — is declined for M6
     (ADR-0005 decision 4), since it exists only as `SecurityContext.exposure_tags`: free
-    text behind a persistence port another module must not consume, and unreadable once a
-    project has two context rows (**G55**).
+    text behind a persistence port another module must not consume.
     """
     reached = sorted(member.finding_id for member in members if member.source is ScannerTool.ZAP)
     if not reached:

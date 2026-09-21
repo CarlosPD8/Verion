@@ -192,7 +192,10 @@ async def _declare_project(project_id: str, owner_id: str) -> None:
                     user_id=owner_id, access_token="", github_username="demo", connected_at=now
                 )
             )
-        await PostgresConnectedRepoRepository(session).add(
+        # upsert since M8.7: this was the one non-idempotent write in this script, safe
+        # only because each run creates a fresh project. That safety is no longer
+        # accidental.
+        await PostgresConnectedRepoRepository(session).upsert(
             ConnectedRepo(
                 id=str(uuid4()),
                 project_id=project_id,

@@ -55,16 +55,6 @@ def _connected_repo_to_domain(model: ConnectedRepoModel) -> ConnectedRepo:
     )
 
 
-def _connected_repo_from_domain(connected_repo: ConnectedRepo) -> ConnectedRepoModel:
-    return ConnectedRepoModel(
-        id=connected_repo.id,
-        project_id=connected_repo.project_id,
-        provider=connected_repo.provider,
-        url=connected_repo.url,
-        default_branch=connected_repo.default_branch,
-    )
-
-
 def _membership_to_domain(model: ProjectMembershipModel) -> ProjectMembership:
     return ProjectMembership(
         project_id=model.project_id, user_id=model.user_id, role=Role(model.role)
@@ -124,8 +114,32 @@ class PostgresConnectedRepoRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def add(self, connected_repo: ConnectedRepo) -> None:
-        self._session.add(_connected_repo_from_domain(connected_repo))
+    async def upsert(self, connected_repo: ConnectedRepo) -> None:
+        # ON CONFLICT DO UPDATE on the project_id unique constraint, the same idiom as
+        # PostgresScannerConfigRepository.upsert one table over. ADR-0039 decision 4.
+        statement = (
+            insert(ConnectedRepoModel)
+            .values(
+                id=connected_repo.id,
+                project_id=connected_repo.project_id,
+                provider=connected_repo.provider,
+                url=connected_repo.url,
+                default_branch=connected_repo.default_branch,
+            )
+            .on_conflict_do_update(
+                constraint="uq_connected_repos_project_id",
+                # id and project_id are deliberately absent: the stored row keeps its
+                # id, so a re-connect returns the id the caller already holds rather
+                # than minting one the row will not carry. The use case reads first and
+                # passes that same id.
+                set_={
+                    "provider": connected_repo.provider,
+                    "url": connected_repo.url,
+                    "default_branch": connected_repo.default_branch,
+                },
+            )
+        )
+        await self._session.execute(statement)
         await self._session.flush()
 
     async def get_by_id(self, connected_repo_id: str) -> ConnectedRepo | None:
@@ -193,6 +207,42 @@ class PostgresProjectAccessReader:
 class PostgresSecurityContextRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def upsert_detected(self, context: SecurityContext) -> None:
+        # ADR-0039 decisions 2 and 3. ON CONFLICT on the project_id constraint, the
+        # ScannerConfig idiom — but the set_ is the argument, not the mechanism.
+        statement = (
+            insert(SecurityContextModel)
+            .values(
+                id=context.id,
+                project_id=context.project_id,
+                language=context.language,
+                framework=context.framework,
+                database=context.database,
+                deployment_target=context.deployment_target,
+                ci_provider=context.ci_provider,
+                exposure_tags=list(context.exposure_tags),
+                created_at=context.created_at,
+            )
+            .on_conflict_do_update(
+                constraint="uq_security_contexts_project_id",
+                # EXPOSURE_TAGS IS ABSENT ON PURPOSE, for exactly the reason id is:
+                # this write does not own it. BuildSecurityContextUseCase builds with
+                # exposure_tags=[], so listing the column here would erase the owner's
+                # confirmed tags on every re-detect — the step M8.4 exists to perform.
+                # created_at is absent too: the row keeps its first detect's time, and
+                # route_maps.derived_at already records when detect last ran.
+                set_={
+                    "language": context.language,
+                    "framework": context.framework,
+                    "database": context.database,
+                    "deployment_target": context.deployment_target,
+                    "ci_provider": context.ci_provider,
+                },
+            )
+        )
+        await self._session.execute(statement)
+        await self._session.flush()
 
     async def add(self, context: SecurityContext) -> None:
         self._session.add(_security_context_from_domain(context))
@@ -373,12 +423,14 @@ class PostgresServingDeclarationVerdictReader:
     copy and ADR-0028's verbatim comparison meets exactly the strings those adapters return.
 
     **The declaration is read first and a missing one short-circuits**, before either live
-    row is touched. That is not only a saved query. `PostgresConnectedRepoRepository.
-    get_by_project_id` raises on a project holding two connected repositories (**G51**), and
-    this adapter sits on `GET /projects/{id}/risks`, a member-level read — so reading the
-    repository row first would turn that exposure into a failing dashboard for every such
-    project. With the short-circuit it reaches only projects that have declared, which the
-    declare path could not have written while two repositories existed.
+    row is touched. ~~That is not only a saved query. `PostgresConnectedRepoRepository.
+    get_by_project_id` raises on a project holding two connected repositories (**G51**)…~~
+    *(Struck 2026-09-21, M8.7: `uq_connected_repos_project_id` makes that state
+    unreachable, so the short-circuit no longer stands between this member-level read and
+    G51's exposure — there is none.)* What remains is the ordinary ground: a project that
+    never declared needs no live row read to answer `False`, so the undeclared case costs
+    one query rather than three. The order is still worth keeping, and is now a matter of
+    cost rather than of safety.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -476,14 +528,7 @@ def _unresolved_routes_to_json(route_map: RouteMap) -> list[dict[str, str | int]
 
 
 class PostgresRouteMapRepository:
-    """`RouteMapRepositoryPort` over `route_maps`. One row per project. M5.6 commit 4.
-
-    **Effectively written once per project today, because of G55 and not because of anything
-    here.** `upsert` replaces a map faithfully. But the only writer is Security Context build,
-    and a second build also writes a duplicate `security_contexts` row, after which that
-    project's context reads raise. So a map cannot be refreshed without breaking the project,
-    and a stored `UnreadTree` failure is in practice permanent.
-    """
+    """`RouteMapRepositoryPort` over `route_maps`. One row per project. M5.6 commit 4."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -549,8 +594,7 @@ class PostgresRouteMapReader:
     empty map, because that would read as "built, and no routes" — the ambiguity the residue
     fields exist to refuse.
 
-    **Every project that ran detect before this commit reads `NOT_BUILT` indefinitely**, because
-    obtaining a map needs a second detect, and G55 makes that break its context reads.
+    **A project that ran detect before M5.6 commit 4 reads `NOT_BUILT` until it detects again.**
     """
 
     def __init__(self, session: AsyncSession) -> None:

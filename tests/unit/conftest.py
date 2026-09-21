@@ -153,28 +153,67 @@ class InMemoryProjectMembershipRepository:
 
 
 class InMemoryConnectedRepoRepository:
+    """Keyed by `project_id`, NOT by `connected_repo.id` — M8.7, and it is the storage
+    choice rather than the method set that makes this fake honest.
+
+    It was keyed by id until M8.7, which was invisible while `add` was the only write:
+    every row had a fresh id, so nothing collided. Under `upsert` an id-keyed dict would
+    store the replacement BESIDE the row it replaces, and `get_by_project_id`'s `next()`
+    would return whichever came first — so a test asserting "the second connect replaced
+    the first" could pass while two rows sat in the dict. Keyed by project, on
+    `InMemoryServingDeclarationRepository`'s and `InMemoryRouteMapRepository`'s precedent,
+    replacement is what the structure does rather than what a method remembers to do.
+
+    **Nothing holds this re-key, and that was measured rather than assumed**: reverting
+    this class to id-keying and running the whole suite at M8.7 left 1330 tests passing.
+    So it is hygiene with no guard behind it, said plainly rather than called a fix — the
+    behaviour it protects is pinned against Postgres instead, because no fake can fail on
+    a `set_` clause. Re-key it again and nothing will go red.
+    """
+
     def __init__(self) -> None:
         self._connected_repos: dict[str, ConnectedRepo] = {}
 
-    async def add(self, connected_repo: ConnectedRepo) -> None:
-        self._connected_repos[connected_repo.id] = connected_repo
+    async def upsert(self, connected_repo: ConnectedRepo) -> None:
+        self._connected_repos[connected_repo.project_id] = connected_repo
 
     async def get_by_id(self, connected_repo_id: str) -> ConnectedRepo | None:
-        return self._connected_repos.get(connected_repo_id)
-
-    async def get_by_project_id(self, project_id: str) -> ConnectedRepo | None:
         return next(
-            (repo for repo in self._connected_repos.values() if repo.project_id == project_id),
+            (repo for repo in self._connected_repos.values() if repo.id == connected_repo_id),
             None,
         )
+
+    async def get_by_project_id(self, project_id: str) -> ConnectedRepo | None:
+        return self._connected_repos.get(project_id)
 
     async def get_by_url(self, url: str) -> ConnectedRepo | None:
         return next((repo for repo in self._connected_repos.values() if repo.url == url), None)
 
 
 class InMemorySecurityContextRepository:
+    """Already keyed by `project_id` before M8.7, which is why the unit suite has never
+    been able to observe the duplicate row G55 records: this fake replaced where
+    production inserted. `upsert_detected` below models the `set_` that ADR-0039
+    decision 3 turns on — `exposure_tags` and `created_at` are carried from the stored
+    row, not from the incoming context — but a fake agreeing with the adapter is not
+    evidence about the adapter, so the tag-preservation claim is pinned against Postgres.
+    """
+
     def __init__(self) -> None:
         self._contexts: dict[str, SecurityContext] = {}
+
+    async def upsert_detected(self, context: SecurityContext) -> None:
+        existing = self._contexts.get(context.project_id)
+        self._contexts[context.project_id] = (
+            context
+            if existing is None
+            else dataclasses.replace(
+                context,
+                id=existing.id,
+                exposure_tags=list(existing.exposure_tags),
+                created_at=existing.created_at,
+            )
+        )
 
     async def add(self, context: SecurityContext) -> None:
         self._contexts[context.project_id] = context
@@ -793,7 +832,7 @@ class ExplodingScannerConfigRepository:
 class ExplodingConnectedRepoRepository:
     """`ExplodingServingDeclarationRepository`'s twin. See its docstring for the bound."""
 
-    async def add(self, *_: object, **__: object) -> None:
+    async def upsert(self, *_: object, **__: object) -> None:
         raise AssertionError("the connected repo repository was written before authorization")
 
     async def get_by_id(self, *_: object, **__: object) -> ConnectedRepo | None:

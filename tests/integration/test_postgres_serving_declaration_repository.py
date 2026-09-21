@@ -182,7 +182,6 @@ async def _seed_live_configuration(
     db_session,
     *,
     zap_target_url: str = "https://staging.example.com",
-    repo_id: str = "repo-1",
 ) -> None:
     await PostgresScannerConfigRepository(db_session).upsert(
         ScannerConfig(
@@ -193,9 +192,9 @@ async def _seed_live_configuration(
             updated_at=_AT,
         )
     )
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
-            id=repo_id,
+            id="repo-1",
             project_id="project-1",
             provider="github",
             url="https://github.com/example/repo",
@@ -256,32 +255,13 @@ async def test_repointing_the_target_voids_the_verdict_through_real_rows(db_sess
     )
 
 
-async def test_an_undeclared_project_with_two_connected_repos_reads_false_without_raising(
-    db_session,
-):
-    """The short-circuit, and why it is not just a saved query — **G51**.
-
-    `PostgresConnectedRepoRepository.get_by_project_id` raises `MultipleResultsFound` on a
-    project holding two connected repositories, and this adapter sits on the member-level
-    Risk listing. Reading the declaration first and stopping when there is none keeps that
-    exposure away from every project that never declared. Reordering the three reads turns
-    this red.
-    """
-    await PostgresProjectRepository(db_session).add(_project())
-    await _seed_live_configuration(db_session, repo_id="repo-1")
-    await PostgresConnectedRepoRepository(db_session).add(
-        ConnectedRepo(
-            id="repo-2",
-            project_id="project-1",
-            provider="github",
-            url="https://github.com/example/second",
-            default_branch="main",
-        )
-    )
-
-    assert (
-        await PostgresServingDeclarationVerdictReader(db_session).url_serves_scanned_tree(
-            project_id="project-1"
-        )
-        is False
-    )
+# `test_an_undeclared_project_with_two_connected_repos_reads_false_without_raising` stood
+# here until M8.7. It seeded a SECOND `connected_repos` row for one project and asserted
+# that this adapter's short-circuit kept `MultipleResultsFound` (**G51**) away from the
+# member-level Risk listing. `uq_connected_repos_project_id` makes that state unreachable
+# at the storage layer, so the test can no longer seed what it guards — deleted on
+# ADR-0039 decision 10's ground rather than rewritten to assert something else.
+#
+# What replaced it: `test_a_second_connected_repo_for_one_project_is_refused_by_the_database`
+# in `test_postgres_project_repositories.py`, which pins the constraint itself. The
+# short-circuit stays in the adapter and its docstring now argues cost rather than safety.

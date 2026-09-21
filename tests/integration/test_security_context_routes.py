@@ -96,7 +96,7 @@ async def _connect_repo(
     provider: str = "github",
     url: str = "https://github.com/example/repo",
 ) -> None:
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
             id="repo-1", project_id=project_id, provider=provider, url=url, default_branch="main"
         )

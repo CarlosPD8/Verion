@@ -87,7 +87,7 @@ async def _seed_connected_project(
     await PostgresProjectRepository(db_session).add(
         Project(id=project_id, owner_id=owner_id, name="Verion", created_at=datetime.now(UTC))
     )
-    await PostgresConnectedRepoRepository(db_session).add(
+    await PostgresConnectedRepoRepository(db_session).upsert(
         ConnectedRepo(
             id=f"{project_id}-repo",
             project_id=project_id,

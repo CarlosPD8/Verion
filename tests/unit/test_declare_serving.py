@@ -94,7 +94,7 @@ async def _seed(
         ProjectMembership(project_id=_PROJECT_ID, user_id=user_id, role=role)
     )
     if with_repo:
-        await connected_repo_repository.add(
+        await connected_repo_repository.upsert(
             ConnectedRepo(
                 id="repo-1",
                 project_id=_PROJECT_ID,

@@ -18,8 +18,6 @@ class RouteMapPort(Protocol):
     *(Until commit 4 this port's only adapter was `EmptyRouteMapReader`, and production
     derived no route path at all.)*
 
-    **The map is effectively written once per project** — see `RouteMapRecord` and **G55**.
-
     **Whatever tree the map came from is not the tree a scanner read** — ADR-0029 decision 3,
     **G52**. A caller must not present a route derived from this map as a fact about the
     scanned revision.
