@@ -109,7 +109,11 @@ GitHubConnection   # M1.5a
 
 Project
  ├── id, owner_id, name, created_at
- ├── connected_repos: [ConnectedRepo]
+ ├── connected_repos: [ConnectedRepo]     # ADR-0039 DECIDES one per project. Left standing and
+ │                                        #   marked, not struck: nothing constrains this today,
+ │                                        #   the schema permits many and the read refuses them
+ │                                        #   (G51). The list goes at M8.7's code commit, with
+ │                                        #   the constraint that makes its removal true.
  └── security_context: SecurityContext
 
 ProjectMembership   # M1.3
@@ -130,13 +134,22 @@ RouteMapRecord   # M5.6 commit 4 — projects; one per project (ADR-0029)
  └── route_map: RouteMap         # routes with their spans, plus what was not mapped and why
 
 ConnectedRepo   # named to avoid colliding with the *RepositoryPort persistence-pattern suffix (M1.3)
- ├── id, project_id, provider (github), url, default_branch
+ ├── id, project_id   # NO constraint today (G51). ADR-0039 decides UNIQUE(project_id) with a
+ │                    #   second connect REPLACING; it ships at M8.7's code commit, not here.
+ ├── provider (github), url, default_branch
 
 SecurityContext
- ├── id, project_id
- ├── language, framework, database
- ├── deployment_target, ci_provider
+ ├── id, project_id   # NO constraint today (G55). ADR-0039 decides UNIQUE(project_id) with a
+ │                    #   second detect REPLACING; it ships at M8.7's code commit, not here.
+ ├── language, framework, database   # database is hard-coded None; DetectionResult carries four
+ ├── deployment_target, ci_provider  #   of these five, and nothing detects a database yet
  ├── exposure_tags: [public_facing, handles_pii, ...]  (user-confirmed)
+ #  Under ADR-0039 d3 a re-detect will NOT overwrite these: the upsert's set_ will omit
+ #  the column, so a LATER detect refreshes the detected fields and leaves the tags. No
+ #  such upsert exists here — the port has add/get_by_project_id/update and today a
+ #  second detect adds a row; it ships at M8.7's code commit, not here. The FIRST detect
+ #  still writes exposure_tags=[] through the insert branch, so PATCH is the tags' only
+ #  writer on re-detect, not their only writer outright.
 
 ScannerConfig   # M3.7 — projects; operational config, deliberately not on SecurityContext
  ├── id, project_id   # UNIQUE — one row per project
@@ -365,6 +378,10 @@ SecurityBrief   # M7.2 — brief; SHIPPED (ADR-0033). Append-only: one row per g
 erDiagram
     USER ||--o{ PROJECT : owns
     USER ||--o| GITHUB_CONNECTION : connects
+    %% Neither edge below is enforced today. CONNECTED_REPO is o{ because nothing constrains
+    %% it (G51), not because many are intended; SECURITY_CONTEXT reads || but nothing makes it
+    %% one, and a second detect adds a row (G55). ADR-0039 decides one per project for both;
+    %% they become o| at M8.7's code commit, with the constraints that make them true.
     PROJECT ||--o{ CONNECTED_REPO : has
     PROJECT ||--o{ PROJECT_MEMBERSHIP : has
     PROJECT ||--|| SECURITY_CONTEXT : has
@@ -768,6 +785,12 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
   - **Authorization on both sides of the queue.** The route asks `may_read_project`; the job re-authorizes through `explainable_risk` with the stored `user_id`. Not an inherited verdict — the late check also catches a membership revoked between enqueue and run, which the scan path has no answer for. The poll adds an actor match, so an access denial is a 404 and never a `failure_kind`.
   - **No sweep**, because a generation is user-initiated and the user is already polling, unlike a normalization run; the recovery is a repeat POST, which ADR-0033 decision 3 already licenses.
   - **Register.** Confirms **G87** a second time, in a second table. Opens **G99** — ~~(an import-linter contract forces `AfterCommitJobQueue` to be copied)~~ *(corrected 2026-09-21: that framing was retracted inside G99's own first round. `di.py` constructs the class and no contract names `verion.platform`, so what forces the copy is the class being typed to one port and one method name; the contract only removes the fallback of importing it.)* **G73**'s session half **resolves at M8.6's code commit**, where the request stops holding a connection across a provider call and the worker's hold is bounded by arq's `max_jobs` (10) under a 15-connection pool ceiling; that the inequality holds by two library defaults nothing sets is **G101**. Its repeats half passes to **G100**, still M10.2's.
+
+- **ADR-0039 — One repository and one Security Context per project: what a second write does, and what the constraint does not reach.** M8.7, written before its code. **Design, not yet built** — the code commit follows. One fork answered once across two tables: a second write **replaces** the first, under `uq_connected_repos_project_id` and `uq_security_contexts_project_id` on `uq_scanner_configs_project_id`'s template. Resolves **G51** and **G55** at the code commit, which is what makes a route map refreshable for the first time.
+  - **`exposure_tags` survives a re-detect**, because the upsert's `set_` omits it exactly as `ScannerConfig`'s omits `id`. `BuildSecurityContextUseCase` writes `exposure_tags=[]`, so a `set_` listing every column would erase the owner's confirmed tags on every re-detect — the step M8.4's first bullet performs. No `updated_at` is added; `route_maps.derived_at` already records the detect.
+  - **Both connect routes become `PUT`, answering 200**, on the rule `declare_serving`'s docstring already states for a one-per-project relation. Free only now: neither route has a frontend consumer, and M8.4 is what writes them.
+  - **The constraint does not reach `get_by_url`**, which takes a URL and no project — so two *different* projects on one repository URL still raise, on the webhook path, for both. Stated in the ADR so the migration is never read as having covered it. Opens **G102**.
+  - **Existing duplicates are not deduped**; the upgrade fails and whoever holds them decides with the data in front of them. `connected_repos` has no time column, so no non-arbitrary survivor exists. The refusal is measured, not predicted — ADR-0039 decision 7 quotes both errors. **G60**'s trigger fires, and the replace gives its credential-bearing row the way out that entry says it lacks.
 
 *(Corrected 2026-09-16, M6.1. This line read: "`0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created." The file exists as of this commit — `docs/adr/0005-risk-scoring-model.md`, bulleted above — so every number from `0001` is now a file. Nothing mechanical saw this sentence go false; `check_adrs_are_indexed` requires the bullet, not the prose around it.)*
 

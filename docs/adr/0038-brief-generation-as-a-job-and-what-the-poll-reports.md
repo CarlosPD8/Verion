@@ -120,8 +120,11 @@ and ADR-0016 decision 2 keeps it scanner-scoped.
 
 ### 6. The poll does not flatten: three outcome kinds, one per client action
 
-The question is what a client does, and the client is M8.3, two issues out. Five terminal failures
-map onto **three** actions:
+The question is what a client does, and the client is M8.3, ~~two issues out~~ **three issues out**
+*(corrected 2026-09-21, M8.7 commit 1, which is what moved it: that commit inserts M8.7 between M8.6
+and the ports step in `ROADMAP.md`'s execution order. Counted as this decision counts — M8.2, M8.3,
+the ports step not being an issue — the distance was two when written and is three now. The argument
+is unaffected; only the figure moved.)* Five terminal failures map onto **three** actions:
 
 | Failure | `failure_kind` | What the client does |
 |---|---|---|
