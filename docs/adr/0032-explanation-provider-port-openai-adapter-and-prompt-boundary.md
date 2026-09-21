@@ -295,7 +295,7 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
   - **Therefore.** The exceedance is not a mis-set bound. It is evidence that generation does not belong
     in a request. **The VALUE is handed to the work that makes generation asynchronous, where a generous
     bound is free** because nobody waits on it. That work is **G73**'s queued generation job, which
-    re-decides ADR-0033 decision 8 (ADR-0033's M7.3 capture amendment). No issue schedules it. ~~Until
+    re-decides ADR-0033 decision 8 (ADR-0033's M7.3 capture amendment). ~~No issue schedules it.~~ *(Struck 2026-09-21, M8.6 commit 2: **M8.6 schedules it**, and ADR-0038 replaces ADR-0033 decision 8. Assigned to M8.6 at the 2026-09-19 boundary review. Three sites, found by grepping the claim.)* ~~Until
     then the bound is 30 s, and a Brief whose call exceeds it answers the fixed 502 and stores nothing.~~
     *(STRUCK 2026-09-18 as falsified; see the post-M7 boundary amendment below.)*
   - **Superseded.** The first amendment's *"Result. The timeout stays **30 s and UNMEASURED**"*: it is
@@ -399,6 +399,26 @@ network-bound integration test"* that M7.1 does not ship. **In the implementatio
     2026-09-21 note carries the split.
   - **Found on the way.** The link-2 probe returned its 500 as a full traceback, because `debug` defaults
     to `True` and rule 11's validator never looks at it. **G98**.
+
+- **2026-09-21 (M8.6 commit 2, ADR-0038): the adapter runs in a second process, and the call deadline
+  is re-priced there.** Documentation only; the wiring lands in M8.6's code commit.
+  - **`OPENAI_API_KEY` is read by the worker from that commit.** **Checked, no change to any claim**:
+    nothing in this ADR or elsewhere said only the API process reads it. This ADR's **Consequences**
+    say *"every non-local deployment inherits `OPENAI_API_KEY`"* and **decision 6** says *"it requires
+    `OPENAI_API_KEY` even while nothing calls the adapter"* — both process-agnostic, both still true.
+  - **Which rules that moves.** **Rule 11** is satisfied unchanged **as to `openai_api_key`**, already this
+    dict's fourth entry, with the guard running wherever `Settings` is constructed — not a claim that
+    rule 11 holds generally, which **G98** records as false for `debug`. **Rule 12** gains
+    surface: a provider failure now renders into a worker log rather than an HTTP response, and
+    decision 6's fixed messages raised `from None` are what hold it, unchanged. **Rule 13** is
+    untouched — no redirect exists on this path.
+  - **`_CALL_DEADLINE_SECONDS` is spent, not deferred a third time** (ADR-0038 decision 12). The
+    value rises because under a job it is free, **not because it is derived from the observed
+    maximum**. The M7.3 capture's per-call figures are **right-censored at 30 s**: the maximum,
+    30.32 s, *is* the call that hit the bound, and `describe`'s 28.14 s and `explain`'s 25.47 s are
+    clean only conditional on not having exceeded 30. Deriving a value from a single exceedance is
+    what this ADR's M7.3 amendment refused, and ADR-0038 does not do it by the back door.
+  - **`_TIMEOUT_SECONDS` does not move**, and the M8.6 commit-1 amendment above stands in full.
 
 ## Alternatives considered
 

@@ -43,3 +43,4 @@ Each ADR documents one consequential architectural or process decision: the situ
 | [0035](0035-a-route-that-starts-a-scan.md) | A route that starts a scan: who may start one, what the caller gets back, and when the job may run | Accepted |
 | [0036](0036-dismissing-a-risk-snapshot-identity-and-the-event-log.md) | Dismissing a Risk: what a dismissal attaches to, the event log, and who may write it | Accepted (amended M8.1) |
 | [0037](0037-a-risks-confidence-grouping-provenance-and-what-it-may-not-claim.md) | A Risk's confidence: grouping provenance, where it is computed, and what it may not claim | Accepted (implemented M8.5) |
+| [0038](0038-brief-generation-as-a-job-and-what-the-poll-reports.md) | Brief generation as a job: the generation record, where authorization lands, and what the poll reports | Accepted |

@@ -70,7 +70,11 @@ ports where a database would be:
   - **Storage.** `finding_ids` is stored as **data**: FR-9's link, and what a client joins on.
   - **No address.** No route, URL or held reference resolves a Risk by it.
   - **One selector.** The set acts as a selector exactly once, in the generation request's body.
-    It is resolved in that same request against the projection, by equality over sorted ids.
+    ~~It is resolved in that same request against the projection~~, by equality over sorted ids.
+    *(Clause struck 2026-09-21, M8.6, ADR-0038 decision 1: generation is a job, so the set is
+    resolved in the worker. The resolution itself is unchanged — same port, same exact equality —
+    and the rest of this decision stands, including the fail-closed clause below, whose refusal
+    becomes ADR-0038 decision 6's `surface_changed`.)*
   - **Fails closed.** A membership change produces a 404 and writes nothing. That turns the defect
     ADR-0025 decision 1 names for *held* addresses (*"silently repoints a held URL"*) into a correct
     refusal at the only moment the set is read.
@@ -272,11 +276,20 @@ rule"* to describe.
 
 ### 8. Generation is synchronous, on the request path
 
+**REPLACED 2026-09-21 (M8.6) by ADR-0038 decision 1.** Generation is a job and `POST` answers 202.
+This decision is left standing as written, per the rule against editing an accepted Decision in
+line. **Both grounds are false and both are struck in line below.** The second was *declared* false
+by the 2026-09-17 amendment, which struck nothing here; it is struck now, so this decision's text
+no longer reads as live on a ground the record has called false for four days.
+
 §8 left *"how it is triggered"* to this milestone. Generation runs inside `POST`, and **G73** records
 what that costs.
 
-**A queue trigger is not built.** It would be a pipeline stage this project has not designed, for a
-latency nobody has measured.
+**A queue trigger is not built.** It would be ~~a pipeline stage this project has not designed, for
+a latency nobody has measured~~. *(Second ground declared false 2026-09-17 and struck in line here;
+**first ground struck 2026-09-21, M8.6**, as false: `platform/worker.py` runs two job functions and a cron, three queue
+adapters exist, `platform/db.py` has `after_commit`, and M8.8 shipped a 202-plus-poll route over
+it. ADR-0038's Context.)*
 
 **Some write path must ship.** ADR-016 decision 3 already names what the alternative would be:
 *"dead-by-construction: code that cannot execute in a running system because nothing can write the
@@ -388,14 +401,18 @@ that first calls `explain`.
 - **2026-09-17 (M7.3 capture commit, ADR-0034): decision 8's second ground is false, and decision 8
   stands until something replaces it.**
   - **What decision 8 said.** A queue trigger is not built: *"a pipeline stage this project has not
-    designed, for a latency nobody has measured"*.
+    designed, for a latency nobody has measured"*. *(Left unstruck 2026-09-21, M8.6 commit 2, and
+    deliberately: this is a QUOTATION inside a dated record of what the decision said, so striking it
+    would falsify the record. Both grounds are now false — see decision 8 and the bullet below. It is
+    the fourth of the claim's four sites, and the guardian found it; the three struck ones are
+    decision 8, the **What stands** bullet below, and `ROADMAP.md`'s G73 deferral rationale.)*
   - **What changed.** The latency is measured. Over 59 real calls the median is 16.46 s per call, a Brief
     is two calls, and one call hit the 30 s bound (ADR-0032's Consequences). The Consequences sentences
     calling the provider term and the timeout unmeasured describe M7.2 and are superseded.
-  - **What stands.** Decision 8's first ground: the queue is undesigned, and some write path must ship.
+  - **What stands.** ~~Decision 8's first ground: the queue is undesigned~~, and some write path must ship. *(Struck 2026-09-21, M8.6: the first ground is false too, and this sentence is the second of its four sites — found by grepping the claim rather than at decision 8 alone. ADR-0038 decision 1. The "some write path must ship" half was satisfied at M7.2 and does not bind twice.)*
   - **Where it goes.** ADR-0032's M7.3 capture amendment hands the timeout's value to the work that makes
-    generation asynchronous, **G73**'s queued job. That work re-decides this decision, and no issue
-    schedules it.
+    generation asynchronous, **G73**'s queued job. That work re-decides this decision, and ~~no issue
+    schedules it~~. *(Struck 2026-09-21, M8.6 commit 2: **M8.6 schedules it**, and ADR-0038 replaces ADR-0033 decision 8. Assigned to M8.6 at the 2026-09-19 boundary review. Three sites, found by grepping the claim.)*
 
 - **2026-09-20 (M8.5, documentation commit): decision 2's rejected `confidence` is DECIDED IN — a `SecurityBrief` is to gain the field and `security_briefs` a nullable column.** ADR-0037 decision 8. **This commit writes no `src/` and adds no migration**; both land in M8.5's second commit, and the discharge takes effect there.
   - **What decision 2 said**: *"**`confidence`**: **G63**. Its absence is asserted."* The ground it rested on — *"either scale reaches a third module"* — was true and is now paid: M8.5 reaches all three, `correlation` producing the value, `risk_engine` folding it and `brief` storing it.

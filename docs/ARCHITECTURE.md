@@ -2,7 +2,7 @@
 
 **Status:** Draft v1.0
 **Related:** `PRODUCT_SPEC.md`
-**Last updated:** 2026-09-20
+**Last updated:** 2026-09-21
 
 ---
 
@@ -760,6 +760,13 @@ Full ADRs live in `docs/adr/`. Key decisions so far:
   - **Storage and the prompt.** Its own nullable `security_briefs.confidence` column, `NULL` meaning a Brief written before M8.5, and **not** a field on `ExplainableDecision` — that carrier is *"everything a narrator may see"* and no prompt receives this value, so rule 6 keeps holding by the type, `_DECISION_VERSION` does not move, and every stored Brief keeps reading back.
   - **The definition rides the response**, one owner in `correlation/ports/`, on the envelope of `/scored-risks` and on the item of a Brief — because no prompt carries it, so nothing else would tell a reader what it means. It exists for a measured inversion (**G62**): on `/calculate` **in the passive corpus** all four DAST members are coincidental header alerts, so they carry `reported`, while the one `inferred` member is the finding the product exists to find. *(The active corpus is weaker for this: 2 of its 6 DAST members are plausibly the same vulnerability, and they would carry `reported` too.)*
   - **Register.** Resolves **G53** and **G74**; resolves **G63** as to ADR-0003 and FR-8 and not as to FR-7; strikes half of **G66**. Opens **G93** (a stored confidence can go stale once M8.7 unfreezes the route map) and **G94** (FR-7's evidence-confidence still has no producer).
+
+- **ADR-0038 — Brief generation as a job: the generation record, where authorization lands, and what the poll reports.** M8.6, written before its code. **Design, not yet built** — the code commit follows. Replaces ADR-0033 decision 8: `POST /projects/{project_id}/briefs` answers **202**, and a new `GET /projects/{project_id}/brief-generations/{id}` reports the outcome. ADR-0033 decision 1 **survives** with one clause struck — the member set is still a selector resolved by exact equality and still fails closed, but the resolution moves to the worker, so its 404 becomes a terminal job outcome.
+  - **A `brief_generations` table** — designed here, created by the code commit — not a pending `security_briefs` row (which needs the five unfillable `NOT NULL` columns relaxed and breaks the field-set equality test) and not an id minted with no row (under which the poll cannot tell *"no such Brief"* from *"still running"*). `security_briefs` and `SecurityBrief` are untouched.
+  - **The poll reports three `failure_kind` values, one per client action** — `surface_changed` (re-read `/scored-risks`), `provider_unavailable` (retry), `internal_error` (do not retry) — chosen over one free-text field, which is the shape `scans` has and does not enforce, and over five, which encodes distinctions no client acts on. It carries its own CHECK on `ck_scan_results_outcome_shape`'s template, because `ScanModel` has none.
+  - **Authorization on both sides of the queue.** The route asks `may_read_project`; the job re-authorizes through `explainable_risk` with the stored `user_id`. Not an inherited verdict — the late check also catches a membership revoked between enqueue and run, which the scan path has no answer for. The poll adds an actor match, so an access denial is a 404 and never a `failure_kind`.
+  - **No sweep**, because a generation is user-initiated and the user is already polling, unlike a normalization run; the recovery is a repeat POST, which ADR-0033 decision 3 already licenses.
+  - **Register.** Confirms **G87** a second time, in a second table. Opens **G99** (an import-linter contract forces `AfterCommitJobQueue` to be copied). **G73**'s session half resolves at the code commit; its repeats half passes to a successor entry opened there, still M10.2's.
 
 *(Corrected 2026-09-16, M6.1. This line read: "`0005` is reserved for the future risk-scoring-model ADR (`ROADMAP.md` M6.1) and intentionally not yet created." The file exists as of this commit — `docs/adr/0005-risk-scoring-model.md`, bulleted above — so every number from `0001` is now a file. Nothing mechanical saw this sentence go false; `check_adrs_are_indexed` requires the bullet, not the prose around it.)*
 
